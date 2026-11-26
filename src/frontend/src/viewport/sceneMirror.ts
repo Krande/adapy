@@ -13,8 +13,14 @@
 //    material says, their own colours per vertex when they have them;
 //  - a Sprite: a billboard of its texture, at one size on screen (`sizeAttenuation: false`) or in
 //    the world, anchored at its centre.
-// A material's clipping planes make it cut by the section planes; nothing else is. Geometry is sent
-// once per buffer and version of it (a buffer put in another's place is new geometry); a move, a colour, an opacity or a hide is a change of look.
+// A material's clipping planes make it cut by the section planes, and so does `__clipWithModel`
+// (`utils/scene/section_clipping.ts`)'s tag alone, even without live `clippingPlanes` on the
+// material: a mirrored scene (the cell builder's, on the three.js-free viewport) is built in a
+// scene of its own, which `SectionPlanesController` -- the three.js viewport's own, mounted only
+// there -- never walks, so its tagged objects' materials never carry `clippingPlanes`. The viewport
+// on screen there keeps ONE shared clip-plane set of its own (the three.js-free renderer's;
+// `viewport/native/NativeViewport.tsx`'s `cut()`), so a tagged object asking to be cut by it is
+// enough -- with no planes active that set is empty and cutting by it is a no-op, same as unclipped.
 import * as THREE from "three";
 import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
@@ -74,6 +80,10 @@ type AnyMaterial = THREE.Material & {
 };
 
 const flag = (o: unknown, name: string): boolean => !!(o as Record<string, unknown> | null)?.[name];
+
+/** Whether `o` (or its material) was tagged to cut by the section planes (see the header). */
+const clipTagged = (o: THREE.Object3D, m: {clippingPlanes?: unknown[] | null}): boolean =>
+    !!m.clippingPlanes?.length || !!o.userData?.__clipWithModel;
 
 const materialsOf = (obj: THREE.Object3D): AnyMaterial[] => {
     const m = (obj as THREE.Mesh).material as AnyMaterial | AnyMaterial[] | undefined;
@@ -292,7 +302,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
     const meshSignature = (mesh: THREE.Mesh, materials: AnyMaterial[]): string => {
         const g = mesh.geometry as THREE.BufferGeometry;
         const groups = g.groups.map((x) => `${x.start},${x.count},${x.materialIndex}`).join(";");
-        const looks = materials.map((m) => `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}${isLit(m) ? 1 : 0}${m.side}`).join("");
+        const looks = materials.map((m) => `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${clipTagged(mesh, m) ? 1 : 0}${isLit(m) ? 1 : 0}${m.side}`).join("");
         return `m|${g.uuid}|${attrVersion(g.getAttribute("position"))}|${attrVersion(g.index)}|${groups}|${looks}|${mesh.renderOrder}`;
     };
 
@@ -332,7 +342,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
                     normals: lit && litOverlays ? normals : undefined,
                     opacity,
                     onTop: m.depthTest === false,
-                    clipped: !!m.clippingPlanes?.length,
+                    clipped: clipTagged(mesh, m),
                     frontOnly: m.side === THREE.FrontSide,
                     renderOrder: mesh.renderOrder,
                     depthWrite: m.depthWrite,
@@ -364,7 +374,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
         const source = fat ? geometry.getAttribute("instanceStart") : geometry.getAttribute("position");
         const dashes = dashesOf(m);
         const signature = `l|${geometry.uuid}|${attrVersion(source)}|${attrVersion(geometry.index)}|${attrVersion(geometry.getAttribute("color"))}|` +
-            `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}|${dashes ? `${dashes.dash},${dashes.gap}` : ""}|${fat ? m.linewidth : 1}|${line.renderOrder}`;
+            `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${clipTagged(line, m) ? 1 : 0}|${dashes ? `${dashes.dash},${dashes.gap}` : ""}|${fat ? m.linewidth : 1}|${line.renderOrder}`;
         const matrix = line.matrixWorld.elements;
         const color = rgbOf(m);
         const opacity = opacityOf(m);
@@ -383,7 +393,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
                 widthPx: fat ? (m.linewidth ?? 1) : 1,
                 dashed: dashes ?? undefined,
                 onTop: m.depthTest === false,
-                clipped: !!m.clippingPlanes?.length,
+                clipped: clipTagged(line, m),
                 renderOrder: line.renderOrder,
                 depthWrite: m.depthWrite,
                 matrix,

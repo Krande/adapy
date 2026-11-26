@@ -289,6 +289,12 @@ export class NativeScene {
     private gridHandles: number[] = [];
     /** The models' placement: world = model + offset (viewport/api/sceneFrame). */
     private offset: Vec3 = [0, 0, 0];
+    /** Whether `offset` is still the one on screen: set whenever `place()` assigns it, cleared by
+     *  `clearModels()` and by a replace that does not reuse it. A "replaceSource" fallback to the
+     *  overlay path unloads the same-named model first (`dropModel`), which can empty `this.models`
+     *  even though the rest of the scene (another model, a streamed result) is untouched; `offset`
+     *  must still be reused then, so `hadModels` alone is not enough (see `load()`'s `reuseOffset`). */
+    private offsetValid = false;
     /** The renderer stopped (device lost, a failed frame): the caller falls back. */
     onFailure: ((reason: string) => void) | null = null;
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
@@ -421,12 +427,20 @@ export class NativeScene {
     /** Show a GLB, known to the rest of the viewer as `modelKey`: instead of what is on screen, or with
      *  `add` beside it (a model already loaded under that key is replaced). Objects are known by
      *  `objectKey(modelKey, id)`. Throws when the GLB has nothing to draw. */
-    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean; keepCamera?: boolean} = {}): void {
+    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean; keepCamera?: boolean; translate?: boolean} = {}): void {
         // A model whose nodes are placed from outside: every node is kept an instance of its own
         // (utils/glb/glbPosable.ts). What is read below is that file; `bytes` stays the caller's.
         const posable = options.posable && this.playsAnimations ? makeGlbPosable(bytes) : null;
         const file = posable?.bytes ?? bytes;
         const add = !!options.add && this.models.size > 0;
+        // Captured before a replace clears `this.models` below: a compile/recompile result replaces
+        // with `keepCamera` set, and must reuse the offset already on screen rather than recentre on
+        // the new GLB's own box, which would shift the model under a still camera. `offsetValid`
+        // covers the case `hadModels` misses: a "replaceSource" fallback to the overlay path already
+        // dropped this same-named model (NativeViewport's `added` goes false), so `this.models` can
+        // be empty here even though the offset on screen is still the right one to keep.
+        const hadModels = this.models.size > 0;
+        const reuseOffsetOnReplace = !!(options.translate ?? options.keepCamera) && (hadModels || this.offsetValid);
         if (add) {
             this.dropModel(modelKey);
         } else {
@@ -443,6 +457,7 @@ export class NativeScene {
             this.selected.clear();
             this.hidden.clear();
             this.colorsVersion++;
+            if (!reuseOffsetOnReplace) this.offsetValid = false;
         }
         this.modelKey = modelKey;
         this.sceneExtras = "";
@@ -452,7 +467,12 @@ export class NativeScene {
         this.module.HEAPU8.set(file, p);
         let loaded;
         try {
-            const offset = this.place(p, file.byteLength, add);
+            // "add" (an overlay or a "replaceSource" fallback-to-overlay) always reuses the offset
+            // once there is something to reuse. Otherwise, `translate` -- when the caller gave
+            // one -- is the authority on reusing it (loadModel's own placement contract); a caller
+            // that never passed `translate` (a plugin's own `keepCamera` load) falls back to that.
+            const reuseOffset = add ? this.models.size > 0 : reuseOffsetOnReplace;
+            const offset = this.place(p, file.byteLength, add, reuseOffset);
             // A file with node animations keeps each moving node an instance of its own, which the
             // renderer then places by time. Asked for only when the file names animations, so every
             // other model is read exactly as before.
@@ -581,6 +601,7 @@ export class NativeScene {
         this.detachResultLayers();
         // The fade named the models just taken off (their ghosts went with them).
         this.fade = null;
+        this.offsetValid = false;
         this.modelKey = "";
         this.sceneExtras = "";
         this.extData = "";
@@ -1508,21 +1529,33 @@ export class NativeScene {
 
     /** Where a GLB in the heap is placed (the shared rule, viewport/api/sceneFrame): its offset, also
      *  the scene's once it replaces what is on screen. Measured before loading, so the renderer applies
-     *  it in double precision before positions become 32-bit. */
-    private place(bytes: number, length: number, add: boolean): Vec3 {
+     *  it in double precision before positions become 32-bit.
+     *
+     *  `reuse` (default `add`) keeps the scene's current offset instead of recentring: `add` always
+     *  reuses it (a model joining the others must share their frame); a replace that keeps the camera
+     *  (a compile/recompile result) passes `reuse` explicitly so the model does not shift under a
+     *  still camera, which is this.offset — captured from before the caller clears `this.models` — not
+     *  gated on `this.models.size`, which is already 0 by the time a replacing load gets here. */
+    private place(bytes: number, length: number, add: boolean, reuse: boolean = add): Vec3 {
         const box = this.module.glbBounds?.(bytes, length, false);
         if (!box || !(box[0] <= box[3])) {
-            if (!add) this.offset = [0, 0, 0];
+            if (!reuse) {
+                this.offset = [0, 0, 0];
+                this.offsetValid = true;
+            }
             return this.offset;
         }
         const placed = placeModel(box as unknown as Box6, {
             zIsUp: true,
             locked: useOptionsStore.getState().lockTranslation,
-            current: this.models.size > 0 ? this.offset : null,
-            reuseCurrent: add,
+            current: reuse ? this.offset : null,
+            reuseCurrent: reuse,
         });
         const offset: Vec3 = placed.translation ?? [0, 0, 0];
-        if (placed.isNew || !add) this.offset = offset;
+        if (placed.isNew || !reuse) {
+            this.offset = offset;
+            this.offsetValid = true;
+        }
         return offset;
     }
 
@@ -1575,6 +1608,24 @@ export class NativeScene {
     showAll(): void {
         this.hidden.clear();
         this.pushStates();
+    }
+
+    /** Swap what is drawn for what is hidden (GeniE's "Show complement", Alt+Q /
+     *  `core:show-complement`): the new hidden set is every OLD-hidden object's complement among
+     *  `objectList` -- a double call is the identity, as `isolate` already defines "hide everything
+     *  but `keep`" over the same list. Clears the selection, as `hideSelected` does. */
+    showComplement(): void {
+        const keep = new Set(this.hidden);
+        this.hidden.clear();
+        for (const o of this.objectList) if (!keep.has(o.id)) this.hidden.add(o.id);
+        this.selected.clear();
+        this.pushStates();
+    }
+
+    /** Whether anything is hidden now -- the "Nothing is hidden" disabled reason for
+     *  `core:show-complement`. */
+    get anyHidden(): boolean {
+        return this.hidden.size > 0;
     }
 
     /** Whether `id` is an object that draws something itself. */

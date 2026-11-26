@@ -29,6 +29,7 @@ import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {groupColor, objectGroup} from "@/utils/cellbuilder/groups";
+import {itemStructure} from "@/utils/cellbuilder/include";
 import {findStructureNode, rootsForSource} from "@/utils/cellbuilder/structureNodes";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
@@ -63,11 +64,22 @@ export function groupHasCompiledStructure(name: string): boolean {
     return structureRows([name]).length > 0;
 }
 
-/** Ids of the builder objects (cells, and the equipment / openings inside them)
- * belonging to group `name` -- or, with `name` undefined, to no group. */
+/** Ids of the builder objects (cells, and the equipment / openings in them) AND a plugin's refs
+ * (loads, supports, modifications, ...) belonging to group `name` -- or, with `name`
+ * undefined, to no group -- by the one structure reading (`itemStructure` for a cell, `.structure`
+ * for a ref). A ref named "*" (every structure) never matches a real name or `undefined`, so it
+ * is naturally excluded here -- the "All structures" row's own eye is the one that hides it.
+ * `hideCells`/`unhideCells` already file a mixed list of cell and ref ids correctly
+ * (viewStateSlice.ts), so a caller needs nothing else to hide both kinds at once. */
 function objectIdsOf(name: string | undefined): string[] {
-    const cells = Object.values(useCellBuilderStore.getState().cells);
-    return cells.filter((c) => objectGroup(c, cells) === name).map((c) => c.id);
+    const {cells, groups, loftMembers, refs} = useCellBuilderStore.getState();
+    const cellIds = Object.values(cells)
+        .filter((c) => itemStructure(c, cells, groups, loftMembers) === name)
+        .map((c) => c.id);
+    const refIds = Object.values(refs)
+        .filter((r) => r.structure === name)
+        .map((r) => r.id);
+    return [...cellIds, ...refIds];
 }
 
 // ── hide / show / isolate ─────────────────────────────────────────
@@ -98,14 +110,17 @@ export function showAllGroups(): void {
 }
 
 /** Show group `name` only: every other group, and anything in no group, hides --
- * cells and compiled result alike. Other models in the scene are left alone. */
+ * cells and compiled result alike. Other models in the scene are left alone. A "*" ref (every
+ * structure) stays shown, as one structure's own eye leaves it. */
 export function isolateGroup(name: string): void {
     const cb = useCellBuilderStore.getState();
     useGroupViewStore.getState().setHiddenGroups(cb.groups.map((g) => g.name).filter((g) => g !== name));
 
     const keepIds = new Set(objectIdsOf(name));
+    for (const r of Object.values(cb.refs)) if (r.structure === "*") keepIds.add(r.id);
+    const everyId = [...Object.keys(cb.cells), ...Object.keys(cb.refs)];
     cb.unhideCells([...keepIds]);
-    cb.hideCells(Object.keys(cb.cells).filter((id) => !keepIds.has(id)));
+    cb.hideCells(everyId.filter((id) => !keepIds.has(id)));
 
     const roots = resultRoots();
     if (!roots.length) return;

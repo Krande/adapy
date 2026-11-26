@@ -37,6 +37,16 @@ export const hasEmbeddedDoc = (s: {
 }): boolean =>
   s.active === null && (Object.keys(s.cells).length > 0 || Object.keys(s.systems).length > 0);
 
+/** Whether `doc` compiles to nothing: no spaces (so no structure has any content -- equipment and
+ *  openings are placed relative to a space, so without one there is nothing for them to attach
+ *  to either) and no loft members. Matches the engine's own "document has no spaces or
+ *  loft_members to compile" case -- a brand-new, still-empty procedural model commits fine, but
+ *  firing a compile job for it is pointless, so `commit()`'s auto-compile skips it. A pure
+ *  function over just the doc, so it needs no store access to test. */
+export function docHasNothingToCompile(doc: Pick<ProceduralDoc, "spaces" | "loft_members">): boolean {
+  return (doc.spaces?.length ?? 0) === 0 && (doc.loft_members?.length ?? 0) === 0;
+}
+
 export interface DocumentSlice {
   /** The procedural model open in the builder as an EDITABLE SESSION -- a stored
    * model with an id and a revision that edits can be committed back to. Null on
@@ -48,7 +58,7 @@ export interface DocumentSlice {
    * look at". */
   active: { modelId: string; name: string; revision: number } | null;
   /** The loaded doc's top-level keys the builder does not own (docCodec.docExtras): written back
-   *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
+   *  untouched by toDoc, so a commit keeps an engine's own lists (a run tool's `modifications`). */
   docExtras: Record<string, unknown>;
   /** The loaded doc's openings the builder cannot draw (docCodec.unplacedOpeningsFromDoc): written back
    *  by toDoc as they came, so a commit never drops them. */
@@ -136,6 +146,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         mode: "idle",
         selection: null,
         selectedCellIds: [],
+        selectedRefIds: [],
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
@@ -150,6 +161,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         compileLogIsCurrentRun: false,
         panelVisible: true,
         hiddenCellIds: [],
+        hiddenRefIds: [],
         // Reset the VIEW state to a clean topology view. Without this, a session
         // that left off in a result view (repMode "simulation" sets cellsVisible
         // = superimpose||sideBySide, i.e. false) taints the next open: the reopened
@@ -200,6 +212,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         mode: "idle",
         selection: null,
         selectedCellIds: [],
+        selectedRefIds: [],
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
@@ -213,6 +226,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         compileLogRunId: null,
         compileLogIsCurrentRun: false,
         hiddenCellIds: [],
+        hiddenRefIds: [],
         // Clean view state on close so it can't taint the next open (see open()).
         repMode: "topology",
         cellsVisible: true,
@@ -247,7 +261,10 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         .map((c) => ({
           INCLUDE: true,
           SPACE_NAME: containingCellName(cells, c),
-          SPACE_LOC: "ROOF",
+          // Same default the Location select shows for an unset SPACE_LOC. TopoEquipment
+          // requires SPACE_LOC, so the builder always writes one; FLOOR, so an equipment
+          // placed without a Location is not written as ROOF.
+          SPACE_LOC: "FLOOR",
           COGx: 0,
           COGy: 0,
           COGz: c.size[2] / 2,
@@ -385,7 +402,6 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       });
     },
 
-
     commit: async () => {
       const s = get();
       if (!s.active || s.committing) return false;
@@ -402,10 +418,11 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
           set({ committing: false });
           return false;
         }
+        const committedDoc = cur.toDoc();
         const res = await capabilities.procedural.commitModel(
           currentScopePart(),
           cur.active.modelId,
-          cur.toDoc(),
+          committedDoc,
           cur.active.revision,
         );
         set({
@@ -413,7 +430,20 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
           dirty: false,
           committing: false,
         });
-        if (get().autoCompile) {
+        // Nothing to compile (a brand-new, still-empty model, or the model's last space/loft
+        // member was just removed): skip the auto-compile rather than firing a job the engine
+        // would just log as having nothing to do -- matches the BUILT-IN engine's own "document
+        // has no spaces or loft_members to compile" no-op. Scoped to it alone: a capability
+        // engine can compile other doc keys too (its own docExtras list), so an empty-space doc
+        // is not necessarily "nothing to build" for it, and it still gets its usual auto-compile
+        // attempt to decide that for itself.
+        const builtinEngine = (get().selectedEngine || "adapy-default") === "adapy-default";
+        if (builtinEngine && docHasNothingToCompile(committedDoc)) {
+          // The doc just emptied out: any previously compiled result (sim or detail) is stale
+          // and must not linger on screen, whether or not auto-compile itself is on.
+          get().hideResult();
+          get().hideDetail();
+        } else if (get().autoCompile) {
           void get().compile();
         }
         return true;

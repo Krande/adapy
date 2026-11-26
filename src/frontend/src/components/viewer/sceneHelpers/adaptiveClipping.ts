@@ -17,10 +17,19 @@ export function applyAdaptiveClipping(
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls | CameraControls | null | undefined,
     radius: number,
+    // A compile/recompile result (loaded with autoFitOverride === false) must never pull the camera
+    // in: widenOnly only ever grows the near/far range and the controls' dolly limits, so a view
+    // orbited out past the new GLB's own range stays reachable, but a shrink that would clamp the
+    // camera back toward the model never happens.
+    opts?: {widenOnly?: boolean},
 ) {
     const range = clipRangeFor(radius);
     if (!range) return;
-    const {near, far} = range;
+    let {near, far} = range;
+    if (opts?.widenOnly) {
+        near = Math.min(camera.near, near);
+        far = Math.max(camera.far, far);
+    }
 
     // Only rewrite when meaningfully different — avoids redundant projection-matrix churn when the
     // same model is re-framed (fit-all, center-on-selection) at an already-correct scale.
@@ -33,11 +42,13 @@ export function applyAdaptiveClipping(
     // Let the controls dolly all the way in to the near plane (and not past far). CameraControls and
     // OrbitControls both gate dolly by minDistance/maxDistance; default minDistance keeps you further
     // out than the new near plane would allow, so match them to the adaptive planes.
+    const minDistance = opts?.widenOnly ? Math.min(controls?.minDistance ?? near, near) : near;
+    const maxDistance = opts?.widenOnly ? Math.max(controls?.maxDistance ?? far, far) : far;
     if (controls instanceof OrbitControls) {
-        controls.minDistance = near;
-        controls.maxDistance = far;
+        controls.minDistance = minDistance;
+        controls.maxDistance = maxDistance;
     } else if (controls instanceof CameraControls) {
-        controls.minDistance = near;
-        controls.maxDistance = far;
+        controls.minDistance = minDistance;
+        controls.maxDistance = maxDistance;
     }
 }

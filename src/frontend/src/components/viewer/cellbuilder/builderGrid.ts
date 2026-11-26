@@ -3,8 +3,8 @@
  *
  * Owns: swapping the scene's static helper grid for one whose line spacing IS
  * the snap step while a procedural model is open, and disposing it again. The
- * grid lives inside the builder container, so its intersections are exactly the
- * model-space points the snap quantises to.
+ * grid lives in the builder's placement frame (the structure a new box goes
+ * into), so its intersections are exactly the points the snap quantises to.
  */
 
 import * as THREE from "three";
@@ -15,7 +15,7 @@ import type {CellBuilderScene} from "./sceneContext";
 
 // While a procedural model is open, the scene's static 1 m helper grid is
 // swapped for a builder grid whose line spacing IS the snap gridStep (and
-// which lives inside the container, so its intersections are exactly the
+// which lives in the placement frame, so its intersections are exactly the
 // model-space points quantize() snaps to).
 const GRID_TARGET_EXTENT = 60; // meters; divisions derive from gridStep
 const GRID_MAX_DIVISIONS = 2000;
@@ -23,7 +23,7 @@ export const disposeBuilderGrid = (ctx: CellBuilderScene) => {
     if (!ctx.builderGrid) return;
     ctx.builderGrid.geometry.dispose();
     (ctx.builderGrid.material as THREE.Material).dispose();
-    ctx.container.remove(ctx.builderGrid);
+    ctx.builderGrid.removeFromParent();
     ctx.builderGrid = null;
     ctx.builderGridStep = -1;
 };
@@ -57,6 +57,6 @@ export const syncBuilderGrid = (ctx: CellBuilderScene) => {
         ctx.builderGrid.rotation.x = Math.PI / 2; // XZ default -> model XY plane
     }
     ctx.builderGridStep = st.gridStep;
-    ctx.container.add(ctx.builderGrid);
+    ctx.placeFrame.add(ctx.builderGrid);
     requestRender();
 };

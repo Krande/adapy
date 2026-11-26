@@ -25,6 +25,7 @@ import {createViewStateSlice} from "./viewStateSlice";
 import {createRelocationsSlice} from "./relocationsSlice";
 import {createExportImportSlice} from "./exportImportSlice";
 import {createRefsSlice} from "./refsSlice";
+import {createDuplicateSlice} from "./duplicateSlice";
 import {itemStructure} from "@/utils/cellbuilder/include";
 
 export const useCellBuilderStore = create<CellBuilderState>()((...a) => ({
@@ -43,6 +44,7 @@ export const useCellBuilderStore = create<CellBuilderState>()((...a) => ({
   ...createRelocationsSlice(...a),
   ...createExportImportSlice(...a),
   ...createRefsSlice(...a),
+  ...createDuplicateSlice(...a),
 }));
 
 // Picking a structure's item makes that structure the active one (a new space

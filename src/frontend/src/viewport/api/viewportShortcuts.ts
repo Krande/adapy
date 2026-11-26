@@ -9,7 +9,7 @@ type Run = () => void | boolean;
 
 /** Handlers by core shortcut id. `wrap` gives each the caller's own `when` (its scope, its focus rules).
  *  A key with no viewport on screen, or for something it cannot do, is left to the browser. */
-import {hideOthers, hideSelection, showAll, showSelection} from "@/utils/scene/visibilityActions";
+import {hideOthers, hideSelection, showAll, showComplement, showSelection} from "@/utils/scene/visibilityActions";
 
 export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler): Record<string, CoreShortcutHandler> {
     const on = (act: (v: NonNullable<ReturnType<typeof activeViewport>>) => void | boolean): CoreShortcutHandler =>
@@ -23,6 +23,7 @@ export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler
         "core:hide-others": wrap(() => hideOthers()),
         "core:show-all": wrap(() => showAll()),
         "core:show-selected": wrap(() => showSelection()),
+        "core:show-complement": wrap(() => showComplement()),
         "core:fit-all": on((v) => v.fitAll()),
         "core:fit-selection": on((v) => (v.unavailable("fit-selection") ? false : v.fitSelection())),
         "core:reset-camera": on((v) => v.resetCamera()),

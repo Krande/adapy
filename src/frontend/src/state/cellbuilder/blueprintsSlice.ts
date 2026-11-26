@@ -3,9 +3,10 @@
  *
  * Owns: the structural blueprint the compiler dispatches on, the whitelisted
  * blueprint options round-tripped as `doc.blueprint`, the equipment-CAD toggle,
- * and the cell groups — each a structure compiled with its own blueprint, which
- * cells reference by name. All of it round-trips through the document, so every
- * change is undoable and marks the model dirty.
+ * and the cell groups — each a structure compiled with its own blueprint and
+ * placed at its own origin, which cells reference by name. All of it
+ * round-trips through the document, so every change is undoable and marks the
+ * model dirty.
  */
 
 import {capabilities} from "@/services/capabilities";
@@ -33,10 +34,10 @@ export interface BlueprintsSlice {
    * selected engine (built-in ∪ engine-advertised). Refetched on engine change. */
   blueprints: ProceduralBlueprintOption[];
   /** Cell groups (name + per-group blueprint). A group is one structure the
-   * (grouping-capable) engine compiles with its own blueprint; cells reference a
-   * group by name via BuilderCell.group. Empty = single model-level blueprint
-   * (backward compatible). Only meaningful for engines advertising
-   * `supports_grouping`. */
+   * engine compiles with its own blueprint; cells reference a group by name via
+   * BuilderCell.group. Empty = single model-level blueprint (backward
+   * compatible). Only meaningful for engines advertising `supports_grouping`
+   * (driven off that flag, never a hardcoded engine slug). */
   groups: CellGroup[];
   /** The structure a new space goes into: the one last picked (a structure row, or any of its items
    * selected), or the one just added. Not saved; read it through `activeStructure`, which drops a
@@ -71,6 +72,19 @@ export interface BlueprintsSlice {
    * undoable, marks the model dirty, and reaches the build through the normal
    * commit (which auto-compiles when that is on). */
   setGroupIncluded: (name: string, include: boolean) => void;
+  /** Move a structure: set where it sits (saved on the group as `origin`). Its
+   * items keep their stored, structure-relative coordinates, so the whole
+   * structure moves with it. Undoable; marks the model dirty. */
+  setGroupOrigin: (name: string, origin: readonly [number, number, number]) => void;
+}
+
+/** `params` with `STRUCTURE_NAME` renamed (`to`) or dropped (`to` undefined) when it names `from`. */
+function repointStructureName(params: Record<string, unknown>, from: string, to: string | undefined): Record<string, unknown> {
+  if (params?.STRUCTURE_NAME !== from) return params;
+  const next = { ...params };
+  if (to === undefined) delete next.STRUCTURE_NAME;
+  else next.STRUCTURE_NAME = to;
+  return next;
 }
 
 export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, get) => {
@@ -86,7 +100,11 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
     setActiveGroup: (name) =>
       set((s) => {
         const next = name !== null && s.groups.some((g) => g.name === name) ? name : null;
-        return next === s.activeGroup ? {} : { activeGroup: next };
+        if (next === s.activeGroup) return {};
+        // With nothing selected the gizmo is the picked structure's (G): another pick drops it.
+        return s.selection === null && s.gizmoMode !== "none"
+          ? { activeGroup: next, gizmoMode: "none", gizmoAxisLock: null }
+          : { activeGroup: next };
       }),
     setEquipmentCad: (equipmentCad) =>
       withHistory(() => ({ equipmentCad, dirty: true })),
@@ -155,10 +173,13 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         )
           return {};
         const groups = s.groups.map((g) => (g.name === from ? { ...g, name } : g));
-        // Repoint every cell that referenced the old name.
+        // Repoint every cell that referenced the old name, and the equipment and
+        // openings that name it (their STRUCTURE_NAME says which frame they are in).
         const cells: Record<string, BuilderCell> = {};
-        for (const [id, c] of Object.entries(s.cells))
-          cells[id] = c.group === from ? { ...c, group: name } : c;
+        for (const [id, c] of Object.entries(s.cells)) {
+          const params = repointStructureName(c.params, from, name);
+          cells[id] = c.group === from || params !== c.params ? { ...c, group: c.group === from ? name : c.group, params } : c;
+        }
         return { groups, cells, dirty: true, activeGroup: s.activeGroup === from ? name : s.activeGroup };
       }),
 
@@ -169,8 +190,10 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         const removed = new Set([name]);
         // Unassign every cell in the deleted group (back to ungrouped).
         const cells: Record<string, BuilderCell> = {};
-        for (const [id, c] of Object.entries(s.cells))
-          cells[id] = { ...c, group: groupAfterRemoval(c.group, removed) };
+        for (const [id, c] of Object.entries(s.cells)) {
+          const params = repointStructureName(c.params, name, undefined);
+          cells[id] = { ...c, group: groupAfterRemoval(c.group, removed), ...(params !== c.params ? { params } : {}) };
+        }
         return { groups, cells, dirty: true, activeGroup: s.activeGroup === name ? null : s.activeGroup };
       }),
 
@@ -205,10 +228,23 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         return {
           groups: s.groups.map((x) => {
             if (x.name !== name) return x;
-            // Built = no `include` key at all (the wire default).
-            const next: CellGroup = { name: x.name, blueprint: x.blueprint };
+            // Built = no `include` key at all (the wire default); the rest (origin) stays.
+            const { include: _include, ...next }: CellGroup = x;
             return include ? next : { ...next, include: false };
           }),
+          dirty: true,
+        };
+      }),
+
+    setGroupOrigin: (name, origin) =>
+      withHistory((s) => {
+        const g = s.groups.find((x) => x.name === name);
+        if (!g || !origin.every(Number.isFinite)) return {};
+        const cur = g.origin;
+        if (cur && cur[0] === origin[0] && cur[1] === origin[1] && cur[2] === origin[2]) return {};
+        const next: [number, number, number] = [origin[0], origin[1], origin[2]];
+        return {
+          groups: s.groups.map((x) => (x.name === name ? { ...x, origin: next } : x)),
           dirty: true,
         };
       }),

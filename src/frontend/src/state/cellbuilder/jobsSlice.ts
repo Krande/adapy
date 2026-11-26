@@ -13,6 +13,7 @@ import type {CompileJobState} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart, setProceduralToast} from "./shared";
 import {modelMaxX} from "./bounds";
+import {placedCells} from "@/utils/cellbuilder/include";
 import {makeStartCompileJob} from "./compileJobRunner";
 
 export interface JobsSlice {
@@ -165,8 +166,22 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       const { load_glb_by_url_rest } = await import(
         "@/utils/scene/handlers/view_file_object_from_server"
       );
-      // autoFit=false: a compile/recompile must never move the camera.
-      await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName, false);
+      // autoFit=false: a compile/recompile must never move the camera. translate=true: reuse
+      // the scene's current translation instead of recentring on this result's own box, so the
+      // cells don't shift under that still camera (a fresh scene with no translation yet still
+      // recentres as before — loadModel/placeModel fall back to that when there is none to reuse).
+      // placement: a result this slice names itself (the compile path) only ever replaces its
+      // own prior result, leaving another model, a streamed result and the other LOD's result
+      // loaded; a caller-named result (the storage panel opening a result as "the" model) keeps
+      // the plain "replace" it had.
+      await load_glb_by_url_rest(
+        currentScopePart(),
+        derivedKey,
+        sourceName,
+        false,
+        true,
+        explicitSourceName ? "replace" : "replaceSource",
+      );
       set(
         lod === "detail"
           ? { detailSourceName: sourceName }
@@ -181,7 +196,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       // loader replaces the group (position resets to the model translation), so
       // re-apply on every load.
       if (get().sideBySide) {
-        const topoMaxX = modelMaxX(get().cells);
+        const topoMaxX = modelMaxX(placedCells(get().cells, get().groups, get().loftMembers));
         void import("@/utils/scene/handlers/side_by_side").then(
           ({ applySideBySideOffset }) =>
             applySideBySideOffset(sourceName, true, topoMaxX),
@@ -253,7 +268,8 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
           wheel,
         });
         const sourceName = `procedural:${active.name}`;
-        await load_glb_from_bytes(bytes, sourceName, false); // never move the camera
+        // never move the camera; only this result's own prior load is replaced
+        await load_glb_from_bytes(bytes, sourceName, false, "replaceSource");
         set({ resultSourceName: sourceName });
         void import("@/utils/cellbuilder/groupView").then(({ reapplyGroupViewToResult }) =>
           reapplyGroupViewToResult(),
@@ -262,7 +278,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
           const { applySideBySideOffset } = await import(
             "@/utils/scene/handlers/side_by_side"
           );
-          applySideBySideOffset(sourceName, true, modelMaxX(get().cells));
+          applySideBySideOffset(sourceName, true, modelMaxX(placedCells(get().cells, get().groups, get().loftMembers)));
         }
         setProceduralToast(label, {
           status: "done",

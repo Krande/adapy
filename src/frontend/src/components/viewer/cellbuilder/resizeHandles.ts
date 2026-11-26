@@ -20,6 +20,9 @@ import type {CellBuilderScene} from "./sceneContext";
 import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
 import {syncCellDimensions} from "./cellDimensions";
 import {boxMoves, selectedBox} from "./gizmoBox";
+import {editStructure, pickedStructure, structureGizmoCentre} from "./structureFrames";
+import {movableSet, movableWorldCentre, multiMoveActive} from "./multiMove";
+import {structureOrigin} from "@/utils/cellbuilder/groups";
 
 
 /**
@@ -125,15 +128,53 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
     ctx.gizmo.camera = builderCamera(ctx);
     const box = selectedBox(st);
     const cell = box;
+    // 2+ selected items move together, translate only -- wins over every other
+    // branch below (R/S on a multi-selection do nothing; see keyboard.ts's own gate, which never
+    // even sets gizmoMode to "rotate"/"resize" while this is true). `multiMoveActive`, not
+    // a plain `movableCount(multiSet) >= 2`: see multiMove.ts for why.
+    const multiSet = st.active && st.gizmoMode === "translate" && st.cellsVisible ? movableSet(st) : null;
+    const multiOn = !!multiSet && multiMoveActive(st);
     // Translate works for every kind — including a loft band, whose gizmo
     // moves the whole member (see the loft branch in objectChange). The
     // proxy still seeds from the band's bounding-box centre below. A ref
     // moves when its plugin allows it.
-    const translateOn = !!(st.active && st.gizmoMode === "translate" && box && boxMoves(box) && st.cellsVisible);
+    const translateOn = !multiOn && !!(st.active && st.gizmoMode === "translate" && box && boxMoves(box) && st.cellsVisible);
     // Rotate is equipment-only — spaces stay axis-aligned lattice boxes.
-    const equipment = box?.cell?.kind === "equipment" ? box.cell : null;
-    const rotateOn = !!(st.active && st.gizmoMode === "rotate" && equipment && st.cellsVisible);
-    if (translateOn && cell) {
+    const equipment = !multiOn && box?.cell?.kind === "equipment" ? box.cell : null;
+    const rotateOn = !multiOn && !!(st.active && st.gizmoMode === "rotate" && equipment && st.cellsVisible);
+    // A structure picked on its own (nothing selected, a structure active): G moves the whole
+    // structure (./structureFrames.ts). The proxy sits at the centre of its items, in the edit
+    // frame -- the structure's own while nothing is selected.
+    const structure = !multiOn && !box && st.gizmoMode === "translate" && st.cellsVisible ? pickedStructure(st) : undefined;
+    if (multiOn && multiSet) {
+        // Same contract as the picked-structure branch below: the widget moves freely, objectChange
+        // lands each item's origin on the grid along the dragged axes only.
+        ctx.gizmo.setTranslationSnap(null);
+        if (!ctx.gizmo.dragging) {
+            ctx.gizmoProxy.rotation.set(0, 0, 0);
+            // The proxy is a child of editFrame, which sits at the EDITED structure's origin
+            // (sceneContext.ts / structureFrames.ts) -- not the world origin. movableWorldCentre is
+            // a world position, so it must be given relative to that frame, same as every other
+            // branch here seeds the proxy in local (cell/structure) coordinates.
+            const c = movableWorldCentre(st, multiSet);
+            const f = structureOrigin(st.groups, editStructure(st));
+            ctx.gizmoProxy.position.set(c[0] - f[0], c[1] - f[1], c[2] - f[2]);
+        }
+        if (ctx.gizmo.object !== ctx.gizmoProxy) ctx.gizmo.attach(ctx.gizmoProxy);
+        ctx.gizmo.setMode("translate");
+        ctx.gizmoHelper.visible = true;
+    } else if (structure !== undefined) {
+        // The widget moves freely; objectChange lands the ORIGIN on the grid (snapStep: none with
+        // the left Shift key held), along the dragged axes only.
+        ctx.gizmo.setTranslationSnap(null);
+        if (!ctx.gizmo.dragging) {
+            ctx.gizmoProxy.rotation.set(0, 0, 0);
+            ctx.gizmoProxy.position.set(...structureGizmoCentre(st, structure));
+        }
+        if (ctx.gizmo.object !== ctx.gizmoProxy) ctx.gizmo.attach(ctx.gizmoProxy);
+        ctx.gizmo.setMode("translate");
+        ctx.gizmoHelper.visible = true;
+    } else if (translateOn && cell) {
         // With vertex magnetism on, let the widget move continuously so the
         // snap in objectChange (corner-to-corner, or axis-locked) fully owns
         // where the cell lands. Otherwise fall back to the grid step so the
@@ -179,7 +220,7 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
     // Axis lock (X/Y/Z keys / HUD) restricts the visible + usable gizmo
     // handle to one axis; null shows all three. Reset to all when detached so
     // a later attach isn't stuck on a stale constraint.
-    if (translateOn || rotateOn) {
+    if (translateOn || rotateOn || structure !== undefined || multiOn) {
         const lock = st.gizmoAxisLock;
         ctx.gizmo.showX = lock === null || lock === 0;
         ctx.gizmo.showY = lock === null || lock === 1;

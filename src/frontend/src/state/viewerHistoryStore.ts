@@ -132,6 +132,7 @@ export type ViewerActionKind =
     | "show"
     | "isolate"
     | "show-all"
+    | "show-complement"
     | "select"
     | "clear-selection"
     | "box-add"

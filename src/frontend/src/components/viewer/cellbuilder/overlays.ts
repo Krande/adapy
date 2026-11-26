@@ -16,7 +16,7 @@ import {requestRender} from "@/state/perfStore";
 import {hexToNumber, structureColour} from "@/utils/cellbuilder/blueprintColours";
 import type {CellGroup} from "@/utils/cellbuilder/groups";
 import {cellGroupTint} from "@/utils/cellbuilder/groupView";
-import {BOX_FACE_SIDES, edgeEndpoints, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
+import {BOX_FACE_SIDES, edgeEndpoints, spaceSideExcluded, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
 import {BASE_OPACITY, EXCLUDED_DIM, EXCLUDED_FACE_COLOR, HOVER_FACE_COLOR, LOFT_OPACITY, SELECTED_FACE_COLOR, colorForKind} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 
@@ -213,6 +213,11 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
             }
             mats[fi].color.setHex(color);
             mats[fi].opacity = opacity * dim;
+            // A space's excluded side (SEi, or the SE list) is not drawn at all --
+            // the box's own edge outline (added once at mesh build, untouched here) stays, so the
+            // space's extent is still visible; pickBuilderMesh skips an invisible material's
+            // intersections, so a click there falls through to what is behind it.
+            mats[fi].visible = cell.kind !== "cell" || !spaceSideExcluded(cell, BOX_FACE_SIDES[fi].se);
         }
         const edgeLines = mesh.children[0] as THREE.LineSegments | undefined;
         if (edgeLines) {

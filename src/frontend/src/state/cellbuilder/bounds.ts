@@ -3,7 +3,8 @@
  *
  * Owns: the width and the far +X edge of the cell model — what the
  * side-by-side view offsets the compiled result by. Pure functions over a
- * cells map.
+ * cells map: the PLACED cells (`placedCells`), so a structure away from the
+ * origin counts where it is, as the compiled result has it.
  */
 
 import type {BuilderCell} from "./types";

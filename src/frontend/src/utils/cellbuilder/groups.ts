@@ -13,13 +13,55 @@
  * written ONLY when false: a built group carries no `include` key, so a doc that
  * never excluded anything stays byte-identical to one written before the flag
  * existed, and an engine that predates it builds every group as before.
+ *
+ * `origin: [x, y, z]` is where the structure sits in the model (the engine's
+ * structure position). Everything in a structure -- its spaces, equipment,
+ * openings, loft bands, a plugin's refs -- is stored RELATIVE to it, and the
+ * builder draws and edits it in a frame moved by it. Written whenever the group
+ * has one, [0, 0, 0] too: an engine that saves the position back must tell "moved
+ * to zero" from "a viewer that knows no origins". A group without one (a new
+ * group, an older doc) writes none and sits at [0, 0, 0].
  */
+
+export type StructureOrigin = [number, number, number];
 
 export interface CellGroup {
   name: string;
   blueprint: string;
   /** False = left out of the build. Absent (or true) = built. */
   include?: boolean;
+  /** Where the structure sits; its items are stored relative to it. Absent = [0, 0, 0]. */
+  origin?: StructureOrigin;
+  /** Everything else a doc's group entry carries that this viewer does not normalise: a
+   *  grouping engine's own per-group settings (python's `TopoStructure` extras --
+   *  MODEL_INPUT, BLUEPRINT, CONDITION_NAME, ...). We must not eat another tool's columns just
+   *  because the viewer has no use for them itself: `groupToWire`/`groupFromWire` round-trip
+   *  them untouched. */
+  [extra: string]: unknown;
+}
+
+const ZERO_ORIGIN: readonly [number, number, number] = [0, 0, 0];
+
+/** A raw `origin` as three finite numbers, or undefined when it is not one. */
+function originFromWire(raw: unknown): StructureOrigin | undefined {
+  if (!Array.isArray(raw) || raw.length !== 3) return undefined;
+  const v = raw.map((x) => (typeof x === "number" || typeof x === "string" ? Number(x) : NaN));
+  return v.every(Number.isFinite) ? [v[0], v[1], v[2]] : undefined;
+}
+
+/** Where structure `name` sits: its group's origin; [0, 0, 0] for no structure,
+ * "*" (every structure), a name that is not a group, or a group without one. */
+export function structureOrigin(
+  groups: readonly CellGroup[],
+  name: string | null | undefined,
+): readonly [number, number, number] {
+  if (!name || name === "*") return ZERO_ORIGIN;
+  return groups.find((g) => g.name === name)?.origin ?? ZERO_ORIGIN;
+}
+
+/** Does any structure sit away from [0, 0, 0]? False lets a caller skip the per-item lookups. */
+export function hasStructureOrigins(groups: readonly CellGroup[]): boolean {
+  return groups.some((g) => !!g.origin && (g.origin[0] !== 0 || g.origin[1] !== 0 || g.origin[2] !== 0));
 }
 
 /** Is this group built by the next compile? Only an explicit `false` excludes. */
@@ -27,19 +69,39 @@ export function isGroupIncluded(group: Pick<CellGroup, "include"> | null | undef
   return group?.include !== false;
 }
 
-/** A group as written to the doc: `include` only when it is false. */
+/** The keys this viewer normalises itself; anything else on a group is someone else's and goes
+ *  back as it came (see {@link CellGroup}'s `extra` catch-all). */
+const GROUP_OWN_KEYS = new Set(["name", "blueprint", "include", "origin"]);
+
+/** A group as written to the doc: `include` only when it is false, `origin`
+ * whenever the group has one, and any extra (non-normalised) key spread back in untouched --
+ * so a round trip through `groupFromWire` -> edit -> `groupToWire` keeps whatever another tool
+ * put on this group alongside the keys the viewer itself writes. */
 export function groupToWire(group: CellGroup): CellGroup {
-  return isGroupIncluded(group)
-    ? { name: group.name, blueprint: group.blueprint }
-    : { name: group.name, blueprint: group.blueprint, include: false };
+  const origin = originFromWire(group.origin);
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(group)) if (!GROUP_OWN_KEYS.has(k) && v !== undefined) extra[k] = v;
+  return {
+    ...extra,
+    name: group.name,
+    blueprint: group.blueprint,
+    ...(isGroupIncluded(group) ? {} : { include: false }),
+    ...(origin ? { origin } : {}),
+  };
 }
 
 /** A doc's raw group entry read back (inverse of {@link groupToWire}). Anything
- * other than an explicit `include: false` reads as built. */
-export function groupFromWire(raw: { name?: unknown; blueprint?: unknown; include?: unknown }): CellGroup {
-  const name = String(raw?.name ?? "");
-  const blueprint = String(raw?.blueprint ?? "");
-  return raw?.include === false ? { name, blueprint, include: false } : { name, blueprint };
+ * other than an explicit `include: false` reads as built; an `origin` that is not
+ * three numbers reads as none. Every key besides `name`/`blueprint`/`include`/`origin` is kept
+ * verbatim (another tool's own per-group settings), through `groupToWire`'s own extra-key spread. */
+export function groupFromWire(raw: { name?: unknown; blueprint?: unknown; include?: unknown; origin?: unknown; [extra: string]: unknown }): CellGroup {
+  return groupToWire({
+    ...raw,
+    name: String(raw?.name ?? ""),
+    blueprint: String(raw?.blueprint ?? ""),
+    include: raw?.include !== false,
+    origin: originFromWire(raw?.origin),
+  } as CellGroup);
 }
 
 /** Default group colours: distinct, readable on the dark viewer, and stable for a
@@ -88,7 +150,7 @@ export function structureNameToGroup(space: Record<string, unknown>): string | u
 
 /** Normalize a groups list for serialization: trim names, drop blank/duplicate
  * names (first wins), preserve authored order, and write `include` only when it
- * is false ({@link groupToWire}). */
+ * is false and `origin` when there is one ({@link groupToWire}). */
 export function normalizeGroups(groups: readonly CellGroup[]): CellGroup[] {
   const seen = new Set<string>();
   const out: CellGroup[] = [];
@@ -115,18 +177,23 @@ export function objectGroup(
 /** The space a builder object sits in, by geometry: the cell under it in plan
  * whose floor is highest below its centre -- the cell it is in, or, for a unit
  * seated on a roof, the cell it stands on. Undefined for a space itself and for
- * an object over no cell. */
-export function containingCell<C extends { kind: string; origin: readonly number[]; size: readonly number[] }>(
-  obj: { kind: string; origin: readonly number[]; size: readonly number[] },
+ * an object over no cell. An object that names its structure (`STRUCTURE_NAME`)
+ * looks only among that structure's cells: coordinates are relative to a
+ * structure's origin, so another structure's cell at the same numbers is not
+ * where it is. */
+export function containingCell<C extends { kind: string; group?: string; origin: readonly number[]; size: readonly number[] }>(
+  obj: { kind: string; origin: readonly number[]; size: readonly number[]; params?: Record<string, unknown> },
   cells: Iterable<C>,
 ): C | undefined {
   if (obj.kind === "cell") return undefined;
+  const structure = obj.params ? structureNameToGroup(obj.params) : undefined;
   const cx = obj.origin[0] + obj.size[0] / 2;
   const cy = obj.origin[1] + obj.size[1] / 2;
   const cz = obj.origin[2] + obj.size[2] / 2;
   let best: C | undefined;
   for (const c of cells) {
     if (c.kind !== "cell") continue;
+    if (structure !== undefined && c.group !== structure) continue;
     const inPlan =
       cx >= c.origin[0] && cx <= c.origin[0] + c.size[0] &&
       cy >= c.origin[1] && cy <= c.origin[1] + c.size[1];

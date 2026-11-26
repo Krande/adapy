@@ -300,7 +300,9 @@ export async function setupModelLoaderAsync(
         const box = useModelState.getState().boundingBox; // fresh — setBoundingBox ran above
         if (cam && box && !box.isEmpty()) {
             const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
-            applyAdaptiveClipping(cam as THREE.PerspectiveCamera, ctl, radius);
+            // autoFitOverride === false is a compile/recompile result: the camera must not move, so
+            // the range may only widen, never clamp the controls back toward the new model.
+            applyAdaptiveClipping(cam as THREE.PerspectiveCamera, ctl, radius, {widenOnly: autoFitOverride === false});
         }
     }
 

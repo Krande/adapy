@@ -31,3 +31,35 @@ export function fieldHelp(list: string, column: string): string | undefined {
 export function useFieldHelp(list: string, column: string): string | undefined {
   return useCellBuilderStore((st) => fieldHelpText(engineFieldHelp(st.engines, st.selectedEngine), list, column));
 }
+
+// ── UI labels ──────────────────────────────────────────────────────────────────────────────
+//
+// A field's label travels in `FieldHelp` itself, as a SIBLING key rather than a new field on the
+// server's response: for every doc list that has labels, the engine's field help carries an extra
+// entry keyed "<list>.labels" (e.g. "setups.labels" beside "setups"), `{COLUMN: label}` -- the same
+// shape as the help text itself, so it passes through `clean_field_help` on an installed server
+// that knows nothing about labels (it only validates "every value is {str: {str: str}}"). A future
+// server version may add a dedicated `field_labels` key; if it does, read that one first and fall
+// back to the "<list>.labels" convention, so it costs nothing to add later.
+//
+// A field shows its label when one exists, else its column name, as today; the tooltip always
+// starts with the column name so the Excel name stays discoverable (see useFieldLabel's callers in
+// cellBuilderSelection/fields.tsx and PropertyItemLayout.tsx).
+
+/** The label of `column` in doc list `list`, or undefined: plain text, no newlines expected. */
+export function fieldLabelText(help: FieldHelp, list: string, column: string): string | undefined {
+  const text = help[`${list}.labels`]?.[column];
+  return typeof text === "string" && text.trim() ? text : undefined;
+}
+
+/** The label of `column` in `list` for the engine the builder compiles with now, or undefined
+ *  (shows its column name instead). */
+export function fieldLabel(list: string, column: string): string | undefined {
+  const st = useCellBuilderStore.getState();
+  return fieldLabelText(engineFieldHelp(st.engines, st.selectedEngine), list, column);
+}
+
+/** `fieldLabel`, following the engine catalog and the engine picked. */
+export function useFieldLabel(list: string, column: string): string | undefined {
+  return useCellBuilderStore((st) => fieldLabelText(engineFieldHelp(st.engines, st.selectedEngine), list, column));
+}

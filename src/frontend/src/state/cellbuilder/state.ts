@@ -24,6 +24,7 @@ import type {ViewStateSlice} from "./viewStateSlice";
 import type {RelocationsSlice} from "./relocationsSlice";
 import type {ExportImportSlice} from "./exportImportSlice";
 import type {RefsSlice} from "./refsSlice";
+import type {DuplicateSlice} from "./duplicateSlice";
 
 /** The composed cellbuilder store: every slice's state and actions in one
  * object, exactly the shape `useCellBuilderStore.getState()` has always
@@ -44,7 +45,8 @@ export type CellBuilderState =
   & ViewStateSlice
   & RelocationsSlice
   & ExportImportSlice
-  & RefsSlice;
+  & RefsSlice
+  & DuplicateSlice;
 
 /** A slice creator: sees the WHOLE store through `set`/`get`, contributes `T`. */
 export type CellBuilderSlice<T> = StateCreator<CellBuilderState, [], [], T>;

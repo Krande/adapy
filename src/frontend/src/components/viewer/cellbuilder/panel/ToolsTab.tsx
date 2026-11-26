@@ -99,7 +99,7 @@ export const ToolsTab: React.FC = () => {
               onClick={() => void s.exportModel("gxml")}
               title={
                 capabilities.procedural.supports("exportModel")
-                  ? "Download the SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE (commits any unsaved edits first)."
+                  ? "Download the SIMULATION model as a Genie concept XML (.xml) for Sesam GeniE (commits any unsaved edits first)."
                   : "Export is built by the cloud worker pool, which this transport does not have."
               }
             >

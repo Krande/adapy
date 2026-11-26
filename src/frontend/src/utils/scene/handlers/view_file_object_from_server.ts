@@ -75,12 +75,22 @@ export async function load_glb_by_url_rest(
     // Override the post-load auto-fit. Procedural result loads pass false so a
     // compile/recompile never moves the camera; normal file views omit it.
     autoFitOverride?: boolean,
+    // Reuse the scene's current translation instead of recentring on this load's own box. A
+    // compile/recompile result passes true so the model does not shift under the still camera
+    // `autoFitOverride=false` already keeps in place; omitted (undefined), a replace derives its
+    // own translation as before (loadModel's own default).
+    translate?: boolean,
+    // "replaceSource" (a compile/recompile showing its own result) keeps every other loaded
+    // source; omitted, this is a plain "replace" (a model open, e.g. from the storage browser).
+    placement?: "replace" | "replaceSource",
 ) {
     const {loadModel} = await import("@/components/viewer/sceneHelpers/loadModel");
     await loadModel({
         sourceName,
         bytes: {from: "storage", scope, glbKey},
         autoFitOverride,
+        translate,
+        placement,
         presignFallbackWarning:
             "view: presigned GLB load failed, falling back to authed streaming GET",
     });
@@ -92,9 +102,11 @@ export async function load_glb_from_bytes(
     bytes: Uint8Array,
     sourceName: string,
     autoFitOverride?: boolean,
+    // "replaceSource": see load_glb_by_url_rest.
+    placement?: "replace" | "replaceSource",
 ) {
     const {loadModel} = await import("@/components/viewer/sceneHelpers/loadModel");
-    await loadModel({sourceName, bytes: {from: "bytes", bytes}, autoFitOverride});
+    await loadModel({sourceName, bytes: {from: "bytes", bytes}, autoFitOverride, placement});
 }
 
 export async function view_file_object_from_server(fileobject: FileObject) {

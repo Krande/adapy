@@ -7,6 +7,16 @@
  * in-flight interaction state the modules share. One object, created once per
  * viewer, passed explicitly to every module — nothing here is a closure over
  * React scope.
+ *
+ * STRUCTURE FRAMES. A structure's items are stored relative to its origin
+ * (utils/cellbuilder/groups `CellGroup.origin`). The drawn items go in a group per
+ * structure under each of their subgroups, moved to its origin (./structureFrames.ts);
+ * the editing helpers -- the gizmo proxy, the resize handles, the dimension lines,
+ * the selection overlays -- sit in `editFrame`, moved to the SELECTED item's
+ * structure, and the placement ghost and the builder grid in `placeFrame` (the
+ * active structure's while an add mode places a new box). So the editing code
+ * works in an item's own, stored coordinates; `offsetVec` / `worldToModel` map
+ * between the world and a frame.
  */
 
 import * as THREE from "three";
@@ -31,6 +41,17 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     // without touching the ghost or the builder grid.
     const cellsGroup = new THREE.Group();
     container.add(cellsGroup);
+    // The selected item's structure frame and the placement frame (see the head).
+    const editFrame = new THREE.Group();
+    editFrame.name = "__cellbuilder_edit_frame__";
+    container.add(editFrame);
+    const placeFrame = new THREE.Group();
+    placeFrame.name = "__cellbuilder_place_frame__";
+    container.add(placeFrame);
+    // The edited port's equipment's structure frame (its gizmo proxy).
+    const portFrame = new THREE.Group();
+    portFrame.name = "__cellbuilder_port_frame__";
+    container.add(portFrame);
 
     // The plugins' refs (refsOverlay.ts): beside the cells, not in `cellsGroup`, so a cell
     // rebuild leaves them be and no cell-only walk (snapping, the selection rectangle) meets one.
@@ -54,6 +75,11 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     // compiled structure.
     const portsGroup = new THREE.Group();
     container.add(portsGroup);
+    // COG marker overlay (cogOverlay.ts): drawn for the selected equipment only -- no
+    // view toggle, so its own subgroup only ever needs rebuilding, never a visibility flip of its
+    // own. Inherits the container's model offset, same as the ports overlay.
+    const cogGroup = new THREE.Group();
+    container.add(cogGroup);
     // "Show as CAD" per-object previews: the equipment type's preview GLB seated
     // at the cell placement, replacing that cell's placeholder box. Its own
     // subgroup (inherits the container's model offset). `cadPreviewCache` holds a
@@ -74,7 +100,7 @@ export function createCellBuilderScene(host: BuilderViewHost) {
         new THREE.MeshBasicMaterial({color: GHOST_COLOR, transparent: true, opacity: 0.35, depthWrite: false}),
     );
     ghost.visible = false;
-    container.add(ghost); // inherits the model offset
+    placeFrame.add(ghost); // inherits the model offset and the placement frame's
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const meshById = new Map<string, THREE.Mesh>();
@@ -87,7 +113,7 @@ export function createCellBuilderScene(host: BuilderViewHost) {
         const line = new LineSegments2(geo, mat);
         line.visible = false;
         line.layers.set(1);
-        container.add(line);
+        editFrame.add(line);
         return line;
     };
     const hoverEdgeLine = makeEdgeOverlay(HOVER_EDGE_COLOR, HOVER_EDGE_WIDTH);
@@ -111,14 +137,14 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     faceOverlay.userData.__excludeFromFit = true;
     faceOverlay.renderOrder = 5;
     faceOverlay.visible = false;
-    container.add(faceOverlay);
+    editFrame.add(faceOverlay);
     const gizmoProxy = new THREE.Object3D();
     gizmoProxy.userData.__excludeFromFit = true;
     // Read/seed the proxy's orientation in the same ZYX order the store + the
     // compiler compose rotations (Rz·Ry·Rx), so a per-axis rotation the gizmo
     // produces round-trips to identical ROT_X/Y/Z on the built equipment.
     gizmoProxy.rotation.order = "ZYX";
-    container.add(gizmoProxy);
+    editFrame.add(gizmoProxy);
     const gizmo = new TransformControls(host.camera(), host.input());
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
@@ -132,7 +158,7 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     guideLine.userData.__excludeFromFit = true;
     guideLine.visible = false;
     guideLine.renderOrder = 2;
-    container.add(guideLine);
+    editFrame.add(guideLine);
     const makeSnapTexture = (): THREE.CanvasTexture => {
         const cv = document.createElement("canvas");
         cv.width = cv.height = 64;
@@ -158,7 +184,7 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     scene.add(snapMarker);
     const portProxy = new THREE.Object3D();
     portProxy.userData.__excludeFromFit = true;
-    container.add(portProxy);
+    portFrame.add(portProxy);
     const portGizmo = new TransformControls(host.camera(), host.input());
     portGizmo.setSpace("world");
     const portGizmoHelper = portGizmo.getHelper();
@@ -169,19 +195,19 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     portRaycaster.layers.set(1);
     const resizeGroup = new THREE.Group();
     resizeGroup.visible = false;
-    container.add(resizeGroup);
+    editFrame.add(resizeGroup);
     // The resized cell's dimension lines (cellDimensions.ts): their own group, so the
     // resize handles' raycast never picks a line or a label.
     const dimensionGroup = new THREE.Group();
     dimensionGroup.visible = false;
     dimensionGroup.userData.__excludeFromFit = true;
-    container.add(dimensionGroup);
+    editFrame.add(dimensionGroup);
     // How far the moved cell has travelled (G): the start outline and one offset line per
     // axis (cellDimensions.ts), apart from the resize dimensions.
     const moveMeasureGroup = new THREE.Group();
     moveMeasureGroup.visible = false;
     moveMeasureGroup.userData.__excludeFromFit = true;
-    container.add(moveMeasureGroup);
+    editFrame.add(moveMeasureGroup);
     // On-canvas numeric readout (a screen-space sprite, like snapMarker).
     const readoutCanvas = document.createElement("canvas");
     readoutCanvas.width = 256;
@@ -196,8 +222,8 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     readout.visible = false;
     scene.add(readout);
     // Live ring outline for a loft section resize — a green LineLoop drawn at the
-    // station's NEW dimensions so the ring visibly scales as you type. Model-space
-    // (added to the container, which carries the model offset), like the ghost.
+    // station's NEW dimensions so the ring visibly scales as you type. In the
+    // edited loft band's frame (which carries the model offset).
     const ringPreview = new THREE.LineLoop(
         new THREE.BufferGeometry(),
         new THREE.LineBasicMaterial({color: GHOST_COLOR, depthTest: false, transparent: true, opacity: 0.95}),
@@ -205,7 +231,7 @@ export function createCellBuilderScene(host: BuilderViewHost) {
     ringPreview.userData.__excludeFromFit = true;
     ringPreview.renderOrder = 6;
     ringPreview.visible = false;
-    container.add(ringPreview);
+    editFrame.add(ringPreview);
 
     return {
         /** The viewport the builder is drawn in (./viewHost.ts). */
@@ -213,10 +239,14 @@ export function createCellBuilderScene(host: BuilderViewHost) {
         scene,
         container,
         cellsGroup,
+        editFrame,
+        placeFrame,
+        portFrame,
         refsGroup,
         refMeshById,
         companionsGroup,
         portsGroup,
+        cogGroup,
         cadPreviewGroup,
         cadPreviewCache,
         cadPreviewShown,
@@ -263,6 +293,19 @@ export function createCellBuilderScene(host: BuilderViewHost) {
          * the member steps in exact grid multiples. Null between drags. */
         loftDragLast: null as THREE.Vector3 | null,
         modalMove: null as ModalMove | null,
+        /** A picked structure the move gizmo is dragging (./structureFrames.ts): its origin and
+         * the gizmo's centre when the drag began, and the origin it is drawn at now. Written to
+         * the store once, on release. Null between drags. */
+        structureDrag: null as {name: string; start: Vec3; startCentre: Vec3; origin: Vec3} | null,
+        /** A multi-item move in progress (G on 2+ selected items) -- each entry's
+         * (cell/ref/rider equipment) own start origin, the loft members' own running delta (they
+         * move incrementally, moveLoftMember takes a delta not an absolute origin) and the
+         * group's gizmo centre when the drag began. Null between drags. */
+        multiMove: null as {
+            startCentre: Vec3;
+            entries: {kind: "cell" | "ref"; id: string; start: Vec3}[];
+            loftApplied: Map<string, Vec3>;
+        } | null,
         /** The cell being moved (gizmo drag or modal move) and its box when the move
          * began, measured live by the move dimension lines. Null when nothing moves. */
         moveMeasure: null as {cellId: string; ref?: boolean; start: CellBox} | null,
@@ -307,12 +350,22 @@ export const syncOffset = (ctx: CellBuilderScene) => {
     requestRender();
 };
 
-/** The viewer's model translation the builder container carries. */
-export const offsetVec = (ctx: CellBuilderScene): THREE.Vector3 => ctx.container.position;
+/** A structure frame's place: a frame group's position, or a structure origin. */
+export type FrameAt = THREE.Vector3 | readonly number[];
 
-/** A world-space point in the builder's model frame. */
-export const worldToModel = (ctx: CellBuilderScene, p: THREE.Vector3): Vec3 => [
-    p.x - ctx.container.position.x,
-    p.y - ctx.container.position.y,
-    p.z - ctx.container.position.z,
-];
+const atXYZ = (at: FrameAt): readonly [number, number, number] =>
+    at instanceof THREE.Vector3 ? [at.x, at.y, at.z] : [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0];
+
+/** Where a frame's [0, 0, 0] is in the world: the viewer's model translation the
+ * container carries plus the frame's structure origin -- by default the edit
+ * frame's (the selected item's structure). */
+export const offsetVec = (ctx: CellBuilderScene, at: FrameAt = ctx.editFrame.position): THREE.Vector3 => {
+    const [x, y, z] = atXYZ(at);
+    return new THREE.Vector3(ctx.container.position.x + x, ctx.container.position.y + y, ctx.container.position.z + z);
+};
+
+/** A world-space point in a frame's (by default the edit frame's) coordinates. */
+export const worldToModel = (ctx: CellBuilderScene, p: THREE.Vector3, at: FrameAt = ctx.editFrame.position): Vec3 => {
+    const off = offsetVec(ctx, at);
+    return [p.x - off.x, p.y - off.y, p.z - off.z];
+};

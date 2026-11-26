@@ -18,7 +18,9 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {cadDisplayBox, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {applyCellVisibility} from "./meshRebuild";
+import {boxOrigin, boxStructure, structureFrame} from "./structureFrames";
 import type {LoadedGeometry} from "./viewHost";
+import {clipWithModel} from "@/utils/scene/section_clipping";
 
 export const previewScope = (ctx: CellBuilderScene): string => {
     const s = useScopeStore.getState().current;
@@ -133,13 +135,18 @@ export const rebuildCadPreviews = (ctx: CellBuilderScene) => {
             if (cached === "loading" || cached === "error") continue;
             const placed = placeCadPreview(ctx, cached, cell);
             if (placed) {
-                ctx.cadPreviewGroup.add(placed);
+                structureFrame(ctx.cadPreviewGroup, boxStructure(st, {cell}), st.groups).add(placed);
                 ctx.cadPreviewShown.add(cellId);
             }
         }
     }
     ctx.cadPreviewGroup.visible = st.cellsVisible;
     applyCellVisibility(ctx);
+    // Section planes: a clone added above shares the cached prototype's materials, which
+    // may already be tagged/clipped from an earlier preview, but a FIRST preview of a given type
+    // (or one shown again after `clipWithModel`'s tag was never set, e.g. before any plane existed)
+    // needs it applied here too.
+    clipWithModel(ctx.cadPreviewGroup);
     requestRender();
 };
 
@@ -155,14 +162,15 @@ export const findCad = (ctx: CellBuilderScene, cell: BuilderCell): LoadedGeometr
 // null when "Use CAD models" is off / no matching mesh is in the scene.
 // Rotation is already baked into the compiled CAD, so this axis-aligned box
 // wraps the placed (rotated) geometry directly. offsetVec() unmaps the
-// viewer's model translation so the result is in the same cell-origin frame
-// as cell.origin/size.
+// viewer's model translation and the cell's structure origin (the compiled CAD
+// has the structure placed) so the result is in the same frame as
+// cell.origin/size.
 export const cadBoundsForCell = (ctx: CellBuilderScene, cell: BuilderCell): {min: Vec3; max: Vec3} | null => {
     const st = useCellBuilderStore.getState();
     if (cell.kind !== "equipment" || !st.equipmentCad) return null;
     const b = findCad(ctx, cell)?.box;
     if (!b || b.isEmpty()) return null;
-    const off = offsetVec(ctx);
+    const off = offsetVec(ctx, boxOrigin(st, {cell}));
     return {
         min: [b.min.x - off.x, b.min.y - off.y, b.min.z - off.z],
         max: [b.max.x - off.x, b.max.y - off.y, b.max.z - off.z],
@@ -183,7 +191,7 @@ export const collectCadVerts = (ctx: CellBuilderScene, cell: BuilderCell): Vec3[
     if (!st.equipmentCad) return [];
     const cad = findCad(ctx, cell);
     if (!cad) return [];
-    const off = offsetVec(ctx);
+    const off = offsetVec(ctx, boxOrigin(st, {cell}));
     return cad.points(4000).map((v) => [v.x - off.x, v.y - off.y, v.z - off.z] as Vec3);
 };
 

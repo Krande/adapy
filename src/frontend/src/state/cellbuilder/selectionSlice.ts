@@ -20,6 +20,10 @@ export interface SelectionSlice {
    * `cellAddMode` on, clicks toggle membership. `selection` remains the primary
    * (last-clicked) cell that drives the detail editors. */
   selectedCellIds: string[];
+  /** All currently-selected plugin refs — the ref analogue of `selectedCellIds`, same shape and
+   * the same rule: a single pick is `[refId]`, an additive click toggles membership, and
+   * `selection` tracks whichever (cell or ref) was picked most recently as the primary. */
+  selectedRefIds: string[];
   /** When on, clicking a cell adds/removes it from `selectedCellIds` instead of
    * replacing the selection — the cell analogue of the regular "Add mode". */
   cellAddMode: boolean;
@@ -79,6 +83,11 @@ export interface SelectionSlice {
   /** Toggle a cell in the multi-select set (used when cellAddMode is on); the
    * toggled cell becomes the primary selection. */
   toggleCellSelection: (cellId: string) => void;
+  /** Toggle a ref in the multi-select set (an additive click on a ref in 3D) — the ref analogue
+   * of `toggleCellSelection`, same shape: the toggled ref becomes the primary selection, and
+   * emptying the set clears the selection, whatever else may be selected (as toggling off the
+   * last cell already does; no multi-edit of shared fields here — see `selectItems`). */
+  toggleRefSelection: (refId: string) => void;
   /** Flip the cell add-mode (sticky, like the regular additive select). */
   toggleCellAddMode: () => void;
   setSelectMode: (m: SelectMode) => void;
@@ -139,6 +148,25 @@ export interface SelectionSlice {
    * frames and the multi-select commands act on. Unknown ids are dropped; an
    * empty list clears the selection. */
   selectCells: (ids: readonly string[]) => void;
+  /** Select a mix of cells and/or refs together (the Model panel's click/Ctrl+click/Shift+click,
+   * and 3D box select once it draws refs too): "only" replaces both multi-select sets with `ids`
+   * (as `selectCells` does for cells alone); "add" joins them into the existing sets; "toggle"
+   * flips each id's membership. Every mode sets the primary (what the detail editors show) to the
+   * last id in `ids` that ends up selected, falling back to whatever else is still selected when
+   * a toggle removed it. Unknown ids are dropped. */
+  selectItems: (ids: readonly string[], mode: "only" | "add" | "toggle") => void;
+  /** The ids of a duplicate just placed by Shift+D, set by `duplicateSelection` in the same `set`
+   * as the selection it makes current -- null the rest of the time. While it is non-null, the
+   * "carry contained equipment along" rider rule (`equipContainedIn` in cellGizmo.ts,
+   * `equipmentInside` in multiMove.ts) only ever carries equipment that is itself one of these
+   * ids, never the original space's: the copy is placed exactly on top of its original, so a
+   * plain "centre inside the box" test would otherwise also catch the original's own equipment
+   * and move it away with the copy. Cleared by `selectItems` /
+   * `setSelection` / `selectCells` (the selection moves on) and at drag end (the copy has been
+   * placed). */
+  placingCopyIds: string[] | null;
+  /** Set or clear `placingCopyIds` (cellGizmo.ts clears it once the placing drag ends). */
+  setPlacingCopyIds: (ids: string[] | null) => void;
 }
 
 /** Whether two picks are of the same cell, or of the same ref. */
@@ -159,6 +187,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     // to normal geometry selection, so the same panel updates for the compiled
     // result too.
     selectedCellIds: [],
+    selectedRefIds: [],
     cellAddMode: false,
     selectMode: "cell",
     toolHint: null,
@@ -172,6 +201,8 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     portMenu: null,
     portGizmo: null,
     focusedSystemName: null,
+    placingCopyIds: null,
+    setPlacingCopyIds: (placingCopyIds) => set({ placingCopyIds }),
     setMode: (mode) => set({ mode }),
     // Switching to a different cell (or clearing) drops the active gizmo so it
     // never lingers on a cell you're no longer editing. Selecting a cell does
@@ -184,22 +215,85 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
         return {
           selection: primary ? { kind: "cell", cellId: primary } : null,
           selectedCellIds: keep,
+          // A cells-only replace (the older-core fallback for a mixed selection too), so it
+          // must drop any ref left selected from before, same as setSelection already does.
+          selectedRefIds: [],
           gizmoMode: "none",
           gizmoAxisLock: null,
+          // The selection has moved on from whatever Shift+D just placed.
+          placingCopyIds: null,
+        };
+      }),
+    // Mixed cell/ref selection (the Model panel's click / Ctrl+click / Shift+click, 3D box select):
+    // "only" replaces both sets with `ids` (split by what each id actually names); "add" joins them
+    // in; "toggle" flips each one's membership. The primary is the LAST given id that is still
+    // selected afterward -- the most recently clicked item, as a plain pick already makes primary --
+    // falling back to whatever else remains selected (a cell over a ref, arbitrarily but
+    // deterministically) when a toggle removed it, else none.
+    selectItems: (ids, mode) =>
+      set((s) => {
+        // "add"/"toggle" with nothing given has nothing to add or flip -- a no-op, not a
+        // re-derive of the (unchanged) primary, which would reset the gizmo mode for nothing.
+        // Today's one caller (cellBoxSelect.ts) already guards against calling with no ids
+        // itself; this is the slice holding the same promise for whichever future caller does
+        // not.
+        if (ids.length === 0 && mode !== "only") return {};
+        const known = [...new Set(ids)].filter((id) => s.cells[id] || s.refs[id]);
+        const cellSet = new Set<string>(mode === "only" ? [] : s.selectedCellIds);
+        const refSet = new Set<string>(mode === "only" ? [] : s.selectedRefIds);
+        for (const id of known) {
+          const target = s.cells[id] ? cellSet : refSet;
+          if (mode === "toggle" && target.has(id)) target.delete(id);
+          else target.add(id);
+        }
+        let selection: BuilderSelection | null = null;
+        for (let i = known.length - 1; i >= 0 && !selection; i--) {
+          const id = known[i];
+          const isCell = !!s.cells[id];
+          if ((isCell ? cellSet : refSet).has(id)) {
+            selection = isCell ? { kind: "cell", cellId: id } : { kind: "ref", refId: id };
+          }
+        }
+        if (!selection) {
+          const lastCell = [...cellSet].pop();
+          const lastRef = [...refSet].pop();
+          selection = lastCell
+            ? { kind: "cell", cellId: lastCell }
+            : lastRef
+              ? { kind: "ref", refId: lastRef }
+              : null;
+        }
+        return {
+          selectedCellIds: [...cellSet],
+          selectedRefIds: [...refSet],
+          selection,
+          // "add"/"toggle" only ever grows or trims the SAME multi-selection a multi-item G is
+          // armed on, so the gizmo stays armed through a Ctrl/Shift-click that adds more to it.
+          // "only" is a fresh pick, as today. Only TRANSLATE carries over -- rotate/resize are
+          // single-item-only and must not follow onto a new primary just because it was added to
+          // the selection, rather than freshly picked.
+          gizmoMode: mode !== "only" && s.gizmoMode === "translate" ? "translate" : "none",
+          gizmoAxisLock: null,
+          // The selection has moved on from whatever Shift+D just placed.
+          placingCopyIds: null,
         };
       }),
     setSelection: (selection) => {
       set((s) => ({
         selection,
-        // A single pick resets the multi-select set to just this cell. A ref is
-        // no cell: picking one empties the set.
+        // A single pick resets BOTH multi-select sets to just this one item: its own kind's set
+        // becomes exactly this id, and the other kind's is cleared -- a ref is no cell and a cell
+        // is no ref.
         selectedCellIds: selection?.cellId ? [selection.cellId] : [],
+        selectedRefIds: selection?.kind === "ref" ? [selection.refId] : [],
         gizmoMode:
           selection && s.selection && sameTarget(selection, s.selection)
             ? s.gizmoMode
             : "none",
         // A new pick drops any axis constraint from the previous gizmo session.
         gizmoAxisLock: null,
+        // The selection has moved on from whatever Shift+D just placed.
+        placingCopyIds: null,
       }));
     },
     toggleCellSelection: (cellId) =>
@@ -210,11 +304,45 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
           ? s.selectedCellIds.filter((id) => id !== cellId)
           : [...s.selectedCellIds, cellId];
         // Primary selection follows the click: the added cell, or (when
-        // removing) the last one still selected, else nothing.
+        // removing) the last one still selected. Emptied by the removal:
+        // fall back to whatever ref is still selected rather than nothing, as
+        // long as one is -- the OTHER set did not just change, so it is not
+        // itself emptied by this toggle.
         const primaryId = has ? next[next.length - 1] : cellId;
+        const lastRef = s.selectedRefIds[s.selectedRefIds.length - 1];
+        const selection = primaryId
+          ? { kind: "cell" as const, cellId: primaryId }
+          : lastRef
+            ? { kind: "ref" as const, refId: lastRef }
+            : null;
         return {
           selectedCellIds: next,
-          selection: primaryId ? { kind: "cell", cellId: primaryId } : null,
+          selection,
+          gizmoMode: "none",
+        };
+      }),
+    // The ref analogue of toggleCellSelection, same shape (an additive click on a ref in 3D):
+    // selectedCellIds is untouched, so a ref and a cell can be selected together, each by its
+    // own toggle. See selectItems for a mixed, order-aware alternative (the Model panel's clicks).
+    toggleRefSelection: (refId) =>
+      set((s) => {
+        if (!s.refs[refId]) return {};
+        const has = s.selectedRefIds.includes(refId);
+        const next = has
+          ? s.selectedRefIds.filter((id) => id !== refId)
+          : [...s.selectedRefIds, refId];
+        const primaryId = has ? next[next.length - 1] : refId;
+        // Same fallback as toggleCellSelection's: a ref removed down to none falls back to
+        // whatever cell is still selected, rather than clearing the selection outright.
+        const lastCell = s.selectedCellIds[s.selectedCellIds.length - 1];
+        const selection = primaryId
+          ? { kind: "ref" as const, refId: primaryId }
+          : lastCell
+            ? { kind: "cell" as const, cellId: lastCell }
+            : null;
+        return {
+          selectedRefIds: next,
+          selection,
           gizmoMode: "none",
         };
       }),
@@ -266,6 +394,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
         focusedSystemName: null,
         selection: { kind: "cell", cellId: cell.id },
         selectedCellIds: [cell.id],
+        selectedRefIds: [],
       });
     },
     cycleSelectMode: (dir) =>
@@ -284,7 +413,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
             : mode === "face"
               ? { kind: "face", cellId, faceIndex: fi }
               : { kind: "edge", cellId, faceIndex: fi, edge: faceEdges(fi)[0] };
-        return { selectMode: mode, selection, selectedCellIds: [cellId] };
+        return { selectMode: mode, selection, selectedCellIds: [cellId], selectedRefIds: [] };
       }),
     cycleSelectionElement: (dir) =>
       set((s) => {
@@ -302,7 +431,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
           const i = bands.findIndex((c) => c.id === sel.cellId);
           const c = bands[(((i < 0 ? 0 : i) + dir) % bands.length + bands.length) %
             bands.length];
-          return { selection: { kind: "cell", cellId: c.id }, selectedCellIds: [c.id] };
+          return { selection: { kind: "cell", cellId: c.id }, selectedCellIds: [c.id], selectedRefIds: [] };
         }
         // Edge mode: cycle the current face's four border edges.
         if (sel.kind === "edge" && sel.faceIndex != null && sel.edge) {
@@ -321,6 +450,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
             faceIndex: cycleFaceIndex(start, dir),
           },
           selectedCellIds: [sel.cellId],
+          selectedRefIds: [],
         };
       }),
     selectAdjacentCell: (dir) =>
@@ -335,6 +465,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
         return {
           selection: { kind: "cell", cellId: c.id },
           selectedCellIds: [c.id],
+          selectedRefIds: [],
           gizmoMode: "none",
         };
       }),

@@ -24,6 +24,9 @@ import {snapStep} from "@/utils/gizmo/freeMove";
 import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {claimPress} from "./cellBoxSelect";
 import {boxTarget, writeBox, type GizmoBox} from "./gizmoBox";
+import {boxOrigin} from "./structureFrames";
+import {placedCells} from "@/utils/cellbuilder/include";
+import {builderPresence} from "@/layout/shellModes";
 
 export const startFaceDrag = (ctx: CellBuilderScene, box: GizmoBox, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
     // A loft band or a CAD-fitted equipment box is not resized (cellResize.ts); a ref only
@@ -37,13 +40,15 @@ export const startFaceDrag = (ctx: CellBuilderScene, box: GizmoBox, faceIndex: n
     const rot = box.cell?.kind === "equipment" ? box.cell.rotation : undefined;
     const rotation = rot && isRotated(rot) ? ([...rot] as Vec3) : undefined;
     const frame = boxFrameMatrix(cell, rotation);
+    // In the world: the box is in its structure's frame, which need not be the
+    // selected item's (a face press on another box).
     const center = new THREE.Vector3(
         cell.origin[0] + cell.size[0] / 2,
         cell.origin[1] + cell.size[1] / 2,
         cell.origin[2] + cell.size[2] / 2,
     )
         .applyMatrix4(frame)
-        .add(offsetVec(ctx));
+        .add(offsetVec(ctx, boxOrigin(useCellBuilderStore.getState(), box)));
     const lineDir = new THREE.Vector3(side.axis === 0 ? 1 : 0, side.axis === 1 ? 1 : 0, side.axis === 2 ? 1 : 0).transformDirection(frame);
     const startT = lineParamFromRay(ctx.raycaster.ray, center, lineDir);
     if (startT === null) return false;
@@ -126,7 +131,25 @@ export const setPointer = (ctx: CellBuilderScene, ev: PointerEvent) => {
     ctx.raycaster.setFromCamera(ctx.pointer, builderCamera(ctx));
 };
 
+/** Whether the hit face's own material is drawn: three's raycast does not check a per-group
+ *  material's `.visible` itself (it iterates every geometry group regardless), so a hit on a
+ *  face hidden by `refreshFaceStyles` (a space's excluded side) must be filtered here
+ *  for it to behave as not-there. A mesh with one plain (non-array) material has nothing to hide
+ *  per-face, so it is always "visible". */
+const faceMaterialVisible = (hit: THREE.Intersection): boolean => {
+    const mat = (hit.object as THREE.Mesh).material;
+    const idx = hit.face?.materialIndex;
+    if (!Array.isArray(mat) || idx == null) return true;
+    return mat[idx]?.visible !== false;
+};
+
 export const pickBuilderMesh = (ctx: CellBuilderScene): THREE.Intersection | null => {
+    // A mode that draws the builder only to COMPARE (Output, Fabrication) does
+    // not pick it, anywhere a pick is asked for -- press-select, the long-press/right-click
+    // menus, the hover cursor and the gizmo's "over empty space" check all go through here and
+    // pickRefMesh, so gating it once here (rather than at each call site) covers all of them. A
+    // click there is the scene's, same as if the cells were not drawn at all.
+    if (builderPresence() === "compare") return null;
     if (!ctx.cellsGroup.visible) return null; // hidden cells aren't pickable
     // Per-cell hidden boxes are excluded so a click passes through to
     // whatever geometry (e.g. the compiled result) sits underneath.
@@ -134,13 +157,23 @@ export const pickBuilderMesh = (ctx: CellBuilderScene): THREE.Intersection | nul
     // it ignores mesh.visible — filter explicitly.
     const meshes = [...ctx.meshById.values()].filter((m) => m.visible);
     const hits = ctx.raycaster.intersectObjects(meshes, false);
-    return hits.length ? hits[0] : null;
+    // An excluded side is skipped in favour of the next hit along the ray -- the
+    // box's own far face, another box, or nothing, which is exactly "a click through that face
+    // picks what is behind it".
+    return hits.find(faceMaterialVisible) ?? null;
 };
 
 /** The nearest of the plugins' refs under the pointer (see `refHitWins` for one over a cell). */
 export const pickRefMesh = (ctx: CellBuilderScene): THREE.Intersection | null => {
+    // See pickBuilderMesh's comment: the same compare-mode click-through, covering every
+    // caller at once.
+    if (builderPresence() === "compare") return null;
     if (!ctx.refsGroup.visible) return null;
-    const hits = ctx.raycaster.intersectObjects([...ctx.refMeshById.values()], false);
+    // Per-ref hidden boxes are excluded so a click passes through to whatever is underneath, as
+    // pickBuilderMesh already does for cells — intersectObjects targets the meshes directly,
+    // bypassing the group, so it ignores mesh.visible unless filtered explicitly.
+    const meshes = [...ctx.refMeshById.values()].filter((m) => m.visible);
+    const hits = ctx.raycaster.intersectObjects(meshes, false);
     return hits.length ? hits[0] : null;
 };
 
@@ -195,20 +228,27 @@ export const updateGhost = (ctx: CellBuilderScene) => {
     // origin (e.g. greenvolt sits ~498 m up, translated back to the middle of
     // the scene), so a z=0 plane would be way below the visible model and the
     // new cell would land off-screen — which reads as "+ Cell does nothing".
-    const existing = Object.values(st.cells);
+    // The ghost is in the placement frame (the structure the new box goes into,
+    // ./structureFrames.ts): the existing boxes, each in its own structure's frame,
+    // are measured and snapped to as they are drawn, in that frame.
+    const at = ctx.placeFrame.position;
+    const existing = Object.values(placedCells(st.cells, st.groups, st.loftMembers)).map((c) => ({
+        ...c,
+        origin: [c.origin[0] - at.x, c.origin[1] - at.y, c.origin[2] - at.z] as Vec3,
+    }));
     const groundZ = existing.length ? Math.min(...existing.map((c) => c.origin[2])) : 0;
     let z = groundZ;
     if (hit) {
         const cellId = hit.object.userData.__cellId as string;
-        const cell = st.cells[cellId];
-        base = worldToModel(ctx, hit.point);
+        const cell = existing.find((c) => c.id === cellId);
+        base = worldToModel(ctx, hit.point, at);
         z = cell ? cell.origin[2] + cell.size[2] : base[2];
     } else {
         // Plane at world z = groundZ + offset (i.e. model z = groundZ).
-        const planeWorldZ = groundZ + offsetVec(ctx).z;
+        const planeWorldZ = groundZ + offsetVec(ctx, at).z;
         const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeWorldZ);
         const w = ctx.raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
-        if (w) base = worldToModel(ctx, w);
+        if (w) base = worldToModel(ctx, w, at);
     }
     if (!base) {
         ctx.ghost.visible = false;
@@ -223,7 +263,7 @@ export const updateGhost = (ctx: CellBuilderScene) => {
         ],
         size,
     };
-    box = snapBox(box, Object.values(st.cells), st.snapThreshold);
+    box = snapBox(box, existing, st.snapThreshold);
     ctx.ghostBox = box;
     // Red for an opening (a cut), green for an additive cell/equipment.
     (ctx.ghost.material as THREE.MeshBasicMaterial).color.setHex(
@@ -317,6 +357,11 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // select/drag, let the camera controls handle the pointer.
     if (st.selectMode === "none") return;
 
+    // A mode that draws the builder only to COMPARE (Output, Fabrication) does not
+    // pick it -- pickBuilderMesh/pickRefMesh return null there -- so a click is the scene's,
+    // same as if the cells were not drawn at all. Not stopped: the event falls through unclaimed
+    // to whatever scene click-select listens here too, which is exactly how "the click picks the
+    // GLB element behind it" works.
     const cellHit = pickBuilderMesh(ctx);
     const refHit = pickRefMesh(ctx);
     const isRef = refHitWins(ctx, refHit, cellHit);
@@ -352,8 +397,15 @@ export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: st
     // "none" mode: a plain click selects nothing (free navigation).
     if (st.selectMode === "none") return;
     // A ref is picked whole, whatever the select mode: it has no faces or edges of its own to edit.
+    // An additive click (or cell add-mode, which a ref follows too) toggles it in the multi-select
+    // set instead of replacing the selection, exactly as a whole-cell pick already does below.
     if (target.ref) {
-        if (st.refs[target.cellId]) st.setSelection({kind: "ref", refId: target.cellId});
+        if (!st.refs[target.cellId]) return;
+        if (st.cellAddMode || isAdditiveClick(ev)) {
+            st.toggleRefSelection(target.cellId);
+        } else {
+            st.setSelection({kind: "ref", refId: target.cellId});
+        }
         return;
     }
     const cell = st.cells[target.cellId];
@@ -369,7 +421,7 @@ export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: st
         // Nearest border edge of the clicked face (Infinity tolerance =
         // always resolve to the closest of the face's four borders).
         const edge = hit
-            ? edgeHitOnFace(cell, target.faceIndex, worldToModel(ctx, hit.point), Infinity)
+            ? edgeHitOnFace(cell, target.faceIndex, worldToModel(ctx, hit.point, boxOrigin(st, {cell})), Infinity)
             : null;
         if (edge) {
             st.setSelection({kind: "edge", cellId: cell.id, faceIndex: target.faceIndex, edge});

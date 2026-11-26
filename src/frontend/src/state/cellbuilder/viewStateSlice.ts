@@ -12,6 +12,7 @@
 import type {GizmoMode, RepresentationMode} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {modelMaxX} from "./bounds";
+import {placedCells} from "@/utils/cellbuilder/include";
 
 export interface ViewStateSlice {
   /** Equipment cell ids currently rendered as their type's CAD model in the
@@ -43,6 +44,13 @@ export interface ViewStateSlice {
    * A hidden cell's box is invisible AND non-pickable, so clicks fall through
    * to whatever geometry (e.g. the compiled result) sits underneath. */
   hiddenCellIds: string[];
+  /** Individually hidden REFS (a plugin's load/modification/support box) — the
+   * ref analogue of `hiddenCellIds`, same ephemeral (not persisted, not
+   * undoable) view state. `hideCells` / `unhideCells` file an id here instead
+   * of `hiddenCellIds` when it names a ref rather than a cell, so every caller
+   * (keyboard shortcuts, the Properties Hide button, the visibility host) hides
+   * both kinds through the one pair of verbs without knowing which it picked. */
+  hiddenRefIds: string[];
   /** Toggle the port/nozzle overlay: each placed equipment's input/output
    * positions + direction vectors drawn as coloured arrows (colours match the
    * catalog editor). Off by default. */
@@ -62,12 +70,18 @@ export interface ViewStateSlice {
   /** @deprecated Use `reveal("core:cellbuilder")` / `hide("core:cellbuilder")` from `@/viewer-core`, which the layout controls. */
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
-  /** Hide the given cells (per-cell "Hide selected"). */
+  /** Hide the given cells and/or refs (per-item "Hide selected"): each id is filed under
+   *  `hiddenCellIds` or `hiddenRefIds` by which one actually names it. */
   hideCells: (ids: string[]) => void;
-  /** Clear all per-cell hides. */
+  /** Clear all per-cell AND per-ref hides. */
   unhideAllCells: () => void;
-  /** Show the given cells again (the inverse of `hideCells` for just these). */
+  /** Show the given cells and/or refs again (the inverse of `hideCells` for just these). */
   unhideCells: (ids: string[]) => void;
+  /** Swap what is hidden for what is shown ("Show complement", Alt+Q / `core:show-complement`):
+   *  every cell and ref not currently hidden becomes hidden, and every one that was hidden is shown.
+   *  A double call is the identity. Clears the selection, as `hideCells` does when it hides the
+   *  current pick. */
+  showComplementCells: () => void;
   setPortsOverlayVisible: (v: boolean) => void;
   /** Switch the active model representation (topology / simulation / detail),
    * coordinating the cell overlay and the two result GLB sources. Compiles/loads
@@ -86,6 +100,7 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
     sideBySide: false,
     cellsVisible: true,
     hiddenCellIds: [],
+    hiddenRefIds: [],
     portsOverlayVisible: false,
     infoLabel: false,
     setInfoLabel: (infoLabel) => set({ infoLabel }),
@@ -107,26 +122,54 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
     hideCells: (ids) =>
       set((s) => {
-        const next = new Set(s.hiddenCellIds);
-        // Only hide ids that are real cells. A hidden cell shouldn't stay
-        // selected (its box is now click-through) — drop it from the
-        // multi-select set and clear the primary selection when it's hidden.
-        for (const id of ids) if (s.cells[id]) next.add(id);
-        const selHidden = !!s.selection?.cellId && next.has(s.selection.cellId);
+        const nextCells = new Set(s.hiddenCellIds);
+        const nextRefs = new Set(s.hiddenRefIds);
+        // Each id is filed under whichever it actually names — a cell or a plugin's ref — so every
+        // caller can hide a mixed list without knowing which kind it picked. An id that is neither
+        // (stale, already gone) is dropped silently.
+        for (const id of ids) {
+          if (s.cells[id]) nextCells.add(id);
+          else if (s.refs[id]) nextRefs.add(id);
+        }
+        // A hidden cell or ref shouldn't stay selected (its box is now click-through) — drop it from
+        // the multi-select set and clear the primary selection when it's hidden.
+        const selHidden =
+          (!!s.selection?.cellId && nextCells.has(s.selection.cellId)) ||
+          (s.selection?.kind === "ref" && nextRefs.has(s.selection.refId));
         return {
-          hiddenCellIds: [...next],
-          selectedCellIds: s.selectedCellIds.filter((id) => !next.has(id)),
+          hiddenCellIds: [...nextCells],
+          hiddenRefIds: [...nextRefs],
+          selectedCellIds: s.selectedCellIds.filter((id) => !nextCells.has(id)),
+          selectedRefIds: s.selectedRefIds.filter((id) => !nextRefs.has(id)),
           ...(selHidden
             ? { selection: null, gizmoMode: "none" as GizmoMode }
             : {}),
         };
       }),
-    unhideAllCells: () => set({ hiddenCellIds: [] }),
+    unhideAllCells: () => set({ hiddenCellIds: [], hiddenRefIds: [] }),
+    showComplementCells: () =>
+      set((s) => {
+        const keepCells = new Set(s.hiddenCellIds);
+        const keepRefs = new Set(s.hiddenRefIds);
+        return {
+          hiddenCellIds: Object.keys(s.cells).filter((id) => !keepCells.has(id)),
+          hiddenRefIds: Object.keys(s.refs).filter((id) => !keepRefs.has(id)),
+          selectedCellIds: [],
+          selectedRefIds: [],
+          selection: null,
+          gizmoMode: "none" as GizmoMode,
+        };
+      }),
     unhideCells: (ids) =>
       set((s) => {
         const drop = new Set(ids);
-        if (!s.hiddenCellIds.some((id) => drop.has(id))) return {};
-        return { hiddenCellIds: s.hiddenCellIds.filter((id) => !drop.has(id)) };
+        const hadCell = s.hiddenCellIds.some((id) => drop.has(id));
+        const hadRef = s.hiddenRefIds.some((id) => drop.has(id));
+        if (!hadCell && !hadRef) return {};
+        return {
+          ...(hadCell ? { hiddenCellIds: s.hiddenCellIds.filter((id) => !drop.has(id)) } : {}),
+          ...(hadRef ? { hiddenRefIds: s.hiddenRefIds.filter((id) => !drop.has(id)) } : {}),
+        };
       }),
     setPortsOverlayVisible: (portsOverlayVisible) =>
       set({ portsOverlayVisible }),
@@ -190,7 +233,7 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
         // In a result view, restore the superimpose choice for the cell layer.
         get().setCellsVisible(get().superimpose);
       }
-      const topoMaxX = modelMaxX(get().cells);
+      const topoMaxX = modelMaxX(placedCells(get().cells, get().groups, get().loftMembers));
       const apply = (src: string | null) => {
         if (!src) return;
         void import("@/utils/scene/handlers/side_by_side").then(

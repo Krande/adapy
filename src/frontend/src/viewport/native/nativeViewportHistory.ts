@@ -122,7 +122,17 @@ export function nativeUndoState(scene: NativeScene): ViewportUndoState {
     };
 }
 
-type Recorded = "setSelection" | "clearSelection" | "hide" | "show" | "isolate" | "showAll" | "hideSelected" | "hideOthers" | "setObjectColors";
+type Recorded =
+    | "setSelection"
+    | "clearSelection"
+    | "hide"
+    | "show"
+    | "isolate"
+    | "showAll"
+    | "showComplement"
+    | "hideSelected"
+    | "hideOthers"
+    | "setObjectColors";
 
 /** `api` with the state for the history, and with each call that changes the selection or what is
  *  hidden recorded as one undo step. A click in the view is one too. */
@@ -136,6 +146,7 @@ export function withNativeHistory(scene: NativeScene, api: Omit<ViewportApi, key
         show: (refs) => recordViewerAction("show", () => api.show(refs)),
         isolate: (refs) => recordViewerAction("isolate", () => api.isolate(refs)),
         showAll: () => recordViewerAction("show-all", () => api.showAll()),
+        showComplement: () => recordViewerAction("show-complement", () => api.showComplement?.()),
         hideSelected: () => recordViewerAction("hide", () => api.hideSelected()),
         hideOthers: () => recordViewerAction("hide-others", () => api.hideOthers()),
         setObjectColors: (refs, color) => recordObjectColors(color === null, () => api.setObjectColors(refs, color)),

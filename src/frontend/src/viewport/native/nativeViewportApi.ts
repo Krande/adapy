@@ -90,6 +90,12 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),
         showAll: () => scene.showAll(),
+        showComplement: () => scene.showComplement(),
+        // The "Nothing is hidden" disabled reason for `core:show-complement` (and for a plugin's
+        // own View-menu entry, feature-detected through `getCommand`): without this, `hasHidden?.()`
+        // read undefined, so `core:show-complement` showed disabled on this viewport even with
+        // something hidden.
+        hasHidden: () => scene.anyHidden,
         fitAll: () => scene.fit(MOVE_SECONDS),
         fitSelection: () => void scene.fitSelection(),
         setView: (view: CameraView) => scene.viewFrom(namedViewDirection(view)),

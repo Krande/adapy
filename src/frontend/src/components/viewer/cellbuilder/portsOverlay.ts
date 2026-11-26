@@ -13,6 +13,7 @@ import {requestRender} from "@/state/perfStore";
 import {portsForEquipment} from "@/utils/cellbuilder/ports";
 import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import type {CellBuilderScene} from "./sceneContext";
+import {boxStructure, structureFrame} from "./structureFrames";
 
 export const disposeArrow = (ctx: CellBuilderScene, a: THREE.ArrowHelper) => {
     a.line.geometry.dispose();
@@ -22,13 +23,15 @@ export const disposeArrow = (ctx: CellBuilderScene, a: THREE.ArrowHelper) => {
 };
 
 export const clearPorts = (ctx: CellBuilderScene) => {
-    for (let i = ctx.portsGroup.children.length - 1; i >= 0; i--) {
-        const o = ctx.portsGroup.children[i];
-        if (o instanceof THREE.ArrowHelper) disposeArrow(ctx, o);
-        // Nozzle markers share portMarkerGeom (freed at cleanup) but own
-        // their material.
-        else if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
-        ctx.portsGroup.remove(o);
+    // The arrows and markers sit in a frame per structure (./structureFrames.ts).
+    for (const frame of [...ctx.portsGroup.children]) {
+        for (const o of [...frame.children]) {
+            if (o instanceof THREE.ArrowHelper) disposeArrow(ctx, o);
+            // Nozzle markers share portMarkerGeom (freed at cleanup) but own
+            // their material.
+            else if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
+        }
+        ctx.portsGroup.remove(frame);
     }
 };
 
@@ -48,6 +51,8 @@ export const rebuildPorts = (ctx: CellBuilderScene) => {
     for (const cell of Object.values(st.cells)) {
         const ports = portsForEquipment(cell, st.equipmentTypes);
         if (!ports.length) continue;
+        // In the equipment's structure frame, as its box is.
+        const frame = structureFrame(ctx.portsGroup, boxStructure(st, {cell}), st.groups);
         const len = Math.max(0.2, 0.3 * Math.max(cell.size[0], cell.size[1], cell.size[2]));
         const cx = cell.origin[0] + cell.size[0] / 2;
         const cy = cell.origin[1] + cell.size[1] / 2;
@@ -103,7 +108,7 @@ export const rebuildPorts = (ctx: CellBuilderScene) => {
                 o.userData.__portCellId = cell.id;
                 o.userData.__portName = p.name;
             });
-            ctx.portsGroup.add(arrow);
+            frame.add(arrow);
             // Nozzle-position marker: a small sphere at the attachment point
             // so the position is shown independently of the arrow tip.
             const marker = new THREE.Mesh(
@@ -115,7 +120,7 @@ export const rebuildPorts = (ctx: CellBuilderScene) => {
             marker.layers.set(1);
             marker.userData.__portCellId = cell.id;
             marker.userData.__portName = p.name;
-            ctx.portsGroup.add(marker);
+            frame.add(marker);
         }
     }
     // Site I/O terminals: a system connection can terminate at a model-boundary
@@ -125,6 +130,8 @@ export const rebuildPorts = (ctx: CellBuilderScene) => {
     // (unlike equipment ports, which are cell-relative).
     const siteLen = 0.6;
     let siteIdx = 0;
+    // A site is in the model's own frame (no structure).
+    const siteFrame = structureFrame(ctx.portsGroup, undefined, st.groups);
     for (const sys of Object.values(st.systems)) {
         for (const conn of sys.connections) {
             if (!conn.site) continue;
@@ -143,12 +150,12 @@ export const rebuildPorts = (ctx: CellBuilderScene) => {
                 conn.direction === "OUT" ? nozzle.clone().addScaledVector(dir, -siteLen) : nozzle;
             const arrow = new THREE.ArrowHelper(dir, tail, siteLen, color, siteLen * 0.4, siteLen * 0.25);
             arrow.traverse((o) => o.layers.set(1));
-            ctx.portsGroup.add(arrow);
+            siteFrame.add(arrow);
             const marker = new THREE.Mesh(ctx.portMarkerGeom, new THREE.MeshBasicMaterial({color}));
             marker.position.copy(nozzle);
             marker.scale.setScalar(siteLen * 0.1);
             marker.layers.set(1);
-            ctx.portsGroup.add(marker);
+            siteFrame.add(marker);
         }
     }
     requestRender();
