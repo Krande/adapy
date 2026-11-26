@@ -9,7 +9,8 @@
 // FEA mesh's internals (its draw-range ids, index layout and morph attributes).
 //
 // Coordinates are the FEA model's own (the active FEA mesh's local frame, which core recentres), or world
-// coordinates when no FEA model is loaded. Colours are sRGB, as CSS: "#ffaa00" or [r, g, b] in 0..1.
+// coordinates when no FEA model is loaded -- or, with `frame: "world"` on `addLines` / `addLabels`,
+// world coordinates whatever is loaded (`SceneOverlayFrame`). Colours are sRGB, as CSS: "#ffaa00" or [r, g, b] in 0..1.
 //
 // No three.js in this module or in anything it imports.
 
@@ -40,6 +41,7 @@ import type {
     SceneLabelOptions,
     SceneLines,
     SceneOverlay,
+    SceneOverlayFrame,
 } from "./registry";
 
 export {anchorClipVertexShader} from "@/viewport/api/billboards";
@@ -127,6 +129,13 @@ function drawLines(owner: string, h: OverlayHandle, target: FeaTarget | null, se
 
 const NOTHING: SceneOverlay = {remove: () => {}};
 
+/** The frames `addLines` / `addLabels` take (`SceneHandle.overlayFrames`). */
+export const OVERLAY_FRAMES: readonly SceneOverlayFrame[] = Object.freeze(["fea", "world"]);
+
+/** The FEA result an overlay in `frame` is drawn in: the active one for "fea", none for "world"
+ *  (the viewport's world, and nothing to go with when a result leaves). */
+const feaTargetFor = (frame: SceneOverlayFrame | undefined): FeaTarget | null => (frame === "world" ? null : activeFeaTarget());
+
 export function addLines(owner: string, spec: SceneLines): SceneOverlay {
     const positions = spec.segments instanceof Float32Array ? spec.segments : Float32Array.from(spec.segments);
     const segments = positions.length / 6;
@@ -140,7 +149,7 @@ export function addLines(owner: string, spec: SceneLines): SceneOverlay {
         for (let i = 0; i < colors.length; i++) colors[i] = channel(spec.colors[i]);
     }
     if (!activeViewport()) return NOTHING;
-    const target = activeFeaTarget();
+    const target = feaTargetFor(spec.frame);
     return track(owner, target?.token ?? null, (h) => drawLines(owner, h, target, positions, spec, colors)?.take);
 }
 
@@ -272,7 +281,9 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
     const heightPx = opts?.heightPx ?? 18;
     const target = activeFeaTarget();
     const geometry = target?.elements("model") ?? null;
-    const frame = target?.matrix() ?? null;
+    // Where a label's `position` stands: in the FEA result's frame, or (`frame: "world"`, or no
+    // result) in the world as given. A label on elements is placed from them either way.
+    const frame = opts?.frame === "world" ? null : target?.matrix() ?? null;
     /** The labels pinned to elements: what `follow` moves, and takes away while all its elements
      *  are hidden (`handle` -1 then). */
     const pinned: Pinned[] = [];
@@ -312,7 +323,9 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
         if (vertices) pinned.push({handle: -1, billboard, position, vertices, elements: [...label.atElements!]});
         order.push(vertices ? pinned[pinned.length - 1] : billboard);
     }
-    return track(owner, target?.token ?? null, (h) => {
+    // Labels in the world go with the result only when some are pinned to its elements.
+    const result = frame || pinned.length ? target?.token ?? null : null;
+    return track(owner, result, (h) => {
         const layer = h.labels(layerName(owner));
         if (!layer) return;
         // In the order they were given.

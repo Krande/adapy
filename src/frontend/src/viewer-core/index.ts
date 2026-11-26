@@ -795,7 +795,18 @@
 //          `PluginSpec.access`, `PropertyProvider.access`, `CommandSpec.access`, `ctx.access`, and on
 //          this entry `isPluginGateOpen(gate)`, `subscribePluginAccess(cb)` and the types `PluginAccess`,
 //          `PluginAccessSpec`, `PluginAccessAnswer`. See PLUGIN_API_VERSION's 1.41.0 note.
-export const VIEWER_CORE_API_VERSION = "1.41.0";
+//   1.42.0 Kept in step with PLUGIN_API_VERSION 1.42.0. Additive: on this entry,
+//          `onUiShellSwitchNotice` and the types `UiShellSwitchNotice`, `UiShellSwitchReason`;
+//          `skippedPluginReason`; `refIncludeState` and the type `RefInclude`; `applyProviderLayout`
+//          and the type `PropertyProviderLayout`. `UiShellSwitcher`'s `confirm` prop is on `/app`
+//          (the switcher component); `ObjectInfoBodyProps.providers` is on `/layout`.
+//          `CORE_COMMAND_IDS.showComplement` (`core:show-complement`) is part of the existing
+//          `CORE_COMMAND_IDS` export. See PLUGIN_API_VERSION's 1.42.0 note for the rest
+//          (`BuilderRef.look`, a ref provider's `duplicate`, `PanelOverride.titleFor`,
+//          `SceneOverlayFrame` and the `SceneHandle`/`SceneLines`/`SceneLabelOptions` fields it
+//          gates, `SelectionSnapshot.selectionSource`, `fieldLabel`/`useFieldLabel`) -- all
+//          already exported from here, newly given a version note.
+export const VIEWER_CORE_API_VERSION = "1.42.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -811,6 +822,7 @@ export {
   notifyPluginActivationChanged,
   PLUGIN_API_VERSION,
   registerPlugin,
+  skippedPluginReason,
   subscribePluginAccess,
 } from "@/plugins/registry";
 export type {
@@ -892,6 +904,7 @@ export type {
   SceneModelPose,
   SceneModelSource,
   SceneOverlay,
+  SceneOverlayFrame,
   ScenePointLayer,
   ScenePointLayerSpec,
   SelectedObjectBox,
@@ -923,6 +936,7 @@ export {
   getUiShell,
   listUiShells,
   loadedByShellSwitch,
+  onUiShellSwitchNotice,
   setActiveUiShell,
   shellSwitchUrl,
   subscribeActiveUiShell,
@@ -938,6 +952,8 @@ export type {
   UiShellMode,
   UiShellResolution,
   UiShellSpec,
+  UiShellSwitchNotice,
+  UiShellSwitchReason,
 } from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
@@ -1215,6 +1231,8 @@ export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, Mod
 export type { BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec } from "@/state/cellbuilder/refsSlice";
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
+export { refIncludeState } from "@/utils/cellbuilder/refInclude";
+export type { RefInclude } from "@/utils/cellbuilder/refInclude";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
 // (1.29.0) Weld types as people read them: a weld type's ISO 2553 symbol as an SVG icon (generated from
 // `ada.api.weld_symbols`, drawn in the browser, the same markup as the server's `to_svg`) and its short name.
@@ -1229,11 +1247,12 @@ export {
 } from "@/plugins/sceneTreeRoots";
 export type { SceneTreeRootProvider } from "@/plugins/sceneTreeRoots";
 export {
+  applyProviderLayout,
   listPropertyProviders,
   providersFor,
   registerPropertyProvider,
 } from "@/plugins/propertyProviders";
-export type { ElementNodeRef, PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export type { ElementNodeRef, PropertyProvider, PropertyProviderLayout, SelectionSnapshot } from "@/plugins/propertyProviders";
 export {
   alertDialog,
   confirmDialog,

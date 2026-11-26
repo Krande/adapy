@@ -10,7 +10,16 @@
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
 
-import {hasVisibilitySelection, hideOthers, hideSelection, showAll, showSelection} from "@/utils/scene/visibilityActions";
+import {
+  hasHiddenToComplement,
+  hasShowTarget,
+  hasVisibilitySelection,
+  hideOthers,
+  hideSelection,
+  showAll,
+  showComplement,
+  showSelection,
+} from "@/utils/scene/visibilityActions";
 import {useMemo} from "react";
 import {useStore} from "zustand";
 
@@ -413,7 +422,10 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       keywords: ["unhide", "add selection", "bring back", "visible"],
       shortcut: "core:show-selected",
-      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      // With nothing selected, the command still runs (restoring the last hide) as long as
+      // there is one to restore -- `hasShowTarget` covers both, so "Nothing selected" is shown
+      // only when neither applies.
+      disabledReason: () => (hasShowTarget() ? null : nothingSelected()),
       run: () => void showSelection(),
     },
     {
@@ -423,6 +435,15 @@ export function coreCommandSpecs(): CommandSpec[] {
       shortcut: "core:show-all",
       disabledReason: noViewport,
       run: () => void showAll(),
+    },
+    {
+      id: ID.showComplement,
+      label: "Show complement",
+      group: "Edit",
+      keywords: ["invert visibility", "swap hidden", "genie"],
+      shortcut: "core:show-complement",
+      disabledReason: () => (hasHiddenToComplement() ? null : "Nothing is hidden"),
+      run: () => void showComplement(),
     },
     // View
     {
@@ -1138,8 +1159,10 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "User interface",
       checked: () => activeUiShellId() === shell.id,
       // Persisted, then in place (core's own UI, composed shells) or by a reload (`setActiveUiShell`).
+      // "palette": an explicit pick in the command palette, so the switch toast
+      // (unless this is core -> core, a no-op above) says why.
       run: () => {
-        if (activeUiShellId() !== shell.id) setActiveUiShell(shell.id);
+        if (activeUiShellId() !== shell.id) setActiveUiShell(shell.id, { reason: "palette" });
       },
     });
   }

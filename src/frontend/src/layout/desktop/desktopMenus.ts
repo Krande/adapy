@@ -61,7 +61,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         C.groupSelection,
         SEP,
         { label: "Navigate", items: [C.selectParent, C.selectChild, C.selectPrevSibling, C.selectNextSibling] },
-        { label: "Visibility", items: [C.hideSelected, C.hideOthers, C.showAll] },
+        { label: "Visibility", items: [C.hideSelected, C.hideOthers, C.showAll, C.showComplement] },
       ],
     },
     {

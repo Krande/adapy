@@ -268,7 +268,10 @@ export type { RelatedAction } from "@/utils/systems/relatedActions";
 // descriptions under the active engine's `field_help`, the engine winning per column), by doc list
 // and column: `fieldHelp("spaces", "GRID_X_CREATE")`; `useFieldHelp` follows the catalog and the
 // engine picked. The pure `engineFieldHelp(engines, slug)` / `fieldHelpText(help, list, column)` too.
-export { engineFieldHelp, fieldHelp, fieldHelpText, useFieldHelp } from "@/state/cellbuilder/fieldHelp";
+// Engine UI labels: the same catalog's `<list>.labels` sibling entry, by the same convention --
+// `fieldLabel` / `useFieldLabel` follow it exactly as the help text pair does, so a plugin's own
+// field can show the engine's label the way core's does.
+export { engineFieldHelp, fieldHelp, fieldHelpText, fieldLabel, useFieldHelp, useFieldLabel } from "@/state/cellbuilder/fieldHelp";
 export type { FieldHelp } from "@/state/cellbuilder/fieldHelp";
 
 // Builder refs (1.31.0): a plugin's or a shell's rows shown as boxes among the cell builder's

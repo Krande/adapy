@@ -541,6 +541,34 @@ export function bootUiShellId(): string {
 const _activeListeners = new Set<() => void>();
 let _activeVersion = 0;
 
+/** Why `setActiveUiShell` was called -- carried through to the switch toast so it reads
+ * "Switched to <name> (<reason>)" instead of silently. The three callers that exist today: the
+ * Docked header's interface dropdown, the command palette's "User interface" entries, and the
+ * Options panel's interface select. */
+export type UiShellSwitchReason = "switcher" | "palette" | "options";
+
+/** What a switch toast needs: the shell switched TO (its id and label) and why. No toast is
+ * notified for a switch FROM core (Classic unchanged — see `setActiveUiShell`), nor for a switch
+ * with no `reason` (a caller that does not name one, e.g. a plain `?ui=` boot). */
+export interface UiShellSwitchNotice {
+  toId: string;
+  toLabel: string;
+  /** The shell switched FROM -- "the way back" the toast offers. */
+  fromId: string;
+  reason: UiShellSwitchReason;
+}
+
+const _switchNoticeListeners = new Set<(notice: UiShellSwitchNotice) => void>();
+
+/** Called after an IN-PLACE switch whose caller named a `reason`, away from a shell that
+ * was not core. Returns the unsubscribe. */
+export function onUiShellSwitchNotice(cb: (notice: UiShellSwitchNotice) => void): () => void {
+  _switchNoticeListeners.add(cb);
+  return () => {
+    _switchNoticeListeners.delete(cb);
+  };
+}
+
 /** Called after an in-place switch has changed the active shell. Returns the unsubscribe. */
 export function subscribeActiveUiShell(cb: () => void): () => void {
   _activeListeners.add(cb);
@@ -683,7 +711,11 @@ function stripUiParamInPlace(): void {
  * `loadedByShellSwitch`. `reload: false` only persists the choice; the
  * next page load picks it up.
  */
-export function setActiveUiShell(id: string | null, opts: { reload?: boolean } = {}): void {
+export function setActiveUiShell(id: string | null, opts: { reload?: boolean; reason?: UiShellSwitchReason } = {}): void {
+  // Read BEFORE anything below changes it: the shell this switch is FROM, for the switch toast
+  // (no toast away from core — Classic's switch path is unchanged) and for nothing else, so a
+  // caller that only wants `reload: false` (persist-only, no switch) pays nothing extra.
+  const fromId = opts.reason ? activeUiShell().id : null;
   try {
     if (typeof localStorage !== "undefined") {
       if (id) localStorage.setItem(UI_SHELL_STORAGE_KEY, id);
@@ -714,6 +746,20 @@ export function setActiveUiShell(id: string | null, opts: { reload?: boolean } =
         l();
       } catch (err) {
         console.warn("[plugins] a UI-shell listener threw", err);
+      }
+    }
+    // A toast names the switch and why, UNLESS the page is about to show it silently --
+    // i.e. only an in-place switch (the page the toast would show on), only a caller that named a
+    // `reason`, and never away from core (Classic's own switch path stays as it behaves today).
+    if (opts.reason && fromId !== CORE_UI_SHELL_ID && next.id !== fromId) {
+      const label = getUiShell(next.id)?.label ?? next.id;
+      for (const l of [..._switchNoticeListeners]) {
+        try {
+          // fromId is non-null here: it is computed from this same `opts.reason` check, above.
+          l({ toId: next.id, toLabel: label, fromId: fromId!, reason: opts.reason });
+        } catch (err) {
+          console.warn("[plugins] a UI-shell switch-notice listener threw", err);
+        }
       }
     }
     return;

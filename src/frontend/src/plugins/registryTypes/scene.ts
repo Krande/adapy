@@ -80,7 +80,16 @@ export interface SceneGroupLoad {
   tone: "info" | "warn";
 }
 
-/** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
+/** The coordinates an overlay's points are in. "fea" (the default): the FEA model's own while one
+ *  is loaded (the active FEA mesh's local frame, which core recentres), the viewport's world
+ *  otherwise; what is drawn so goes with that FEA result. "world": the viewport's world whether an
+ *  FEA model is loaded or not -- no FEA matrix applied, and kept while results come and go -- for
+ *  a plugin that places its points itself (from the scene's own translation, say). Additive: an
+ *  older core draws every overlay as "fea", so a plugin reads `SceneHandle.overlayFrames` first. */
+export type SceneOverlayFrame = "fea" | "world";
+
+/** Line segments in the FEA model's coordinates (world coordinates without an FEA model, or with
+ *  `frame: "world"`). */
 export interface SceneLines {
   // 6 numbers per segment: x0, y0, z0, x1, y1, z1.
   segments: Float32Array | readonly number[];
@@ -93,6 +102,7 @@ export interface SceneLines {
   // Drawn over the model instead of hidden behind it (a selection behind a deck is still where
   // it is). Of several, the one added last draws on top.
   throughModel?: boolean;
+  frame?: SceneOverlayFrame; // what `segments` are in; default "fea"
 }
 
 /** The outline of FEA elements' faces: the edges no two of them share, following the warp. */
@@ -124,6 +134,9 @@ export interface SceneLabel {
 
 export interface SceneLabelOptions {
   heightPx?: number; // on-screen height, CSS px; default 18
+  // What the labels' `position`s are in (`SceneOverlayFrame`); default "fea". A label `atElements`
+  // stays on its elements either way.
+  frame?: SceneOverlayFrame;
 }
 
 /** Colours for elements of the active FEA mesh, drawn over the model and following its warp. */
@@ -402,6 +415,9 @@ export interface SceneHandle {
   addLabels: (owner: string, labels: SceneLabel[], opts?: SceneLabelOptions) => SceneOverlay;
   // Whether an FEA model is loaded (the frame the coordinates above are in).
   hasFeaModel: () => boolean;
+  // The `frame`s `addLines` and `addLabels` take (`SceneOverlayFrame`): ["fea", "world"]. Absent
+  // on an older core, which draws every overlay in the FEA model's frame.
+  overlayFrames?: readonly SceneOverlayFrame[];
   // Null when no FEA model is loaded (or, `on: "beamSolids"`, its beam solids are not shown).
   paintFeaElements: (owner: string, paint: SceneElementPaint) => SceneOverlay | null;
   // Null when no FEA model is loaded or none of `elements` is in it.

@@ -45,17 +45,36 @@ interface Props {
    * this in its title bar passes `compact`; the prose moves to the tooltip.
    */
   compact?: boolean;
+  /**
+   * Only an explicit pick switches. OFF by default (a native `<select>`'s `onChange`
+   * fires for arrow-key browsing and typing a letter too, which is Classic's Options select
+   * TODAY and stays that way). ON: the control stages the picked value instead of switching to
+   * it at once; a separate "Switch" button commits it, so arrows and typing alone never switch.
+   * Docked's header switcher (`PLUGIN/chrome/Header.tsx`) opts in; Classic's Options select does
+   * not. */
+  confirm?: boolean;
+  /** Why a switch through this control happens, carried to the switch toast
+   * (`setActiveUiShell`'s `reason`). Default `"options"`: the Options panel is this
+   * component's only caller today; a caller elsewhere (the header switcher) names its own. */
+  reason?: "switcher" | "options";
 }
 
-export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compact }) => {
+export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compact, confirm, reason = "options" }) => {
   // An in-place switch changes the active shell without a reload.
   React.useSyncExternalStore(subscribeActiveUiShell, activeUiShellVersion, activeUiShellVersion);
   const shells = listUiShells();
   const active = activeUiShellId();
+  // A pick staged by `confirm` mode, not yet switched to; null once it matches `active` again
+  // (switched, or the active shell changed from elsewhere while one was staged).
+  const [staged, setStaged] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (staged === active) setStaged(null);
+  }, [active, staged]);
   if (shells.length < 2) return null;
 
   const wrapper = className ?? navBtnClass?.(false) ?? "";
   const current = shells.find((s) => s.id === active);
+  const pending = confirm && staged !== null && staged !== active ? staged : null;
 
   const control = (
     <select
@@ -73,10 +92,14 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
         "bg-[var(--ada-panel-bg)] text-[var(--ada-panel-text)] " +
         "border border-[var(--ada-panel-border)]"
       }
-      value={active}
+      value={pending ?? active}
       onChange={(e) => {
         const next = e.target.value;
-        if (next !== active) setActiveUiShell(next);
+        if (confirm) {
+          setStaged(next === active ? null : next);
+          return;
+        }
+        if (next !== active) setActiveUiShell(next, { reason });
       }}
     >
       {shells.map((s) => (
@@ -94,6 +117,21 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
       ))}
     </select>
   );
+  // confirm mode's commit: the ONLY path that switches while staging a pick -- a menu button's
+  // explicit press, never the select's own change event (arrows/typing only move `pending`).
+  const confirmButton = pending && (
+    <button
+      type="button"
+      data-testid="ui-shell-switcher-confirm"
+      className="rounded-sm border border-[var(--ada-panel-border)] px-2 py-1 text-xs text-[var(--ada-panel-text)]"
+      onClick={() => {
+        setActiveUiShell(pending, { reason });
+        setStaged(null);
+      }}
+    >
+      Switch to {shells.find((s) => s.id === pending)?.label ?? pending}
+    </button>
+  );
 
   // In a bar there is no room for prose, and a stacked label sets the row's
   // height. Everything the panel form spells out is still here, as the
@@ -101,12 +139,13 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
   if (compact) {
     return (
       <div
-        className={wrapper}
+        className={(wrapper + " flex items-center gap-2").trim()}
         title={
           (current?.description ? current.description + "\n\n" : "") + switchNote(active, shells)
         }
       >
         {control}
+        {confirmButton}
       </div>
     );
   }
@@ -115,7 +154,10 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
     <div className={wrapper}>
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-[var(--ada-panel-text)] opacity-70">User interface</span>
-        {control}
+        <div className="flex items-center gap-2">
+          {control}
+          {confirmButton}
+        </div>
         {current?.description && (
           <span className="text-[10px] text-[var(--ada-panel-text)] opacity-60">
             {current.description}

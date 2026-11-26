@@ -28,6 +28,8 @@ export const CORE_COMMAND_IDS = {
   hideOthers: "core:hide-others",
   showAll: "core:show-all",
   showSelected: "core:show-selected",
+  /** Swap what is shown for what is hidden (GeniE's "Show complement", Alt+Q). */
+  showComplement: "core:show-complement",
   fitAll: "core:fit-all",
   fitSelection: "core:fit-selection",
   resetCamera: "core:reset-camera",

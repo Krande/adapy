@@ -31,6 +31,15 @@ const _panels = new Map<PanelId, RegisteredPanel>();
  */
 export interface PanelOverride {
   title?: string;
+  /**
+   * The title as a function of the active mode (the composed shell's), beside the plain `title`.
+   * Preferred when present; `title` is the static fallback shown when it is absent, or when the
+   * core this override runs against is old enough that `view()` below does not read this key yet
+   * (an unknown override key is silently dropped, never copied) -- so a shell can set `titleFor`
+   * before a core release reads it. E.g. the Selected Object Info panel titled differently in a
+   * plugin mode than elsewhere.
+   */
+  titleFor?: (mode: string | null) => string;
   icon?: React.FC;
   hint?: string;
   shortcut?: string;
@@ -85,9 +94,12 @@ function view(p: RegisteredPanel): RegisteredPanel {
   const hit = _views.get(p.id);
   if (hit && hit.base === p && hit.mode === mode) return hit.view;
   const options = typeof o.options === "function" ? o.options(mode) : o.options;
+  // titleFor wins when given; it is recomputed on every mode change because `_views` keys its
+  // cache on (base, mode), same as `options` above.
+  const title = o.titleFor !== undefined ? o.titleFor(mode) : o.title;
   const v: RegisteredPanel = {
     ...p,
-    ...(o.title !== undefined ? { title: o.title } : {}),
+    ...(title !== undefined ? { title } : {}),
     ...(o.icon !== undefined ? { icon: o.icon } : {}),
     ...(o.hint !== undefined ? { hint: o.hint } : {}),
     ...(o.shortcut !== undefined ? { shortcut: o.shortcut } : {}),

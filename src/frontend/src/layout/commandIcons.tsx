@@ -95,6 +95,15 @@ export const ShowAllIcon = glyph(
   </>,
   "ShowAll",
 );
+/** Show complement: a half-open eye, swapped sides by the arrows -- what is shown and what is
+ *  hidden trade places. */
+export const ShowComplementIcon = glyph(
+  <>
+    <path d="M2.5 12C4.5 7.5 8 5.5 12 5.5s7.5 2 9.5 6.5c-2 4.5-5.5 6.5-9.5 6.5S4.5 16.5 2.5 12Z" />
+    <path d="M8 9 5 12l3 3M16 9l3 3-3 3" strokeWidth="1" />
+  </>,
+  "ShowComplement",
+);
 export const FitAllIcon = glyph(<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M9 9l-5-5M15 9l5-5M15 15l5 5M9 15l-5 5" />, "FitAll");
 export const FitSelectionIcon = glyph(
   <>
@@ -399,6 +408,7 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.hideSelected]: HideIcon,
   [C.hideOthers]: HideOthersIcon,
   [C.showAll]: ShowAllIcon,
+  [C.showComplement]: ShowComplementIcon,
   [C.fitAll]: FitAllIcon,
   [C.fitSelection]: FitSelectionIcon,
   [C.resetCamera]: HomeIcon,

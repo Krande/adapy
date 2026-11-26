@@ -76,9 +76,15 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   {
     id: "core:show-selected",
     keys: "Shift+S",
-    label: "Show the selection again (a level picked in the tree brings back everything hidden under it)",
+    label: "Show the selection again (a level picked in the tree brings back everything hidden under it; with nothing selected, restores the last hide)",
     group: VIEWER,
     keepDefault: true,
+  },
+  {
+    id: "core:show-complement",
+    keys: "Alt+Q",
+    label: "Show complement: swap what is shown for what is hidden",
+    group: VIEWER,
   },
   {
     id: "core:undo",
@@ -195,7 +201,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
     label: "Preview-compile the current model (when it has uncommitted changes)",
     group: BUILDER,
   },
-  { id: "core:builder-translate", keys: "G", label: "Translate gizmo (cell or equipment selected)", group: BUILDER, local: true },
+  { id: "core:builder-translate", keys: "G", label: "Translate gizmo (cell or equipment selected; a structure picked on its own moves the whole structure)", group: BUILDER, local: true },
   { id: "core:builder-rotate", keys: "R", label: "Rotate gizmo (equipment only)", group: BUILDER, local: true },
   { id: "core:builder-resize", keys: "S", label: "Resize gizmo (cell, opening or equipment)", group: BUILDER, local: true },
   { id: "core:builder-lock-x", keys: "X", label: "Lock the active gizmo to the X axis (press again to release)", group: BUILDER, local: true },
@@ -247,6 +253,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:builder-prev-cell", keys: "P", label: "Select the previous cell (in an equipment insert: the previous host)", group: BUILDER, local: true },
   { id: "core:builder-next-element", keys: "F", label: "Next face or edge of the selection (on a loft: the next station)", group: BUILDER, local: true },
   { id: "core:builder-prev-element", keys: "D", label: "Previous face or edge (on a loft: the previous station)", group: BUILDER, local: true },
+  { id: "core:builder-duplicate", keys: "Shift+D", label: "Duplicate the selection (then place it)", group: BUILDER, local: true },
   { id: "core:builder-face-up", keys: "ArrowUp", label: "With a cell face selected: the neighbouring face above it on screen", group: BUILDER, local: true },
   { id: "core:builder-face-down", keys: "ArrowDown", label: "With a cell face selected: the neighbouring face below it on screen", group: BUILDER, local: true },
   { id: "core:builder-face-left", keys: "ArrowLeft", label: "With a cell face selected: the neighbouring face to its left on screen", group: BUILDER, local: true },

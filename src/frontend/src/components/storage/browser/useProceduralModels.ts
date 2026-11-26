@@ -3,13 +3,14 @@ import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import {isGlobalPanel} from "@/layout/presets/classicPlace";
-import {useCellBuilderStore, cellsFromDoc} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, placedCellsFromDoc} from "@/state/cellBuilderStore";
 import {
     companionSourceName,
     useCompanionModelStore,
     type CompanionRep,
 } from "@/state/companionModelStore";
 import {cellsWidthX, nextModelOffsetX} from "@/utils/cellbuilder/modelPlacement";
+import {placedCells} from "@/utils/cellbuilder/include";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {
     getSourceOffset,
@@ -133,14 +134,14 @@ export function useProceduralModels(p: {
 
     const addCompanion = async (m: ProceduralModelSummary) => {
         const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
-        const cells = Object.values(cellsFromDoc(detail.doc));
+        const cells = placedCellsFromDoc(detail.doc);
         const placed = Object.values(useCompanionModelStore.getState().companions).map((c) => ({
             offsetX: c.offsetX,
             width: cellsWidthX(c.cells),
         }));
         const active = useCellBuilderStore.getState();
         if (active.active) {
-            placed.push({offsetX: 0, width: cellsWidthX(Object.values(active.cells))});
+            placed.push({offsetX: 0, width: cellsWidthX(Object.values(placedCells(active.cells, active.groups, active.loftMembers)))});
         }
         useCompanionModelStore.getState().add({
             modelId: m.id,
@@ -188,7 +189,7 @@ export function useProceduralModels(p: {
             store.add({
                 modelId: prev.modelId,
                 name: prev.name,
-                cells: Object.values(cellsFromDoc(detail.doc)),
+                cells: placedCellsFromDoc(detail.doc),
                 rep: "topology",
                 // Keep the outgoing model where the incoming one had been, so
                 // the two trade places instead of landing on each other.
