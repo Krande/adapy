@@ -68,8 +68,18 @@ export const BROWSER_CONTACT_CHECKER: WireClashChecker = {
       unit: "× thickness",
       help:
         "Contacts whose patch (area over its longest chord) is narrower than this fraction of the thinner member's wall " +
-        "or plate thickness -- an edge grazing a face -- are dropped, unless one member runs into the other. Applied when " +
-        "the run's specs are resolved; 0 keeps them.",
+        "or plate thickness -- an edge grazing a face -- are dropped, unless one member runs into the other. 0 keeps them.",
+    },
+    {
+      key: "keep_penetration_depth",
+      label: "Keep overlaps deeper than",
+      type: "number",
+      default: 0.002,
+      min: 0,
+      unit: "m",
+      help:
+        "A member overlapping another deeper than this -- one driven into the other, as a stick model's brace into its " +
+        "column -- is kept whatever its contact area and width. 0 turns this off.",
     },
   ],
   uses_core_options: false,

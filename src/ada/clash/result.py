@@ -23,6 +23,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from ada.clash._seq import as_items
+
 __all__ = [
     "CLASH_RESULT_SCHEMA",
     "READABLE_CLASH_RESULT_SCHEMAS",
@@ -145,7 +147,7 @@ class ClashContact:
         return cls(
             normal=_vec3(raw.get("normal")),
             penetration_depth=_opt_float(raw.get("penetration_depth")),
-            near_points=tuple(_vec3(p) for p in raw.get("near_points") or ()),  # type: ignore[misc]
+            near_points=tuple(_vec3(p) for p in as_items(raw.get("near_points"))),  # type: ignore[misc]
             contact_area=_opt_float(raw.get("contact_area")),
             security_margin=_opt_float(raw.get("security_margin")),
             incoming_angle_deg=_opt_float(raw.get("incoming_angle_deg")),

@@ -76,30 +76,33 @@ def check_glb(
 ) -> ContactRun:
     """Measure the members of the viewer GLB ``glb`` (the bytes stored at ``glb_key``).
 
-    ``min_contact_area`` and ``min_contact_width_ratio`` default to the checker's
-    (``ada.clash.contact_criteria``); the engine applies the area, an annotate the width ratio."""
+    The contacts are judged here, at detection time, by ``min_contact_area``,
+    ``min_contact_width_ratio`` and ``keep_penetration_depth`` (each defaulting to the checker's,
+    ``ada.clash.contact_criteria``): a run is complete without an annotate. The width is judged by
+    the members' meshes in the GLB (it carries no sections); an annotate judges it again by the
+    rebuilt members, where their walls are known."""
     import adacpp.clash  # noqa: PLC0415 - guarded by available()
 
-    from ada.clash.contact_criteria import (
-        DEFAULT_MIN_CONTACT_AREA,
-        DEFAULT_MIN_CONTACT_WIDTH_RATIO,
-    )
+    from ada.clash.contact_criteria import ContactCriteria
 
+    raw = dict(options or {})
+    criteria = ContactCriteria.from_options(raw)
     opts = {
-        "security_margin": float((options or {}).get("security_margin", adacpp.clash.DEFAULT_SECURITY_MARGIN)),
-        "min_contact_area": float((options or {}).get("min_contact_area", DEFAULT_MIN_CONTACT_AREA)),
-        "line_contact_thickness": float(
-            (options or {}).get("line_contact_thickness", adacpp.clash.DEFAULT_LINE_CONTACT_THICKNESS)
-        ),
+        "security_margin": float(raw.get("security_margin", adacpp.clash.DEFAULT_SECURITY_MARGIN)),
+        "min_contact_area": criteria.min_contact_area,
+        "line_contact_thickness": float(raw.get("line_contact_thickness", adacpp.clash.DEFAULT_LINE_CONTACT_THICKNESS)),
     }
-    found = adacpp.clash.find_glb_contacts(glb, up_axis=up_axis, **opts)
-    # Not the engine's: applied when the run is annotated, where the members are known.
-    opts["min_contact_width_ratio"] = float(
-        (options or {}).get("min_contact_width_ratio", DEFAULT_MIN_CONTACT_WIDTH_RATIO)
+    found = adacpp.clash.find_glb_contacts(
+        glb,
+        up_axis=up_axis,
+        security_margin=opts["security_margin"],
+        min_contact_area=criteria.engine_min_contact_area,
+        line_contact_thickness=opts["line_contact_thickness"],
     )
+    opts.update(criteria.to_options())
     for i, j, reason in found["failures"]:
         logger.warning(f"clash: no contact measured between members {i} and {j}: {reason}")
-    return run_from_glb_contacts(
+    run = run_from_glb_contacts(
         found,
         run_id=run_id or uuid.uuid4().hex,
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -114,6 +117,36 @@ def check_glb(
             "degenerate": [int(k) for k in found["degenerate"]],
         },
     )
+    return _judged(run, None, lambda: member_vertices(run, lambda _key: glb))
+
+
+def _judged(run: ContactRun, binding: MemberBinding | None, mesh_of: Callable[[], Mapping[int, Any]]) -> ContactRun:
+    """``run`` without the contacts its criteria drop (``ContactCriteria.from_options(run.options,
+    of_run=True)``: a rule a run's options do not name is off for it), counted in its provenance
+    (``below_min_area``, ``below_min_width``). The members' thicknesses and ends come from the bound
+    members where ``binding`` binds them, else from their meshes (``ada.clash.contact_criteria``)."""
+    from ada.clash.contact_criteria import ContactCriteria, member_shape, mesh_shape
+
+    criteria = ContactCriteria.from_options(run.options, of_run=True)
+    shapes: dict[int, Any] = {}
+
+    def shape_of(k: int):
+        if k not in shapes:
+            member = binding.member(k) if binding is not None else None
+            found = member_shape(member) if member is not None else None
+            if found is None and k in mesh_of():
+                found = mesh_shape(mesh_of()[k])
+            shapes[k] = found
+        return shapes[k]
+
+    kept, below_area, below_width = criteria.judge(run.contacts, shape_of)
+    if not below_area and not below_width:
+        return run
+    provenance = dict(run.provenance)
+    for key, n in (("below_min_area", below_area), ("below_min_width", below_width)):
+        if n:
+            provenance[key] = int(provenance.get(key) or 0) + n
+    return replace(run, contacts=tuple(kept), provenance=provenance)
 
 
 class MemberBinding:
@@ -204,19 +237,10 @@ def found_for(run: ContactRun, record: ContactRecord, binding: MemberBinding):
         },
         float(run.options.get("security_margin", 0.0)),
     )
-    flipped = found.members[0] is members[1]
-    patches = [
-        {
-            # Restated incoming-first, like the near points and the normal.
-            "normal": [-c for c in p.normal] if flipped else list(p.normal),
-            "points_incoming": [list(q) for q in (p.points2 if flipped else p.points1)],
-            "points_landing": [list(q) for q in (p.points1 if flipped else p.points2)],
-        }
-        for p in record.patches
-    ]
+    # The patches are restated incoming-first there, like the near points and the normal.
     contact = dict(found.contact)
     extras = dict(contact.get("extras") or {})
-    extras.update({"clash_id": record.id, "run_id": run.run_id, "patches": patches})
+    extras.update({"clash_id": record.id, "run_id": run.run_id})
     contact["extras"] = extras
     found.origin = "convex-contact"
     found.contact = ClashContact.from_dict(contact)
@@ -356,9 +380,10 @@ def annotate_applicable(
     them the first time one is needed -- so a run whose model cannot be rebuilt here still says which
     member is incoming. ``provenance["roles"]`` counts how each clash's roles were resolved.
 
-    Edge grazes are dropped first, where the run's options ask for it (``min_contact_width_ratio``,
-    ``ada.clash.contact_criteria``): this is where the members' thicknesses and ends are known.
-    ``provenance["below_min_width"]`` counts them."""
+    The run's criteria are applied first (``min_contact_area`` with ``keep_penetration_depth``, and
+    ``min_contact_width_ratio``; ``ada.clash.contact_criteria``) -- again for a run measured by
+    :func:`check_glb`, now with the rebuilt members' walls, and for the first time for a run a
+    browser measured. ``provenance["below_min_area"]`` / ``["below_min_width"]`` count what they drop."""
     from ada.clash.builtin_specs import register_builtin_specs
     from ada.clash.match import applicable_specs
 
@@ -375,13 +400,13 @@ def annotate_applicable(
     def mesh_roles(record: ContactRecord) -> dict | None:
         return roles_from_meshes(record, mesh_of())
 
-    # Edge grazes go first: what is dropped gets no specs (``ada.clash.contact_criteria``).
-    contacts, below_min_width = _without_edge_grazes(run, binding, mesh_of)
+    # The criteria go first: what is dropped gets no specs (``ada.clash.contact_criteria``).
+    run = _judged(run, binding, mesh_of)
 
     unbound = 0
     counts = {"members": 0, "mesh": 0, "unresolved": 0}
     records = []
-    for record in contacts:
+    for record in run.contacts:
         try:
             found = found_for(run, record, binding)
         except LookupError:
@@ -401,44 +426,4 @@ def annotate_applicable(
     provenance = dict(run.provenance)
     provenance["applicability"] = {"resolved": len(records) - unbound, "unbound": unbound}
     provenance["roles"] = counts
-    if below_min_width:
-        provenance["below_min_width"] = int(provenance.get("below_min_width") or 0) + below_min_width
     return replace(run, contacts=tuple(records), provenance=provenance), unbound
-
-
-def _without_edge_grazes(
-    run: ContactRun, binding: MemberBinding, mesh_of: Callable[[], Mapping[int, Any]]
-) -> tuple[tuple[ContactRecord, ...], int]:
-    """The run's contacts without the edge grazes its ``min_contact_width_ratio`` drops, and how
-    many were dropped. A run whose options do not name the ratio (one measured before it existed)
-    keeps every contact. The members' thicknesses and ends come from the rebuilt members where they
-    bind, else from their meshes (``ada.clash.contact_criteria``)."""
-    from ada.clash.contact_criteria import is_edge_contact, member_shape, mesh_shape
-
-    try:
-        ratio = float(run.options.get("min_contact_width_ratio") or 0.0)
-    except (TypeError, ValueError):
-        ratio = 0.0
-    if ratio <= 0.0:
-        return tuple(run.contacts), 0
-    margin = float(run.options.get("security_margin") or 0.0)
-    shapes: dict[int, Any] = {}
-
-    def shape(k: int):
-        if k not in shapes:
-            member = binding.member(k)
-            found = member_shape(member) if member is not None else None
-            if found is None and k in mesh_of():
-                found = mesh_shape(mesh_of()[k])
-            shapes[k] = found
-        return shapes[k]
-
-    kept = []
-    for record in run.contacts:
-        i, j = record.members
-        if is_edge_contact(
-            record.contact_area, record.patches, record.centre, shape(i), shape(j), ratio=ratio, margin=margin
-        ):
-            continue
-        kept.append(record)
-    return tuple(kept), len(run.contacts) - len(kept)

@@ -5,16 +5,21 @@ that meet, plates beside beams -- which members are meant to connect. The convex
 a different question: which members' solids actually touch or overlap, and by how much -- the contact
 a connection is sized from (nearest points, normal, penetration depth, contact patch).
 
-ITS INPUT IS THE VIEWER GLB, NOT THE MEMBER MODEL. The solids it measures are the ones the viewer
-shows, read straight out of the GLB by adacpp (``adacpp.clash.find_glb_contacts``) -- the same bytes
-and the same C++ in a browser (wasm) and on a worker, so both find the same clashes. A run is a
-sidecar document (``ada.clash.sidecar``); ``ada.clash.contacts`` runs it and hands its clashes to a
-builder; ``/scopes/{scope}/clash-contacts`` is its REST surface. It is therefore NOT a pass over a
-rebuilt member model: :func:`convex_contact_pass` refuses, by name, to run inside ``run_clash_check``.
+TWO INPUTS, ONE CHECK.
 
-The checker is still registered (:func:`register`) -- so the panel offers it and routing knows it as
-core's -- and this module keeps the ROLE rules a detail applies to a run's clash once its members are
-bound (:func:`found_from_contact`):
+* THE VIEWER GLB, which is what the viewer's Clashes tab measures. The solids are the ones the viewer
+  shows, read straight out of the GLB by adacpp (``adacpp.clash.find_glb_contacts``) -- the same bytes
+  and the same C++ in a browser (wasm) and on a worker, so both find the same clashes. A run is a
+  sidecar document (``ada.clash.sidecar``); ``ada.clash.contacts`` runs it and hands its clashes to a
+  builder; ``/scopes/{scope}/clash-contacts`` is its REST surface.
+* A MEMBER MODEL, in process: :func:`convex_contact_pass` -- the pass ``run_clash_check`` runs when
+  this checker is picked -- tessellates the beams and plates and measures their convex hulls
+  (``ada.clash.mesh_contacts``). The way a connection generator detailing a model in its own process
+  checks it.
+
+Both judge their contacts by the same criteria (``ada.clash.contact_criteria``), with the same
+options. This module keeps the ROLE rules a contact is written by once its members are known
+(:func:`found_from_contact`):
 
 ROLES. A contact names which member is INCOMING (the one whose end is at the contact) and which is
 LANDING. The contact PATCH decides first where it can (:func:`pick_incoming`): a face patch whose plane
@@ -35,27 +40,32 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
+from ada.clash._seq import as_items
 from ada.clash.builtin_names import CONVEX_CONTACT_CHECKER, CONVEX_CONTACT_PASS
 from ada.clash.contact_criteria import (
+    DEFAULT_KEEP_PENETRATION_DEPTH,
     DEFAULT_MIN_CONTACT_AREA,
     DEFAULT_MIN_CONTACT_WIDTH_RATIO,
 )
+from ada.clash.mesh_contacts import DEFAULT_SECURITY_MARGIN
 from ada.config import logger
 
 __all__ = [
+    "DEFAULT_KEEP_PENETRATION_DEPTH",
     "DEFAULT_MIN_CONTACT_AREA",
     "DEFAULT_MIN_CONTACT_WIDTH_RATIO",
     "DEFAULT_SECURITY_MARGIN",
     "available",
     "convex_contact_pass",
     "found_from_contact",
+    "patches_incoming_first",
     "pick_incoming",
     "register",
 ]
 
-DEFAULT_SECURITY_MARGIN = 0.01
-# DEFAULT_MIN_CONTACT_AREA (200 mm²) and DEFAULT_MIN_CONTACT_WIDTH_RATIO (half the thinner wall): what
-# counts as a contact, from ``ada.clash.contact_criteria``.
+# DEFAULT_SECURITY_MARGIN (10 mm, ``ada.clash.mesh_contacts``),
+# DEFAULT_MIN_CONTACT_AREA (200 mm²), DEFAULT_MIN_CONTACT_WIDTH_RATIO (half the thinner wall) and
+# DEFAULT_KEEP_PENETRATION_DEPTH (2 mm): what counts as a contact, from ``ada.clash.contact_criteria``.
 
 
 def available() -> bool:
@@ -115,15 +125,15 @@ def _face_patch(patches) -> tuple[np.ndarray, np.ndarray] | None:
     ``ContactPatch`` with ``points1``): only the normal's line and the polygon's area matter here, so
     which member's side of the patch the points are on does not."""
     best: tuple[float, np.ndarray, np.ndarray] | None = None
-    for patch in patches or ():
+    for patch in as_items(patches):
         get = patch.get if isinstance(patch, Mapping) else lambda k, _p=patch: getattr(_p, k, None)
         normal, points = get("normal"), get("points")
         if points is None:
             points = get("points1") if get("points1") is not None else get("points_incoming")
         if normal is None or points is None:
             continue
-        pts = np.asarray([[float(c) for c in q[:3]] for q in points], dtype=float).reshape(-1, 3)
-        n = np.asarray([float(c) for c in normal[:3]], dtype=float)
+        pts = np.asarray([[float(c) for c in list(q)[:3]] for q in as_items(points)], dtype=float).reshape(-1, 3)
+        n = np.asarray([float(c) for c in list(as_items(normal))[:3]], dtype=float)
         if not np.linalg.norm(n) or len(pts) < 3:
             continue
         area = _polygon_area(pts)
@@ -188,11 +198,34 @@ def _incoming_angle(incoming, end: str, normal: np.ndarray) -> float | None:
     return float(Direction(*direction).get_normalized().get_angle(Direction(*normal), as_degrees=True))
 
 
+def patches_incoming_first(patches, flipped: bool) -> list[dict]:
+    """A contact's patch polygons as a ``ClashContact`` carries them (``extras["patches"]``):
+    ``{"normal", "points_incoming", "points_landing"}`` each, plain lists. ``patches`` are in the
+    engine's order (``points1`` on member ``i``, the normal from ``i`` to ``j``) -- mappings, a run's
+    ``ContactPatch``es, numpy arrays or lists; ``flipped`` where member ``j`` is the incoming one."""
+    out = []
+    for patch in as_items(patches):
+        get = patch.get if isinstance(patch, Mapping) else lambda k, _p=patch: getattr(_p, k, None)
+        normal = [float(v) for v in as_items(get("normal"))]
+        p1 = [[float(v) for v in q] for q in as_items(get("points1"))]
+        p2 = [[float(v) for v in q] for q in as_items(get("points2"))]
+        out.append(
+            {
+                "normal": [-v for v in normal] if flipped else normal,
+                "points_incoming": p2 if flipped else p1,
+                "points_landing": p1 if flipped else p2,
+            }
+        )
+    return out
+
+
 def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
     """One measured contact as the ``_Found`` a clash pass returns, written incoming-first.
 
     ``c`` is the contact in the engine's order: ``i`` / ``j`` index ``members``, ``near1`` is on member
     ``i``, ``normal`` points from ``i`` to ``j`` and ``penetration_depth`` is signed (negative overlap).
+    Its ``patches``, where it has them, are carried incoming-first in ``contact.extras["patches"]``
+    (:func:`patches_incoming_first`).
     """
     from ada.clash.identify import _Found
 
@@ -226,8 +259,13 @@ def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
     }
     if angle is not None:
         contact["incoming_angle_deg"] = angle
+    extras: dict[str, Any] = {}
     if end is not None:
-        contact["extras"] = {"incoming_end": end}
+        extras["incoming_end"] = end
+    if c.get("patches") is not None:
+        extras["patches"] = patches_incoming_first(c["patches"], flipped)
+    if extras:
+        contact["extras"] = extras
 
     return _Found(
         members=ordered,
@@ -240,11 +278,23 @@ def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
 
 
 def convex_contact_pass(part, options, *, beams=None, plates=None) -> Iterable[Any]:
-    """Refuses: the convex-contact check measures the viewer GLB, not a rebuilt member model."""
-    raise ValueError(
-        "the convex-contact check runs on the viewer GLB, not on a member model: run it through "
-        "POST /scopes/{scope}/clash-contacts (or in the browser), which keeps the run as a sidecar"
-    )
+    """The pass over a member model: one ``_Found`` per contact between the beams and plates of
+    ``part`` (``ada.clash.mesh_contacts.find_member_contacts``), judged by the checker's options
+    (``ClashOptions.checker_options``) exactly as a run over the viewer GLB is.
+
+    ``beams`` / ``plates`` are what core collected from ``part``; a caller that passes neither gets
+    the walk."""
+    from ada import Beam, Plate
+    from ada.clash.mesh_contacts import criteria_options, find_member_contacts
+
+    if beams is None and plates is None:
+        beams = list(part.get_all_physical_objects(by_type=Beam))
+        plates = list(part.get_all_physical_objects(by_type=Plate))
+    members = [*(beams or ()), *(plates or ())]
+    found = find_member_contacts(members, **criteria_options(getattr(options, "checker_options", None)))
+    if found.skipped:
+        logger.warning(f"clash: {len(found.skipped)} member(s) could not be tessellated and were not checked")
+    return found.found
 
 
 _registered = False
@@ -270,7 +320,8 @@ def register() -> bool:
             name=CONVEX_CONTACT_PASS,
             label="Solids touching or overlapping: contact normal, penetration depth and contact patch",
             checker=CONVEX_CONTACT_CHECKER,
-            needs_backend=False,
+            # Over a member model it tessellates the members (a run over a GLB needs none).
+            needs_backend=True,
             fn=convex_contact_pass,
             priority=30,
         )
@@ -284,7 +335,8 @@ def register() -> bool:
                 "Interference between the members' solids as the viewer shows them: finds members that "
                 "touch or overlap, with the contact normal, penetration depth, contact-patch area and "
                 "patch outline a connection is sized from. For detail models, where parts meet as "
-                "fabricated. Runs in the browser or on a worker; each run is kept beside its model."
+                "fabricated. Runs in the browser or on a worker; each run is kept beside its model. "
+                "Also runs over a member model in process, on each member's convex hull."
             ),
             options=(
                 {
@@ -315,7 +367,18 @@ def register() -> bool:
                     "unit": "× thickness",
                     "help": "Contacts whose patch (area over its longest chord) is narrower than this fraction of "
                     "the thinner member's wall or plate thickness -- an edge grazing a face -- are dropped, "
-                    "unless one member runs into the other. Applied when the run's specs are resolved; 0 keeps them.",
+                    "unless one member runs into the other. 0 keeps them.",
+                },
+                {
+                    "key": "keep_penetration_depth",
+                    "label": "Keep overlaps deeper than",
+                    "type": "number",
+                    "default": DEFAULT_KEEP_PENETRATION_DEPTH,
+                    "min": 0,
+                    "unit": "m",
+                    "help": "A member overlapping another deeper than this -- one driven into the other, as a "
+                    "stick model's brace into its column -- is kept whatever its contact area and width. "
+                    "0 turns this off.",
                 },
             ),
             uses_core_options=False,

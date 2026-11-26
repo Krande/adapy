@@ -14,6 +14,8 @@ import hashlib
 import time
 from typing import Any, Callable, Mapping
 
+from ada.clash._seq import as_items
+
 __all__ = [
     "DETAIL_SHARES",
     "DetailReporter",
@@ -348,7 +350,7 @@ def _weld_line(weld) -> Any:
         curve = getattr(weld, "sweep_curve", None)
         pts = []
         for attr in ("points3d", "points"):
-            pts = [q for q in (_point(p) for p in (getattr(curve, attr, None) or ())) if q is not None]
+            pts = [q for q in (_point(p) for p in as_items(getattr(curve, attr, None))) if q is not None]
             if len(pts) >= 2:
                 break
     if len(pts) < 2:
@@ -389,10 +391,10 @@ def _patch_outlines(found) -> list[Any]:
 
     extras = getattr(getattr(found, "contact", None), "extras", None) or {}
     out = []
-    for patch in extras.get("patches") or ():
+    for patch in as_items(extras.get("patches")):
         if not isinstance(patch, Mapping):
             continue
-        pts = [q for q in (_point(p) for p in (patch.get("points_incoming") or ())) if q is not None]
+        pts = [q for q in (_point(p) for p in as_items(patch.get("points_incoming"))) if q is not None]
         if len(pts) >= 3:
             arr = np.asarray(pts, dtype=float)
             out.append(np.vstack([arr, arr[:1]]))
@@ -515,7 +517,7 @@ def _point(p: Any) -> tuple[float, float, float] | None:
 
 
 def _polyline_length(points: Any) -> float | None:
-    pts = [q for q in (_point(p) for p in (points or ())) if q is not None]
+    pts = [q for q in (_point(p) for p in as_items(points)) if q is not None]
     if len(pts) < 2:
         return None
     return sum(sum((b[i] - a[i]) ** 2 for i in range(3)) ** 0.5 for a, b in zip(pts, pts[1:]))

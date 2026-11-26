@@ -253,7 +253,11 @@ solids. `convex-contact` (`convex_contact.py`, `contacts.py`, `sidecar.py`) meas
 solids with adacpp -- in the browser through its wasm clash module, or on a worker through the same
 C++ -- and keeps each run as a sidecar beside its model (`routes/clash_contacts.py`). The viewer's
 Clashes tab runs `convex-contact` by default and falls back to `adapy`, with a note, where it cannot
-run (`state/clashCheck/engine.ts`).
+run (`state/clashCheck/engine.ts`). The same check also runs in process over a member model
+(`mesh_contacts.py`: `find_member_contacts`, `find_mesh_contacts`), which is what `run_clash_check`
+runs when `convex-contact` is picked and what a connection generator calls instead of keeping a
+checker of its own. Every path judges its contacts by one set of rules (`contact_criteria.py`:
+`min_contact_area`, `min_contact_width_ratio`, `keep_penetration_depth`).
 
 ### Plugins (`ada.plugins`)
 

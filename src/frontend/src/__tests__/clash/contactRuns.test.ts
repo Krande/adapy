@@ -21,8 +21,10 @@ globals.sessionStorage = storage;
 globals.localStorage = storage;
 
 const {
+  belowMinArea,
   contactId,
   contactTargetFor,
+  engineMinContactArea,
   glbKeyForSource,
   groupGeometrySha256,
   memberSoup,
@@ -104,6 +106,25 @@ test("runDocFromColumns builds the run document the server parses", async () => 
   assert.deepEqual(run.geometry, { key: "_derived/models/frame.ifc.glb", sha256: "ab".repeat(32), up_axis: "z" });
 });
 
+test("with keep_penetration_depth the engine is asked for its floor and a member driven in is kept under the area", async () => {
+  const keep = { security_margin: 0.01, min_contact_area: 2e-4, keep_penetration_depth: 0.002, line_contact_thickness: 1e-3 };
+  assert.equal(engineMinContactArea(keep), 1e-6);
+  assert.equal(engineMinContactArea({ ...keep, keep_penetration_depth: 0 }), 2e-4);
+  assert.equal(engineMinContactArea(OPTIONS), 1e-6, "a run without the rule asks for its own area");
+  // A 140 mm² line: kept 5 mm in, dropped only touching or 1 mm in, and dropped with the rule off.
+  assert.equal(belowMinArea(1.4e-4, -0.005, keep), false);
+  assert.equal(belowMinArea(1.4e-4, 0, keep), true);
+  assert.equal(belowMinArea(1.4e-4, -0.001, keep), true);
+  assert.equal(belowMinArea(1.4e-4, -0.005, { ...keep, keep_penetration_depth: 0 }), true);
+
+  const touching = { ...columns(), penetrationDepth: new Float64Array([0]), contactArea: new Float64Array([1.4e-4]) };
+  const driven = { ...touching, penetrationDepth: new Float64Array([-0.005]) };
+  const dropped = await runDocFromColumns(touching, meta({ options: keep }));
+  assert.equal(dropped.contacts.length, 0);
+  assert.equal(dropped.provenance.below_min_area, 1);
+  assert.equal((await runDocFromColumns(driven, meta({ options: keep }))).contacts.length, 1);
+});
+
 test("a run reads as the panel's result, grouped by which specs can detail it", async () => {
   const run = await runDocFromColumns(columns(), meta());
   run.contacts[0].applicable = [{ spec: "builtin.girder_gusset", capability: null, tags: ["builtin"], priority: 10 }];
@@ -139,8 +160,15 @@ test("targets and GLB keys", () => {
   });
   assert.equal(contactTargetFor(null, { kind: "group" }), null, "a group with no saved id has nothing to be filed under");
   assert.deepEqual(contactTargetFor(null, { kind: "group", id: "g1" }), { kind: "group", group_id: "g1" }, "the id alone");
-  // The checker's defaults (`ada.clash.convex_contact.register`): 200 mm², half the thinner wall wide.
-  assert.deepEqual(contactRunOptions(undefined), { ...OPTIONS, min_contact_area: 2e-4, min_contact_width_ratio: 0.5 });
+  // The checker's defaults (`ada.clash.convex_contact.register`): 200 mm², half the thinner wall wide,
+  // and kept whatever its area when driven 2 mm in.
+  assert.deepEqual(contactRunOptions(undefined), {
+    ...OPTIONS,
+    min_contact_area: 2e-4,
+    min_contact_width_ratio: 0.5,
+    keep_penetration_depth: 0.002,
+  });
+  assert.equal(contactRunOptions({ keep_penetration_depth: 0 }).keep_penetration_depth, 0, "0 turns it off");
   assert.equal(contactRunOptions({ security_margin: "0.005", min_contact_area: -1 }).security_margin, 0.005);
   assert.equal(contactRunOptions({ min_contact_area: -1 }).min_contact_area, 2e-4, "a negative is not an option");
   assert.equal(contactRunOptions({ min_contact_width_ratio: 0 }).min_contact_width_ratio, 0, "0 keeps every contact");

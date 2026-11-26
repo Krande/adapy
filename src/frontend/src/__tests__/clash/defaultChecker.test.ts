@@ -102,6 +102,7 @@ test("convex contact is offered where this viewer runs it, even when the deploym
       ["security_margin", 0.01],
       ["min_contact_area", 2e-4],
       ["min_contact_width_ratio", 0.5],
+      ["keep_penetration_depth", 0.002],
     ],
   );
 });
