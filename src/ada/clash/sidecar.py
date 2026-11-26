@@ -45,6 +45,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from ada.clash._seq import as_items
+
 __all__ = [
     "CLASH_SIDECAR_PREFIX",
     "CLASH_SIDECAR_SCHEMA",
@@ -114,6 +116,7 @@ def _vec3(v: Any, what: str) -> Vec3:
 
 
 def _points(v: Any, what: str) -> tuple[Vec3, ...]:
+    v = _as_list(v)
     if not isinstance(v, (list, tuple)):
         raise SidecarError(f"{what} must be a list of points")
     return tuple(_vec3(p, what) for p in v)
@@ -282,14 +285,7 @@ def run_from_glb_contacts(
     pairs = found["pairs"]
     pairs = pairs.tolist() if hasattr(pairs, "tolist") else list(pairs)
     for q, (i, j) in enumerate(pairs):
-        patches = tuple(
-            ContactPatch(
-                normal=_vec3(p["normal"], "patch normal"),
-                points1=_points(_as_list(p["points1"]), "patch points1"),
-                points2=_points(_as_list(p["points2"]), "patch points2"),
-            )
-            for p in found["patches"][q]
-        )
+        patches = patches_from(found["patches"][q])
         records.append(
             ContactRecord(
                 id=contact_id([members[i]["id"], members[j]["id"]]),
@@ -316,6 +312,18 @@ def run_from_glb_contacts(
 
 def _as_list(v: Any) -> Any:
     return v.tolist() if hasattr(v, "tolist") else v
+
+
+def patches_from(raw: Any) -> tuple[ContactPatch, ...]:
+    """One contact's patches as ``ContactPatch``es, from the engine (arrays) or a document (lists)."""
+    return tuple(
+        ContactPatch(
+            normal=_vec3(p["normal"], "patch normal"),
+            points1=_points(p["points1"], "patch points1"),
+            points2=_points(p["points2"], "patch points2"),
+        )
+        for p in as_items(raw)
+    )
 
 
 def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
@@ -381,7 +389,7 @@ def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
                 points1=_points(p.get("points1"), "patch points1"),
                 points2=_points(p.get("points2"), "patch points2"),
             )
-            for p in c.get("patches") or ()
+            for p in as_items(c.get("patches"))
         )
         contacts.append(
             ContactRecord(

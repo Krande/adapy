@@ -96,7 +96,13 @@ def _check_options(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="'options' must be an object")
     out = {}
-    for k in ("security_margin", "min_contact_area", "min_contact_width_ratio", "line_contact_thickness"):
+    for k in (
+        "security_margin",
+        "min_contact_area",
+        "min_contact_width_ratio",
+        "keep_penetration_depth",
+        "line_contact_thickness",
+    ):
         if raw.get(k) is not None and raw.get(k) != "":
             try:
                 out[k] = float(raw[k])

@@ -78,8 +78,16 @@ export interface ContactRunDoc {
   /** A group run's `key` is `group:<group id>`, its `sha256` `groupGeometrySha256(parts)`. */
   geometry: { key: string; sha256: string; up_axis: "z" | "y"; parts?: ContactRunPart[] };
   /** `min_contact_width_ratio` is not the engine's: the worker applies it when it annotates the run
-   *  (`ada.clash.contact_criteria`). Absent on a run made before it existed. */
-  options: { security_margin: number; min_contact_area: number; min_contact_width_ratio?: number; line_contact_thickness: number };
+   *  (`ada.clash.contact_criteria`). `keep_penetration_depth`: a member overlapping another deeper than
+   *  this is kept whatever its area (`runDocFromColumns` judges the area with it). Each is absent on a
+   *  run made before it existed. */
+  options: {
+    security_margin: number;
+    min_contact_area: number;
+    min_contact_width_ratio?: number;
+    keep_penetration_depth?: number;
+    line_contact_thickness: number;
+  };
   members: ContactRunMember[];
   contacts: ContactRecordDoc[];
   provenance: Record<string, unknown>;
@@ -213,12 +221,38 @@ export interface RunMeta {
   provenance?: Record<string, unknown>;
 }
 
-/** The run document for a browser run -- the shape `ada.clash.sidecar.parse_run` accepts. */
+/** What the engine is asked to drop under where the area is judged after it, with the penetration
+ *  [m²] -- `ada.clash.contact_criteria.ENGINE_MIN_CONTACT_AREA`. */
+export const ENGINE_MIN_CONTACT_AREA = 1e-6;
+
+/** The `minContactArea` the engine is asked for: with `keep_penetration_depth` on, its floor, and the
+ *  run's `min_contact_area` is applied after it (`belowMinArea`) --
+ *  `ada.clash.contact_criteria.engine_min_contact_area`. */
+export function engineMinContactArea(options: ContactRunDoc["options"]): number {
+  return (options.keep_penetration_depth ?? 0) > 0 ? Math.min(options.min_contact_area, ENGINE_MIN_CONTACT_AREA) : options.min_contact_area;
+}
+
+/** Whether a contact is dropped by its area: under `min_contact_area` and not driven into the other
+ *  member deeper than `keep_penetration_depth` (`distance` is coal's: negative is overlap) --
+ *  `ada.clash.contact_criteria.is_below_min_area`. */
+export function belowMinArea(contactArea: number, distance: number, options: ContactRunDoc["options"]): boolean {
+  if (contactArea >= options.min_contact_area) return false;
+  const keep = options.keep_penetration_depth ?? 0;
+  return !(keep > 0 && -distance > keep);
+}
+
+/** The run document for a browser run -- the shape `ada.clash.sidecar.parse_run` accepts. Contacts
+ *  under the run's area are left out (`belowMinArea`) and counted in `provenance.below_min_area`. */
 export async function runDocFromColumns(raw: GlbContactsColumns, meta: RunMeta): Promise<ContactRunDoc> {
   const members = raw.memberIds.map((id, k) => ({ id: String(id), name: String(raw.memberNames[k]) }));
   const contacts: ContactRecordDoc[] = [];
   const n = raw.penetrationDepth.length;
+  let belowArea = 0;
   for (let q = 0; q < n; q++) {
+    if (belowMinArea(raw.contactArea[q], raw.penetrationDepth[q], meta.options)) {
+      belowArea++;
+      continue;
+    }
     const i = raw.pairs[2 * q];
     const j = raw.pairs[2 * q + 1];
     const patches: ContactPatchDoc[] = [];
@@ -255,7 +289,7 @@ export async function runDocFromColumns(raw: GlbContactsColumns, meta: RunMeta):
     provenance: {
       ...(meta.provenance ?? {}),
       candidate_pairs: raw.candidatePairs ?? null,
-      below_min_area: raw.belowMinArea ?? null,
+      below_min_area: raw.belowMinArea == null && !belowArea ? null : (raw.belowMinArea ?? 0) + belowArea,
       degenerate: raw.degenerate ? Array.from(raw.degenerate) : [],
     },
   };
@@ -540,7 +574,7 @@ export async function runBrowserContactFlow(
   // `measure` may transfer the buffer away; the hash is taken first.
   const raw = await deps.measure(glb, {
     securityMargin: req.options.security_margin,
-    minContactArea: req.options.min_contact_area,
+    minContactArea: engineMinContactArea(req.options),
     lineContactThickness: req.options.line_contact_thickness,
     upAxis: req.upAxis,
   });
@@ -625,7 +659,7 @@ export async function runBrowserGroupContactFlow(
   onStage?.("checking");
   const raw = await convexContacts(soup, {
     securityMargin: req.options.security_margin,
-    minContactArea: req.options.min_contact_area,
+    minContactArea: engineMinContactArea(req.options),
     lineContactThickness: req.options.line_contact_thickness,
   });
   const doc = await runDocFromColumns(

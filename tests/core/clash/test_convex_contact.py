@@ -53,8 +53,13 @@ def test_registered_as_a_checker_of_its_own():
     entry = {c["name"]: c for c in list_checkers()}[CONVEX_CONTACT_CHECKER]
     assert entry["capability"] is None
     options = {o["key"]: o["default"] for o in entry["options"]}
-    # 200 mm², and half the thinner member's wall wide (ada.clash.contact_criteria).
-    assert options == {"security_margin": 0.01, "min_contact_area": 2e-4, "min_contact_width_ratio": 0.5}
+    # 200 mm², half the thinner member's wall wide, and kept when driven 2 mm in (ada.clash.contact_criteria).
+    assert options == {
+        "security_margin": 0.01,
+        "min_contact_area": 2e-4,
+        "min_contact_width_ratio": 0.5,
+        "keep_penetration_depth": 0.002,
+    }
 
 
 def test_a_default_check_does_not_run_it():
@@ -64,13 +69,19 @@ def test_a_default_check_does_not_run_it():
     assert all(j.origin != CONVEX_CONTACT_PASS for j in result.joints)
 
 
-def test_it_refuses_to_run_as_a_pass_over_a_member_model():
+def test_it_runs_as_a_pass_over_a_member_model():
     result = run_clash_check(
         _deck_and_column(0.005), source_key="test", options=ClashOptions(checker=CONVEX_CONTACT_CHECKER)
     )
     (entry,) = result.passes
-    assert entry["ran"] is False and "viewer GLB" in entry["reason"]
-    assert result.joints == ()
+    assert entry["ran"] is True and entry["found"] == 1
+    (joint,) = result.joints
+    assert joint.origin == CONVEX_CONTACT_PASS
+    assert [m.name for m in joint.members] == ["col", "deck"]
+    assert joint.contact.penetration_depth == pytest.approx(0.005, abs=1e-5)
+    assert joint.contact.contact_area == pytest.approx(IPE200_FOOTPRINT, rel=1e-3)
+    assert joint.contact.extras["incoming_end"] == "start"
+    assert joint.contact.extras["patches"]
 
 
 def test_column_standing_in_a_deck_is_one_contact_written_incoming_first(tmp_path):
