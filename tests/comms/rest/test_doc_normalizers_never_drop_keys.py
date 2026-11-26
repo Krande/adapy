@@ -142,6 +142,28 @@ def test_a_doc_that_uses_none_of_the_new_fields_is_byte_identical():
     assert not {"groups", "structures", "no_go_walls", "detailing_options"} & set(out)
 
 
+def test_cellgroup_origin_malformed_is_dropped_and_an_absent_one_is_byte_identical():
+    """``CellGroup.origin``: a malformed value is dropped to None rather than raised on or
+    passed through verbatim, and a group that never used it hashes exactly as one written before
+    the field existed — the same ``exclude_none`` contract as the rest of this file."""
+    base = {"spaces": [{"NAME": "c1"}], "groups": [{"name": "A", "blueprint": "steel_stru"}]}
+    malformed = {"spaces": [{"NAME": "c1"}], "groups": [{"name": "A", "blueprint": "steel_stru", "origin": "nope"}]}
+
+    out = validate_doc(malformed)
+    assert "origin" not in out["groups"][0]
+    assert doc_content_hash(out) == doc_content_hash(validate_doc(base))
+
+
+def test_cellgroup_origin_rejects_a_bare_string_even_when_unpackable():
+    """A 3-character string (e.g. ``"123"``) unpacks into three single-character values that
+    each happen to parse as a float -- ``"123"`` must not quietly become ``(1.0, 2.0, 3.0)``; a
+    string is rejected outright, the same as any other malformed origin."""
+    doc = {"spaces": [{"NAME": "c1"}], "groups": [{"name": "A", "blueprint": "steel_stru", "origin": "123"}]}
+
+    out = validate_doc(doc)
+    assert "origin" not in out["groups"][0]
+
+
 def test_shallow_and_full_normalizers_agree_on_which_keys_survive():
     """The slim API image (no ada importable) falls back to
     ``_validate_doc_shallow``, a SECOND, independently written normalizer. When

@@ -1,11 +1,12 @@
 """Per-engine *capability* flags, announced by workers.
 
-A procedural engine may support features the built-in engines don't. The one
+A procedural engine may support features other engines don't. The one
 capability flagged here is ``supports_grouping``: whether the engine understands
 the cellbuilder's cell GROUPS (a group is one structure compiled with its own
-blueprint). The built-in engines do NOT — ``adapy-default`` compiles a single
-model-level blueprint (and tolerates-but-ignores any ``groups``/``STRUCTURE_NAME``
-a doc carries), ``echo`` renders raw boxes. A capability engine
+blueprint, placed at its own origin). ``adapy-default`` does — it maps a doc's
+``groups``/``STRUCTURE_NAME`` to per-structure topology models (see
+``ada.topo_model.structures``); ``echo`` does not — it renders raw boxes, no
+structure. A non-built-in capability engine
 advertises ``supports_grouping=True`` by importing a module that calls
 :func:`register_procedural_engine_capabilities` at worker start — see
 ``ADA_WORKER_PRELOAD`` — exactly like :func:`register_procedural_blueprint`.

@@ -104,11 +104,14 @@ class EngineBinding(BaseModel):
 # on whichever path (server or WASM) ran the compile.
 #
 # ``supports_grouping`` advertises whether an engine understands the cellbuilder's
-# per-group blueprints (a group == one structure with its own blueprint). The
-# built-ins do NOT: adapy-default compiles a single model-level blueprint and
-# tolerates-but-ignores any ``groups``/``STRUCTURE_NAME`` in the doc; echo renders
-# raw boxes. A capability engine advertises ``True`` from its worker
-# specs (see ``ada.topo_model.engine_catalog`` / the worker heartbeat).
+# per-group blueprints (a group == one structure with its own blueprint).
+# adapy-default DOES: it maps a doc's ``groups``/``STRUCTURE_NAME`` to one
+# per-structure topology model, each placed at its origin, via
+# ``ada.topo_model.structures`` (see ``ProceduralBuilder.build_structure``); a
+# doc with no groups still compiles the single model it always did. echo
+# remains non-grouping — it renders raw boxes, no structure. A capability
+# engine advertises ``True``/``False`` from its own worker specs (see
+# ``ada.topo_model.engine_catalog`` / the worker heartbeat).
 #
 # ``supports_excel`` says whether an engine has an Excel format: adapy-default
 # does, echo does not. A registered engine says the same through its
@@ -119,7 +122,7 @@ BUILTIN_ENGINES: dict[str, dict] = {
         "name": "adapy default",
         "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
         "entrypoint": "ada.topo_model.wasm_compile:compile_doc",
-        "supports_grouping": False,
+        "supports_grouping": True,
         "supports_excel": True,
     },
     "echo": {

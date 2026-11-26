@@ -72,11 +72,20 @@ def test_no_structures_is_single_unchanged():
     assert _is_glb(ProceduralBuilder.from_dict(doc, name="Solo").compile())
 
 
-def test_to_doc_roundtrips_structures():
+def test_to_doc_writes_groups_not_the_legacy_structures_shape():
+    """The wire shape ``to_doc`` writes is ALWAYS ``groups`` (see
+    ``ada.topo_model.structures``), even for a builder whose ``structures`` came
+    in through the legacy shape — so a committed document never round-trips
+    back out as ``structures``."""
     pb = ProceduralBuilder.from_dict(DOC)
-    back = ProceduralBuilder.from_dict(pb.to_doc())
+    doc = pb.to_doc()
+    assert "structures" not in doc
+    assert {g["name"] for g in doc["groups"]} == {"S1", "S2"}
+
+    back = ProceduralBuilder.from_dict(doc)
     assert [s.NAME for s in back.structures] == ["S1", "S2"]
     assert [s.STRUCTURE_NAME for s in back.spaces] == ["S1", "S1", "S2"]
+    assert {s.NAME: s.origin() for s in back.structures} == {"S1": (0.0, 0.0, 0.0), "S2": (20.0, 0.0, 0.0)}
 
 
 def test_excel_roundtrip_multi(tmp_path):

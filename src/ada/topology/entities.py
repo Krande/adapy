@@ -68,6 +68,15 @@ class _TopoConfigBoundModel(BaseModel):
     _PARENT_CONFIG: Optional[Any] = PrivateAttr(default=None)
     HIDE_IN_EXCEL: ClassVar[list[str]] = []
     ORIENTATION: ClassVar[str] = "HORIZONTAL"
+    # A human-readable name for a column whose own name is cryptic (an abbreviation, a bare index),
+    # keyed by the column as the doc/Excel row names it. One compact block per class rather than a
+    # per-field alias: a subclass can extend it (``{**Base.UI_LABELS, ...}``), and a test can check
+    # every key is still a field (see entity_field_help, which is where it reaches the viewer). A
+    # column with no entry here just shows its own name, as before this existed. Never a pydantic
+    # ``alias=`` — the Excel header, the `Model(**{header: value})` reader, `model_dump` and an
+    # engine's own Excel-sync step all key on the column name itself, so an alias would rename it
+    # everywhere at once.
+    UI_LABELS: ClassVar[dict[str, str]] = {}
 
     METADATA: Annotated[
         dict[str, Any],
@@ -113,6 +122,27 @@ class TopoSpace(_TopoConfigBoundModel):
     ALT_SHEET_NAMES: ClassVar[list[str]] = ["Rooms"]
     TAB_COLOR: ClassVar[str] = "92D050"  # HEX string without '#'
     HIDE_IN_EXCEL: ClassVar[list[str]] = ["IS_COMPLEX_SHAPE", "SE"]
+    UI_LABELS: ClassVar[dict[str, str]] = {
+        "FUNCTION": "Function",
+        "AREA": "Area",
+        "FLIP_FLOOR": "Flip floor",
+        "GRID_X_CREATE": "Create X grid",
+        "GRID_Y_CREATE": "Create Y grid",
+        "GRID_Z_CREATE": "Create Z grid",
+        "SWITCH_BM_DIR_VERTICAL": "Switch vertical beam direction",
+        "SWITCH_BM_DIR_HORIZONTAL": "Switch horizontal beam direction",
+        # SE0..SE5 exclude a side; the side names follow ada.topology.graph.SIDE_TO_INDEX
+        # (SE0=-Z, SE1=Z, SE2=-Y, SE3=Y, SE4=-X, SE5=X), not the field order above.
+        "SE0": "Exclude -Z",
+        "SE1": "Exclude Z",
+        "SE2": "Exclude -Y",
+        "SE3": "Exclude Y",
+        "SE4": "Exclude -X",
+        "SE5": "Exclude X",
+        "GIRDER_AS_PLATE": "Girder as plate",
+        "DESCRIPTION": "Description",
+        "PRIORITY": "Priority",
+    }
 
     STRUCTURE_NAME: Annotated[str | None, Field(description="Name of Structure the space belongs to")] = None
     INCLUDE: Annotated[bool | None, Field(description="Should Include space in structure")] = False
@@ -271,6 +301,24 @@ class TopoEquipment(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Equipments"
     TAB_COLOR: ClassVar[str] = "836e8f"  # HEX string without '#'
     HIDE_IN_EXCEL: ClassVar[list[str]] = ["DESCRIPTION"]
+    UI_LABELS: ClassVar[dict[str, str]] = {
+        "SPACE_LOC": "Location",
+        "GLOBAL_COORDS": "Use global coordinates",
+        "ROT_X": "Rotation X",
+        "ROT_Y": "Rotation Y",
+        "ROT_Z": "Rotation Z",
+        "COGx": "COG X",
+        "COGy": "COG Y",
+        "COGz": "COG Z",
+        "massDry": "Dry mass",
+        "massCont": "Content mass",
+        "REINFORCEMENT_SECTION": "Reinforcement section",
+        "EQ_DUMMY_SEC": "Dummy section",
+        "DESCRIPTION": "Description",
+        "EQ_REPR": "Representation",
+        "LOADCASE_NAME": "Load case",
+        "CONDITION_NAMES": "Condition names",
+    }
 
     STRUCTURE_NAME: Annotated[str | None, Field(description="Name of Structure")] = None
 
@@ -478,6 +526,17 @@ class TopoEquipment(_TopoConfigBoundModel):
 class TopoOpening(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Openings"
     TAB_COLOR: ClassVar[str] = "836e8f"  # HEX string without '#'
+    UI_LABELS: ClassVar[dict[str, str]] = {
+        "SPACE_SIDE": "Space side",
+        "POS_X": "Position X",
+        "POS_Y": "Position Y",
+        "SIZE_X": "Size X",
+        "SIZE_Y": "Size Y",
+        "DEPTH": "Depth",
+        "DESCRIPTION": "Description",
+        "REINFORCEMENT_SECTION": "Reinforcement section",
+        "USE_GLOBAL_COORDS": "Use global coordinates",
+    }
 
     STRUCTURE_NAME: Annotated[str | None, Field(description="Name of Structure")] = None
     INCLUDE: Annotated[bool, Field(description="Include Opening in build")] = False
@@ -633,8 +692,10 @@ class TopoStructure(_TopoConfigBoundModel):
     """One topology model ("structure") in a multi-structure procedural model — a
     named group of spaces/equipment/systems/openings (tagged by ``STRUCTURE_NAME``)
     placed at an origin. A workbook's ``Structures`` sheet lists them; the
-    :class:`~ada.topo_model.multi_builder.ProceduralMultiBuilder` compiles each and
-    places it at ``(X, Y, Z)``.
+    builder maps ``groups[]`` onto them
+    (:func:`~ada.topo_model.structures.structures_from_doc`) and
+    :meth:`~ada.topo_model.builder.ProceduralBuilder.build_structure` compiles each
+    in its own frame at ``(X, Y, Z)``.
 
     The columns mirror the ``Structures`` sheet of the sibling procedural-modelling
     tool, so a workbook round-trips between the two. adapy uses ``NAME`` +
@@ -1072,7 +1133,14 @@ def entity_field_help() -> dict[str, dict[str, str]]:
     engine gives no ``field_help`` of its own (see
     :func:`ada.topo_model.engine_catalog.register_procedural_engine_capabilities`), and under
     an engine's text for the columns it leaves out. Plain text; a column without a description
-    is left out."""
+    is left out.
+
+    Each entity's ``UI_LABELS`` rides along as a SIBLING key, ``"<list>.labels"`` (e.g.
+    ``"spaces.labels"`` beside ``"spaces"``) rather than a new field on this dict's shape: an
+    installed server's ``clean_field_help`` only keeps values that are ``{str: {str: str}}``, and
+    ``.labels`` already is one, so it passes through unchanged. A column whose ``UI_LABELS`` entry
+    is stale (renamed/removed since) is dropped rather than shipped as a label for a field that no
+    longer exists."""
     out: dict[str, dict[str, str]] = {}
     for key, entity in _FIELD_HELP_ENTITIES.items():
         rows = {
@@ -1082,4 +1150,11 @@ def entity_field_help() -> dict[str, dict[str, str]]:
         }
         if rows:
             out[key] = rows
+        labels = {
+            column: label
+            for column, label in getattr(entity, "UI_LABELS", {}).items()
+            if column in entity.model_fields and label and label.strip()
+        }
+        if labels:
+            out[f"{key}.labels"] = labels
     return out
