@@ -21,10 +21,31 @@ const JOB_TIMEOUT_MS = 300_000;
 // working set before a fresh worker is spawned.
 const RECYCLE_HEAP_BYTES = 1_400_000_000;
 
+export interface LocalArtefactOutput {
+    key: string;
+    bytes: Uint8Array;
+    contentType: string;
+    contentEncoding?: string | null;
+}
+
+export interface PluginJobResult {
+    summary: Record<string, unknown>;
+    localArtefacts: LocalArtefactOutput[];
+    heap?: number;
+}
+
 type WorkerMessage =
     | {type: "log"; message: string}
     | {type: "ready"}
+    | {type: "progress"; reqId: number; message: string; fraction: number}
     | {type: "result"; reqId: number; bytes: Uint8Array; heap?: number}
+    | {
+          type: "plugin-result";
+          reqId: number;
+          summary: Record<string, unknown>;
+          localArtefacts: LocalArtefactOutput[];
+          heap?: number;
+      }
     | {type: "error"; reqId?: number; message: string};
 
 /** Terminate the live worker (the "subprocess") and reset state so the next
@@ -282,6 +303,110 @@ export async function convertViaPyodideFeaBakeStream(
     });
     const bytes = await result;
     return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+/** Run a plugin job_entrypoint in the browser Pyodide worker against
+ * BrowserStorageFacade. Outputs are returned as in-memory Uint8Arrays for local
+ * OPFS/memory persistence and optional explicit Publish to Scope. */
+export async function runPluginJobViaPyodide(opts: {
+    pluginId: string;
+    scope: string;
+    options: Record<string, unknown>;
+    derivedPrefix?: string;
+    entrypoint?: string;
+    apiBase?: string;
+    authHeaders?: Record<string, string>;
+    onLog?: (msg: string) => void;
+    onProgress?: (message: string, fraction: number) => void;
+}): Promise<PluginJobResult> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts.onLog);
+    const reqId = nextReqId++;
+    const resultPromise = new Promise<PluginJobResult>((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            clearTimeout(timer);
+        };
+        const fail = (message: string, kill: boolean) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            if (kill) killWorker();
+            reject(new Error(message));
+        };
+        const onMessage = (e: MessageEvent<WorkerMessage>) => {
+            const data = e.data;
+            if (data.type === "log") {
+                opts.onLog?.(data.message);
+                return;
+            }
+            if (data.type === "progress" && data.reqId === reqId) {
+                opts.onProgress?.(data.message, data.fraction);
+                return;
+            }
+            if ((data.type === "plugin-result" || data.type === "error") && data.reqId !== reqId) {
+                return;
+            }
+            if (settled) return;
+            if (data.type === "plugin-result") {
+                settled = true;
+                cleanup();
+                if (typeof data.heap === "number") lastHeapBytes = data.heap;
+                resolve({
+                    summary: data.summary,
+                    localArtefacts: data.localArtefacts,
+                    heap: data.heap,
+                });
+            } else if (data.type === "error") {
+                fail(data.message, false);
+            }
+        };
+        const onError = () => fail("wasm worker crashed (likely out-of-memory); it was restarted", true);
+        const timer = setTimeout(
+            () => fail(`wasm plugin job exceeded ${JOB_TIMEOUT_MS / 1000}s; worker terminated`, true),
+            JOB_TIMEOUT_MS,
+        );
+        worker.addEventListener("message", onMessage);
+        worker.addEventListener("error", onError);
+    });
+    worker.postMessage({
+        type: "run-plugin-job",
+        reqId,
+        pluginId: opts.pluginId,
+        scope: opts.scope,
+        options: opts.options,
+        derivedPrefix: opts.derivedPrefix ?? "",
+        entrypoint: opts.entrypoint,
+        apiBase: opts.apiBase ?? "/api",
+        authHeaders: opts.authHeaders,
+    });
+    return resultPromise;
+}
+
+/** Run a procedural engine registered in /wheels/plugin-wheels-manifest.json
+ * (e.g. a baked template/detailing wheel) in the browser Pyodide worker. */
+export async function runProceduralEngineViaPyodide(
+    engineId: string,
+    doc: unknown,
+    opts?: {onLog?: (msg: string) => void},
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    worker.postMessage({
+        type: "run-procedural-engine",
+        reqId,
+        engineId,
+        doc: JSON.stringify(doc),
+    });
+    return result;
 }
 
 /** Backwards-compatible IFC entry point — keeps existing callers working. */

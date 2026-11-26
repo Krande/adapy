@@ -221,7 +221,8 @@ export type {
   MetricsHistoryResp,
 } from "./api/metrics";
 export type { AdminProject, CliTokenRecord, ProjectMember } from "./api/adminProjects";
-export type { AdminUser, AdminUserProject } from "./api/adminUsers";
+export type { AdminUser, AdminUserProject, AdminUserWorkerAccess } from "./api/adminUsers";
+export type { WorkerAccessPolicy } from "./api/auth";
 export type { Corpus } from "./api/adminCorpus";
 export type { PluginJobSchedule, BackendPluginSpec } from "./api/plugins";
 export type {

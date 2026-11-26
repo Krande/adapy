@@ -317,6 +317,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     auth_module.install(app, settings.auth)
+
+    @app.middleware("http")
+    async def _reset_request_user_middleware(request, call_next):
+        token = auth_module.set_request_user(None)
+        try:
+            return await call_next(request)
+        finally:
+            auth_module.reset_request_user(token)
     # A connection library served live (`ada dev connections`), when ADA_DEV_CONNECTIONS names one.
     # Built here, so a bad ada_connections.toml fails the start with its own message.
     from .dev_connections import DevConnections
@@ -351,7 +359,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # How this deployment runs jobs. Decided ONCE, here, so no request has to
     # ask `queue.enabled` and then write its own answer for "and if not?" —
     # see ada.comms.rest.job_transport.
-    jobs = build_transport(queue, storage, _worker_registry)
+    jobs = build_transport(
+        queue,
+        storage,
+        _worker_registry,
+        pool=lambda: getattr(app.state, "db_pool", None),
+    )
     rest_ctx = RestContext(
         settings=settings,
         storage=storage,

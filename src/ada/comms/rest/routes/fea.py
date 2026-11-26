@@ -322,6 +322,9 @@ async def api_scope_result_meta(
                 derived_key=meta_key,
             )
         )
+    except HTTPException:
+        # A refusal (403 worker access) is the answer, not an enqueue fault.
+        raise
     except Exception as exc:
         logger.exception("result-meta: enqueue failed for %s", source_key)
         await ctx.audit(
@@ -669,6 +672,9 @@ async def api_scope_fea_manifest(
                 force_rebuild=force_rebake,
             )
         )
+    except HTTPException:
+        # A refusal (403 worker access) is the answer, not an enqueue fault.
+        raise
     except Exception as exc:
         logger.exception("fea-manifest: enqueue failed for %s", source_key)
         await ctx.audit(
@@ -810,6 +816,8 @@ async def _submit_lazy_job(
                 force_rebuild=force,
             )
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("%s: enqueue failed for %s", target_format, source_key)
         await ctx.audit(request, user, scope_obj, target_format, key=source_key, status="error", error=str(exc))

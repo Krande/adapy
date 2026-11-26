@@ -137,6 +137,48 @@ export interface PluginModeSpec {
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
+/** Browser-first compute & local artefact publishing handle exposed on
+ * `AdaPluginContext.compute`. Lets plugins run jobs in browser Pyodide/WASM by
+ * default, check `worker_access` before offering "Run on Worker", and publish
+ * local OPFS/memory outputs to the scope blob store on demand. */
+export interface PluginComputeHandle {
+  dispatchPluginJob: (opts: {
+    pluginId?: string;
+    scope?: string;
+    options: Record<string, unknown>;
+    capability?: string;
+    derivedKey?: string;
+    derivedPrefix?: string;
+    preferWorker?: boolean;
+    onLog?: (msg: string) => void;
+    onProgress?: (message: string, fraction: number) => void;
+  }) => Promise<
+    | {
+        execution: "browser";
+        summary: Record<string, unknown>;
+        derivedKey?: string;
+        localKeys: string[];
+      }
+    | {
+        execution: "worker";
+        job_id: string;
+        derived_key: string;
+        scope?: string;
+      }
+  >;
+  isWasmCapable: (pluginId?: string) => Promise<boolean>;
+  canUseWorker: (capability?: string | null) => Promise<boolean>;
+  listLocalArtefacts: (
+    scope?: string,
+    prefix?: string,
+  ) => Array<{ key: string; size: number; contentType: string; storage: "opfs" | "memory" }>;
+  publishLocalArtefacts: (
+    scope?: string,
+    keys?: string[],
+    onProgress?: (done: number, total: number, key: string) => void,
+  ) => Promise<{ published: string[]; errors: Array<{ key: string; error: string }> }>;
+}
+
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
 export interface PluginApiClient {
   base: string;
@@ -201,6 +243,10 @@ export interface AdaPluginContext {
    * starts by itself. Absent on an older core, so a plugin asks first (`ctx.access?.enabled()`).
    */
   access?: PluginAccess;
+  /** Browser-first Pyodide/WASM compute runner, worker-access policy check, and
+   * local OPFS/memory artefact publisher. Absent on older cores; guard with
+   * optional chaining (`ctx.compute?.dispatchPluginJob(...)`). */
+  compute?: PluginComputeHandle;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */

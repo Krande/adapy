@@ -870,12 +870,7 @@ class JobQueue:
         # instead of stuck-pending forever, so the operator sees
         # the actual problem (unsupported file type, missing pool).
         if target_capability is None:
-            # A STEP→GLB job pinned to a specific engine routes to a pool that ADVERTISES that engine
-            # (capability gating makes that truthful); otherwise route by source extension as before.
-            requested_engine = None
-            if target_format == "glb" and conversion_options:
-                requested_engine = conversion_options.get("step_glb_pipeline")
-            target_capability = await self._capability_for_ext(source_key, requested_engine)
+            target_capability = await self.resolve_capability(source_key, target_format, conversion_options)
             # Persist the resolved capability so the worker / UI can
             # show which pool a job was dispatched to without a second
             # registry lookup.
@@ -918,6 +913,25 @@ class JobQueue:
         cap = capability_token(job.target_capability) or self.DEFAULT_CAPABILITY
         subject = f"{self._cfg.subject}.{cap}"
         await self._js.publish(subject, job.job_id.encode("utf-8"))
+
+    async def resolve_capability(
+        self,
+        source_key: str,
+        target_format: str = "glb",
+        conversion_options: dict | None = None,
+    ) -> str:
+        """The capability pool a job with no explicit ``target_capability`` routes to.
+
+        Public so the worker-access gate in ``QueueJobTransport.submit`` judges the
+        SAME pool :meth:`enqueue` will dispatch to — a user granted only ``abaqus``
+        must be let through for an ``.odb`` bake, which arrives with no capability.
+        """
+        # A STEP→GLB job pinned to a specific engine routes to a pool that ADVERTISES that engine
+        # (capability gating makes that truthful); otherwise route by source extension as before.
+        requested_engine = None
+        if target_format == "glb" and conversion_options:
+            requested_engine = conversion_options.get("step_glb_pipeline")
+        return await self._capability_for_ext(source_key, requested_engine)
 
     async def _capability_for_ext(self, source_key: str, engine: str | None = None) -> str:
         """Look up the capability tag of the online worker pool that should handle this job.

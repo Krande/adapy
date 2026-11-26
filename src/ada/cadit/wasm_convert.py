@@ -23,7 +23,7 @@ import io
 
 # Mesh containers trimesh round-trips (glb is a valid source too: glb→obj/stl).
 _MESH_EXTS = {"obj", "stl", "ply", "gltf", "dae", "off", "glb"}
-_FEA_EXTS = {"rmed", "med", "sif", "sin"}
+_FEA_EXTS = {"rmed", "med", "sif", "sin", "sqlite"}
 _DECK_TARGETS = {"inp", "fem", "med"}
 
 
@@ -243,8 +243,21 @@ def _fresh_bake_dir() -> str:
 
 
 def bake_fea(src: str, ext: str) -> bytes:
-    """FEA result → streaming-viewer artefact tree, returned as a zip."""
+    """FEA result → streaming-viewer artefact tree, returned as a zip.
+
+    Registers the pure-Python stdlib ``sqlite3`` stream reader for ``.sqlite``
+    databases (already-converted Abaqus results) so they bake in-browser
+    without a native Abaqus exporter. Native ``.odb`` conversion remains
+    server-worker only (``abaqus`` capability).
+    """
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    if (ext or "").lower().lstrip(".") == "sqlite":
+        from ada.fem.formats.abaqus.results.sqlite_stream import register as _register_sqlite
+
+        # .sqlite only: the .odb reader shells out to ``abaqus python``, which
+        # no browser has — registering it here would only defer the failure.
+        _register_sqlite(odb=False)
 
     out_dir = _fresh_bake_dir()
     bake_fea_artefacts_from_source(src, out_dir)

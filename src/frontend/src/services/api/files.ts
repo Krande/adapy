@@ -8,6 +8,7 @@ import {
   getAccessToken,
   refreshAccessToken,
 } from "@/services/auth/oidc";
+import { localArtefactStore } from "@/services/compute/localArtefactStore";
 import {
   ApiError,
   authedFetch,
@@ -231,9 +232,14 @@ export const filesApi = {
     return { moved: movedAll, failed: failedAll };
   },
 
-  /** Fetch raw bytes for a key. Used by the in-browser Pyodide
-   * pipeline to read its source from storage. */
+  /** Fetch raw bytes for a key. Checks the browser-local artefact store first
+   * (for in-browser Pyodide/WASM outputs in OPFS/memory) before fetching from
+   * server storage. */
   async getBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
+    const local = await localArtefactStore.get(scope, key);
+    if (local) {
+      return local.bytes.slice().buffer;
+    }
     const r = await authedFetch(this.blobUrl(scope, key));
     if (!r.ok) {
       throw new ApiError(`getBlob(${key})`, r.status, await readDetail(r));

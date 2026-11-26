@@ -31,6 +31,7 @@ const IFC_WASM_WHEEL =
 // next to each resolves the filename so we don't hardcode the version.
 const ADACPP_MANIFEST_URL = "/wheels/manifest.json"; // {"adacpp": "<file>.whl"}
 const ADAPY_MANIFEST_URL = "/wheels/adapy-manifest.json"; // {"adapy": "<file>.whl"}
+const PLUGIN_WHEELS_MANIFEST_URL = "/wheels/plugin-wheels-manifest.json"; // {"plugins": {...}}
 
 importScripts(`https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`);
 
@@ -46,6 +47,8 @@ let trimeshPromise = null;
 let pyquaternionPromise = null;
 let adacppWheelPromise = null;
 let adapyWheelPromise = null;
+let pluginManifestPromise = null;
+const pluginWheelPromises = new Map();
 
 function log(message) {
     self.postMessage({type: "log", message});
@@ -207,6 +210,320 @@ async function ensureAdapyWheel() {
         })();
     }
     return adapyWheelPromise;
+}
+
+// Resolve and cache /wheels/plugin-wheels-manifest.json (no-store on first fetch).
+async function loadPluginWheelsManifest() {
+    if (!pluginManifestPromise) {
+        pluginManifestPromise = (async () => {
+            const resp = await fetch(PLUGIN_WHEELS_MANIFEST_URL, {cache: "no-store"});
+            if (resp.status === 404) {
+                return {plugins: {}};
+            }
+            if (!resp.ok) {
+                throw new Error(
+                    `plugin wheels manifest fetch failed: ${resp.status} ${resp.statusText} (${PLUGIN_WHEELS_MANIFEST_URL})`,
+                );
+            }
+            const parsed = await resp.json();
+            return parsed && typeof parsed === "object" ? parsed : {plugins: {}};
+        })();
+    }
+    return pluginManifestPromise;
+}
+
+// Lazy-install a plugin wheel declared in /wheels/plugin-wheels-manifest.json.
+// Resolves well-known runtime deps (adapy, adacpp, pydantic, h5py, sqlite3, scipy),
+// sibling plugin wheels declared in the same manifest, and pure-Python PyPI deps.
+async function ensurePluginWheel(pluginId, _visiting = new Set()) {
+    if (pluginWheelPromises.has(pluginId)) {
+        return pluginWheelPromises.get(pluginId);
+    }
+    if (_visiting.has(pluginId)) {
+        throw new Error(`Circular plugin wheel dependency detected for "${pluginId}"`);
+    }
+    _visiting.add(pluginId);
+    const p = (async () => {
+        const manifest = await loadPluginWheelsManifest();
+        const plugins = manifest.plugins || {};
+        const entry = plugins[pluginId];
+        if (!entry || !entry.wheel) {
+            throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${pluginId}"`);
+        }
+        const deps = Array.isArray(entry.deps) ? entry.deps : [];
+        const pyodidePkgs = [];
+        const micropipPkgs = [];
+        for (const dep of deps) {
+            if (dep === "adapy") {
+                await ensureAdapyRuntime();
+            } else if (dep === "adacpp") {
+                await ensureAdacppWheel();
+            } else if (["pydantic", "h5py", "sqlite3", "scipy", "Pillow", "numpy"].includes(dep)) {
+                pyodidePkgs.push(dep);
+            } else if (plugins[dep]) {
+                await ensurePluginWheel(dep, _visiting);
+            } else {
+                micropipPkgs.push(dep);
+            }
+        }
+        if (pyodidePkgs.length > 0) {
+            log(`Loading Pyodide packages for ${pluginId}: ${pyodidePkgs.join(", ")}…`);
+            await pyodide.loadPackage(pyodidePkgs);
+        }
+        if (micropipPkgs.length > 0) {
+            log(`Installing Python deps for ${pluginId}: ${micropipPkgs.join(", ")}…`);
+            pyodide.globals.set("_pw_deps_json", JSON.stringify(micropipPkgs));
+            try {
+                await pyodide.runPythonAsync(`
+                    import json, micropip
+                    await micropip.install(json.loads(_pw_deps_json))
+                `);
+            } finally {
+                try { pyodide.globals.delete("_pw_deps_json"); } catch (_) { /* fine */ }
+            }
+        }
+        const wheelUrl = `/wheels/${entry.wheel}`;
+        log(`Fetching plugin wheel ${entry.wheel}…`);
+        const wResp = await fetch(wheelUrl);
+        if (!wResp.ok) {
+            throw new Error(`plugin wheel fetch failed: ${wResp.status} ${wResp.statusText} (${wheelUrl})`);
+        }
+        pyodide.FS.mkdirTree("/wheels");
+        const fsPath = `/wheels/${entry.wheel}`;
+        pyodide.FS.writeFile(fsPath, new Uint8Array(await wResp.arrayBuffer()));
+        pyodide.globals.set("_pw_wheel_emfs", `emfs:${fsPath}`);
+        try {
+            await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install(_pw_wheel_emfs, deps=False)
+            `);
+        } finally {
+            try { pyodide.globals.delete("_pw_wheel_emfs"); } catch (_) { /* fine */ }
+        }
+        if (entry.register) {
+            pyodide.globals.set("_pw_register_spec", entry.register);
+            try {
+                await pyodide.runPythonAsync(`
+                    import importlib
+                    _spec = _pw_register_spec
+                    if ":" in _spec:
+                        _mod_name, _fn_name = _spec.split(":", 1)
+                        _mod = importlib.import_module(_mod_name)
+                        getattr(_mod, _fn_name)()
+                    else:
+                        importlib.import_module(_spec)
+                `);
+            } finally {
+                try { pyodide.globals.delete("_pw_register_spec"); } catch (_) { /* fine */ }
+            }
+        }
+        return entry;
+    })();
+    pluginWheelPromises.set(pluginId, p);
+    p.catch(() => pluginWheelPromises.delete(pluginId));
+    return p;
+}
+
+// Synchronous blob GET / file listing helpers for BrowserStorageFacade.
+function syncBlobGet(apiBase, scope, key, headers) {
+    const url = `${apiBase}/scopes/${encodeURIComponent(scope)}/blobs/${encodeURIComponent(key)}`;
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, false);
+    xhr.responseType = "arraybuffer";
+    if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.send();
+    if (xhr.status !== 200) {
+        throw new Error(`blob GET ${xhr.status} ${xhr.statusText} for ${key}`);
+    }
+    return new Uint8Array(xhr.response);
+}
+
+function syncListScopeKeys(apiBase, scope, headers) {
+    const url = `${apiBase}/scopes/${encodeURIComponent(scope)}/files?include_derived=1`;
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, false);
+    if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.send();
+    if (xhr.status !== 200) {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(xhr.responseText);
+        const files = Array.isArray(parsed.files) ? parsed.files : [];
+        const keys = [];
+        for (const f of files) {
+            if (f && typeof f.key === "string") keys.push(f.key);
+            if (f && Array.isArray(f.derived)) {
+                for (const d of f.derived) {
+                    if (d && typeof d.key === "string") keys.push(d.key);
+                }
+            }
+        }
+        return keys;
+    } catch (_) {
+        return [];
+    }
+}
+
+function guessContentType(key) {
+    const lower = String(key || "").toLowerCase();
+    if (lower.endsWith(".json")) return "application/json";
+    if (lower.endsWith(".glb")) return "model/gltf-binary";
+    if (lower.endsWith(".gltf")) return "model/gltf+json";
+    if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain";
+    if (lower.endsWith(".csv")) return "text/csv";
+    return "application/octet-stream";
+}
+
+// Execute a plugin job_entrypoint in Pyodide against BrowserStorageFacade.
+// All written outputs are collected in-memory and returned to the main thread
+// for local OPFS/memory storage + optional explicit Publish to Scope.
+async function runPluginJob(reqId, pluginId, scope, options, authHeaders, apiBase, derivedPrefix, entrypointOverride) {
+    await ensureAdapyRuntime();
+    const entry = await ensurePluginWheel(pluginId);
+    const entrypoint = entrypointOverride || entry.entrypoint;
+    if (!entrypoint) {
+        throw new Error(`Plugin "${pluginId}" has no job entrypoint in plugin-wheels-manifest.json`);
+    }
+    const base = (apiBase || "/api").replace(/\/+$/, "");
+    const written = new Map();
+    const jsGetBytes = (key) => {
+        if (written.has(key)) return written.get(key).bytes;
+        return syncBlobGet(base, scope, key, authHeaders);
+    };
+    const jsListKeys = (prefix) => {
+        const remote = syncListScopeKeys(base, scope, authHeaders);
+        const all = new Set([...remote, ...written.keys()]);
+        const p = String(prefix || "");
+        return Array.from(all).filter((k) => !p || k.startsWith(p)).sort();
+    };
+    const jsPutBytes = (key, data, contentEncoding) => {
+        const copy = new Uint8Array(data);
+        written.set(String(key), {
+            key: String(key),
+            bytes: copy,
+            contentType: guessContentType(key),
+            contentEncoding: contentEncoding || null,
+        });
+    };
+    const jsProgress = (message, fraction) => {
+        self.postMessage({
+            type: "progress",
+            reqId,
+            message: String(message || ""),
+            fraction: typeof fraction === "number" ? fraction : 0,
+        });
+    };
+
+    pyodide.globals.set("_pj_entrypoint", entrypoint);
+    pyodide.globals.set("_pj_scope_str", String(scope || "shared"));
+    pyodide.globals.set("_pj_options_json", JSON.stringify(options || {}));
+    pyodide.globals.set("_pj_derived_prefix", derivedPrefix || "");
+    pyodide.globals.set("_pj_get_bytes", jsGetBytes);
+    pyodide.globals.set("_pj_list_keys", jsListKeys);
+    pyodide.globals.set("_pj_put_bytes", jsPutBytes);
+    pyodide.globals.set("_pj_on_progress", jsProgress);
+
+    try {
+        const summaryJson = await pyodide.runPythonAsync(`
+import importlib, inspect, json, pathlib, threading
+from dataclasses import dataclass
+from pyodide.ffi import to_js
+
+@dataclass(frozen=True)
+class _BrowserScope:
+    kind: str
+    id: str | None = None
+    def prefix(self) -> str:
+        return f"{self.kind}:{self.id}" if self.id else self.kind
+
+def _parse_scope(s: str) -> _BrowserScope:
+    if ":" in s:
+        kind, sid = s.split(":", 1)
+        return _BrowserScope(kind=kind, id=sid or None)
+    return _BrowserScope(kind=s or "shared", id=None)
+
+class BrowserStorageFacade:
+    """Synchronous StorageFacade matching worker._SyncStorageFacade for Pyodide."""
+    def list_keys(self, prefix: str = "") -> list[str]:
+        return list(_pj_list_keys(prefix).to_py())
+
+    def get_bytes(self, key: str) -> bytes:
+        return bytes(_pj_get_bytes(key).to_py())
+
+    def fetch_to_path(self, key: str, dest):
+        p = pathlib.Path(dest)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(self.get_bytes(key))
+        return dest
+
+    def provider_denial(self, key: str):
+        return None
+
+    def put_bytes(self, key: str, data: bytes, content_encoding: str | None = None, pre_compressed: bool = False) -> None:
+        raw = bytes(data)
+        _pj_put_bytes(key, to_js(raw), content_encoding)
+
+    def put_path(self, key: str, src, content_encoding: str | None = None, pre_compressed: bool = False) -> dict:
+        raw = pathlib.Path(src).read_bytes()
+        self.put_bytes(key, raw, content_encoding=content_encoding, pre_compressed=pre_compressed)
+        return {"key": key, "size": len(raw)}
+
+_mod_name, _fn_name = _pj_entrypoint.split(":", 1)
+_fn = getattr(importlib.import_module(_mod_name), _fn_name)
+_opts = json.loads(_pj_options_json)
+_scope = _parse_scope(_pj_scope_str)
+_storage = BrowserStorageFacade()
+
+def _on_prog(stage: str, frac: float = 0.0):
+    _pj_on_progress(str(stage), float(frac))
+
+_kwargs = {
+    "storage": _storage,
+    "scope": _scope,
+    "on_progress": _on_prog,
+    "derived_prefix": _pj_derived_prefix,
+}
+try:
+    _sig = inspect.signature(_fn)
+    if "cancel_event" in _sig.parameters or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()
+    ):
+        _kwargs["cancel_event"] = threading.Event()
+except (TypeError, ValueError):
+    pass
+
+_res = _fn(_opts, **_kwargs)
+json.dumps(_res if isinstance(_res, dict) else {"result": _res})
+`);
+        const summary = JSON.parse(typeof summaryJson === "string" ? summaryJson : String(summaryJson));
+        const localArtefacts = Array.from(written.values());
+        return {summary, localArtefacts};
+    } finally {
+        for (const g of [
+            "_pj_entrypoint",
+            "_pj_scope_str",
+            "_pj_options_json",
+            "_pj_derived_prefix",
+            "_pj_get_bytes",
+            "_pj_list_keys",
+            "_pj_put_bytes",
+            "_pj_on_progress",
+        ]) {
+            try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
+        }
+    }
+}
+
+// Run a procedural engine registered via plugin-wheels-manifest.json.
+async function runProceduralEngine(engineId, docJson) {
+    await ensureProceduralStack();
+    const manifest = await loadPluginWheelsManifest();
+    const plugins = manifest.plugins || {};
+    if (plugins[engineId]) {
+        await ensurePluginWheel(engineId);
+    }
+    return compileProcedural(docJson, engineId, null);
 }
 
 // Every cell dispatches through `import ada.cadit.wasm_convert`, so the adapy
@@ -609,6 +926,50 @@ self.onmessage = async (e) => {
                 /* heap introspection unavailable */
             }
             self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
+        }
+        return;
+    }
+
+    if (data.type === "run-procedural-engine") {
+        const reqId = data.reqId;
+        try {
+            const bytes = await runProceduralEngine(data.engineId, data.doc);
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
+        }
+        return;
+    }
+
+    if (data.type === "run-plugin-job") {
+        const reqId = data.reqId;
+        try {
+            const {summary, localArtefacts} = await runPluginJob(
+                reqId,
+                data.pluginId,
+                data.scope,
+                data.options,
+                data.authHeaders,
+                data.apiBase,
+                data.derivedPrefix,
+                data.entrypoint,
+            );
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            const transfer = localArtefacts.map((a) => a.bytes.buffer);
+            self.postMessage({type: "plugin-result", reqId, summary, localArtefacts, heap}, transfer);
         } catch (err) {
             self.postMessage({type: "error", reqId, message: String(err.message || err)});
         }

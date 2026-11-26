@@ -56,11 +56,11 @@ import { useComponentSpecsStore as g_useComponentSpecsStore } from "./componentS
 import { useCompressionStore as g_useCompressionStore } from "./compressionStore"
 import { useComputeStore as g_useComputeStore } from "./computeStore"
 import { useConnectionGraphStore as g_useConnectionGraphStore } from "./connectionGraphStore"
+import { useConversionEngineStore as g_useConversionEngineStore } from "./conversionEngineStore"
 import { useConversionStore as g_useConversionStore } from "./conversionStore"
 import { useConvertPageStore as g_useConvertPageStore } from "./convertPageStore"
 import { useEngineCatalogStore as g_useEngineCatalogStore } from "./engineCatalogStore"
 import { useEquipmentCatalogStore as g_useEquipmentCatalogStore } from "./equipmentCatalogStore"
-import { useExperimentalStore as g_useExperimentalStore } from "./experimentalStore"
 import { useExternalModelsStore as g_useExternalModelsStore } from "./externalModelsStore"
 import { useFeaAnimationStore as g_useFeaAnimationStore } from "./feaAnimationStore"
 import { useFemConceptsStore as g_useFemConceptsStore } from "./femConceptsStore"
@@ -140,11 +140,11 @@ export interface AdaViewerStores {
     useCompressionStore: typeof g_useCompressionStore
     useComputeStore: typeof g_useComputeStore
     useConnectionGraphStore: typeof g_useConnectionGraphStore
+    useConversionEngineStore: typeof g_useConversionEngineStore
     useConversionStore: typeof g_useConversionStore
     useConvertPageStore: typeof g_useConvertPageStore
     useEngineCatalogStore: typeof g_useEngineCatalogStore
     useEquipmentCatalogStore: typeof g_useEquipmentCatalogStore
-    useExperimentalStore: typeof g_useExperimentalStore
     useExternalModelsStore: typeof g_useExternalModelsStore
     useFeaAnimationStore: typeof g_useFeaAnimationStore
     useFemConceptsStore: typeof g_useFemConceptsStore
@@ -206,11 +206,11 @@ export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
     useCompressionStore: g_useCompressionStore,
     useComputeStore: g_useComputeStore,
     useConnectionGraphStore: g_useConnectionGraphStore,
+    useConversionEngineStore: g_useConversionEngineStore,
     useConversionStore: g_useConversionStore,
     useConvertPageStore: g_useConvertPageStore,
     useEngineCatalogStore: g_useEngineCatalogStore,
     useEquipmentCatalogStore: g_useEquipmentCatalogStore,
-    useExperimentalStore: g_useExperimentalStore,
     useExternalModelsStore: g_useExternalModelsStore,
     useFeaAnimationStore: g_useFeaAnimationStore,
     useFemConceptsStore: g_useFemConceptsStore,

@@ -10,7 +10,7 @@ import CameraControlsOptions from "@/components/options/CameraControlsOptions";
 import ControlsProfileOptions from "@/components/options/ControlsProfileOptions";
 import ComputeOptions from "@/components/options/ComputeOptions";
 import DisplayOptions from "@/components/options/DisplayOptions";
-import ExperimentalOptions from "@/components/options/ExperimentalOptions";
+import ConversionEngineOptions from "@/components/options/ConversionEngineOptions";
 import ExternalControlsOptions from "@/components/options/ExternalControlsOptions";
 import LayoutOptions from "@/components/options/LayoutOptions";
 import LocalJobsOptions from "@/components/options/LocalJobsOptions";
@@ -96,7 +96,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     // Builder panel links here (`core:builder-grid-settings`).
     {id: "grid", title: "Grid & snapping", available: always, render: () => <GridSnappingOptions/>},
     // The in-browser (WASM) conversion engine only makes sense for the hosted REST viewer.
-    {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},
+    {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ConversionEngineOptions/>},
     // A server with no job queue runs every job itself: how many at once, and the CPU they share.
     {id: "jobs", title: "Local jobs", available: () => runtime.localJobs(), render: () => <LocalJobsOptions/>},
     // Letting an agent drive this tab: on a hosted viewer only where the server allows it (ADA_VIEWER_CONTROL);

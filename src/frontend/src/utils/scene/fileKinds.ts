@@ -26,6 +26,10 @@ export function isFEAResult(name: string): boolean {
 export function isStreamingFEAResult(name: string): boolean {
     const lower = name.toLowerCase();
     if (lower.endsWith(".sif") || lower.endsWith(".sin") || lower.endsWith(".rmed")) return true;
+    // An already-exported Abaqus results .sqlite bakes in the browser (stdlib
+    // sqlite3), so it is openable with no abaqus worker online. The .odb it came
+    // from still needs that worker and arrives via streamingOnlyExts below.
+    if (lower.endsWith(".sqlite")) return true;
     // Design-model FEM meshes now load through the same streaming bake (mesh + beam-solids,
     // clickable + tree), so FE-mesh viewing is one path. They stay legacy-convertible on the
     // /convert page (like .sif).

@@ -24,6 +24,7 @@ group object id without code branches.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import time
 import uuid
 from dataclasses import dataclass
@@ -62,6 +63,29 @@ _CLI_TOKEN_HINT_CHARS = 8
 
 def _revoke_setting_key(sub: str) -> str:
     return f"cli_token_revoke_at:{sub}"
+
+
+#: The authenticated User for the current HTTP request (None outside HTTP
+#: requests, e.g. in scheduled background ticks). Reset per request by
+#: ``app.py`` middleware and populated by :func:`current_user`.
+_current_request_user: contextvars.ContextVar["User | None"] = contextvars.ContextVar(
+    "ada_current_request_user", default=None
+)
+
+
+def get_request_user() -> "User | None":
+    """Return the authenticated User for the active HTTP request, or None."""
+    return _current_request_user.get()
+
+
+def set_request_user(user: "User | None") -> contextvars.Token:
+    """Bind ``user`` into the current async context and return the reset token."""
+    return _current_request_user.set(user)
+
+
+def reset_request_user(token: contextvars.Token) -> None:
+    """Restore the previous request-user context using ``token``."""
+    _current_request_user.reset(token)
 
 
 @dataclass(frozen=True)
@@ -267,17 +291,23 @@ async def current_user(request: Request) -> User:
     """
     config: AuthConfig = request.app.state.auth_config
     if not config.enabled:
-        return User.local_dev()
+        user = User.local_dev()
+        _current_request_user.set(user)
+        return user
     token = _bearer_token(request)
     try:
         unverified = jwt.decode(token, options={"verify_signature": False})
     except jwt.InvalidTokenError as exc:
         raise TokenError(f"malformed token: {exc}") from exc
     if unverified.get("iss") == _CLI_TOKEN_ISS:
-        return await _verify_cli_token(request, token, config)
+        user = await _verify_cli_token(request, token, config)
+        _current_request_user.set(user)
+        return user
     verifier: _JWKSVerifier = request.app.state.auth_verifier
     claims = await verifier.verify(token)
-    return _claims_to_user(claims, config.admin_group)
+    user = _claims_to_user(claims, config.admin_group)
+    _current_request_user.set(user)
+    return user
 
 
 async def _verify_cli_token(request: Request, token: str, config: AuthConfig) -> User:
