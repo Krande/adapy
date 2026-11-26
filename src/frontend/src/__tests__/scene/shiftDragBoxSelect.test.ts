@@ -12,8 +12,9 @@ await import("../fixtures/panelRealm");
 
 const THREE = await import("three");
 const { setupPointerHandler } = await import("@/components/viewer/sceneHelpers/setupPointerHandler");
-const { BUILDER_LAYER, builderLayerEditing, cellsInScreenRect, claimPress, drawnCellBounds } = await import("@/components/viewer/cellbuilder/cellBoxSelect");
+const { BUILDER_LAYER, builderLayerEditing, cellsInScreenRect, claimPress, drawnCellBounds, drawnRefBounds, selectCellsInScreenRect } = await import("@/components/viewer/cellbuilder/cellBoxSelect");
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
+const { registerBuilderRefs } = await import("@/plugins/builderRefs");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
 const { useCameraControlsStore } = await import("@/state/cameraControlsStore");
 const { CAMERA_PRESETS, cloneMapping } = await import("@/utils/camera/cameraMapping");
@@ -42,12 +43,14 @@ const BOXES: Record<string, number[]> = { A: [1, 1, 0, 3, 3, 1], B: [4, 2, 0, 9,
 const RIGHTWARDS = [{ x: 105, y: 40 }, { x: 170, y: 95 }] as const;
 const LEFTWARDS = [{ x: 170, y: 40 }, { x: 105, y: 95 }] as const;
 
-function stage() {
+function stage(refBoxes: Record<string, number[]> = {}) {
   const scene = new THREE.Scene();
   const layer = new THREE.Group();
   layer.name = BUILDER_LAYER;
   const cellsGroup = new THREE.Group();
+  const refsGroup = new THREE.Group();
   layer.add(cellsGroup);
+  layer.add(refsGroup); // beside the cells, as refsOverlay.ts draws them in production
   scene.add(layer);
   for (const [id, b] of Object.entries(BOXES)) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(b[3] - b[0], b[4] - b[1], b[5] - b[2]), new THREE.MeshBasicMaterial());
@@ -55,7 +58,13 @@ function stage() {
     mesh.userData.__cellId = id;
     cellsGroup.add(mesh);
   }
-  return { scene, layer };
+  for (const [id, b] of Object.entries(refBoxes)) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(b[3] - b[0], b[4] - b[1], b[5] - b[2]), new THREE.MeshBasicMaterial());
+    mesh.position.set((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
+    mesh.userData.__refId = id;
+    refsGroup.add(mesh);
+  }
+  return { scene, layer, cellsGroup, refsGroup };
 }
 
 function viewport() {
@@ -220,7 +229,9 @@ test("Shift+drag in the builder (Topology Input) selects cells: a window, then a
     assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "cell", cellId: "A" });
     h.drag(...LEFTWARDS);
     assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["A", "B"]);
-    assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "cell", cellId: "A" }, "the first stays the primary");
+    // selectItems: the primary is the most recently taken item, as a toggle click or the Model
+    // panel's click already make it -- here the crossing's own last id, "B" (A was already selected).
+    assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "cell", cellId: "B" }, "the latest drag's own last pick is the primary");
     assert.equal(v.calls.length, 0, "the scene's selection is left alone");
     // A press that never moves is a click (the builder's own), not a rectangle.
     h.drag(RIGHTWARDS[0], RIGHTWARDS[0]);
@@ -228,6 +239,65 @@ test("Shift+drag in the builder (Topology Input) selects cells: a window, then a
   } finally {
     h.done();
     withdraw();
+    closeModel();
+  }
+});
+
+test("the rectangle also takes refs, which join the cells in the same selection", () => {
+  // A ref drawn over the same box as cell A -- both wholly inside the window rectangle.
+  const REF_ID = "boxsel:R1";
+  const { scene, layer } = stage({ [REF_ID]: BOXES.A });
+  assert.deepEqual([...drawnRefBounds(layer).keys()], [REF_ID]);
+  const v = viewport();
+  const withdraw = setActiveViewport(v.api);
+  const h = handler(scene);
+  const offRef = registerBuilderRefs({
+    owner: "boxsel",
+    project: () => [{ key: "R1", name: "R1", kindLabel: "Load", origin: [0, 0, 0], size: [1, 1, 1] }],
+  });
+  try {
+    openModel(); // its cells patch triggers refreshRefs(), projecting the ref above into st.refs
+    assert.ok(useCellBuilderStore.getState().refs[REF_ID], "the provider's ref is projected");
+    h.drag(...RIGHTWARDS); // window: catches cell A and the ref, in the same drag
+    assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["A"]);
+    assert.deepEqual(useCellBuilderStore.getState().selectedRefIds, [REF_ID]);
+    // Cells precede refs in the combined candidate list (selectCellsInScreenRect), so when both
+    // are taken together the ref -- last in that list -- becomes the primary (the "most recently
+    // taken" rule, the same one a toggle click or the Model panel use).
+    assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "ref", refId: REF_ID });
+  } finally {
+    h.done();
+    withdraw();
+    offRef();
+    closeModel();
+  }
+});
+
+test("a rectangle over the ref alone selects only it, leaving the cells untouched", () => {
+  const REF_ID = "boxsel:R2";
+  // Far from every cell box, inside the same window rectangle's screen area but at a different
+  // world Z so it does not overlap any cell -- simplest: just somewhere only the rect's XY reaches
+  // and no cell does. Reuse A's XY footprint but tag it as the only candidate by removing cells.
+  const { scene, layer } = stage({ [REF_ID]: BOXES.A });
+  layer.children[0].clear(); // drop the cell meshes: this rectangle now only has the ref to take
+  assert.deepEqual([...drawnCellBounds(layer).keys()], []);
+  const v = viewport();
+  const withdraw = setActiveViewport(v.api);
+  const h = handler(scene);
+  const offRef = registerBuilderRefs({
+    owner: "boxsel",
+    project: () => [{ key: "R2", name: "R2", kindLabel: "Load", origin: [0, 0, 0], size: [1, 1, 1] }],
+  });
+  try {
+    openModel();
+    h.drag(...RIGHTWARDS);
+    assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, []);
+    assert.deepEqual(useCellBuilderStore.getState().selectedRefIds, [REF_ID]);
+    assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "ref", refId: REF_ID });
+  } finally {
+    h.done();
+    withdraw();
+    offRef();
     closeModel();
   }
 });

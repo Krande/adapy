@@ -209,6 +209,25 @@ test("an object's feature edges are hidden with it, and keep their colour while 
     assert.equal(picture(OUTLINE + 1), "a:shown b:hidden c:shown d:shown");
 });
 
+test("show complement swaps hidden for shown, a double call is the identity, and hasHidden tracks it", () => {
+    assert.equal(api.hasHidden!(), false, "nothing hidden yet");
+    api.hide([ref("a"), ref("c")]);
+    assert.equal(api.hasHidden!(), true);
+    api.showComplement!();
+    assert.equal(picture(), "a:shown b:hidden c:shown d:hidden");
+    assert.equal(api.hasHidden!(), true, "b and d are hidden now");
+    api.showComplement!();
+    assert.equal(picture(), "a:hidden b:shown c:hidden d:shown", "a second swap is the identity");
+    assert.deepEqual(labels(), ["hide 2 objects", "show-complement", "show-complement"]);
+    undoViewerAction();
+    assert.equal(picture(), "a:shown b:hidden c:shown d:hidden");
+    undoViewerAction();
+    assert.equal(picture(), "a:hidden b:shown c:hidden d:shown");
+    assert.equal(api.hasHidden!(), true);
+    undoViewerAction();
+    assert.equal(api.hasHidden!(), false, "the original hide is undone too");
+});
+
 test("hide selected, hide others, show and clearing the selection are steps too", () => {
     api.setSelection([ref("b")]);
     api.hideOthers();

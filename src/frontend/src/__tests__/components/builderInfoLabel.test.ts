@@ -129,7 +129,7 @@ test("I toggles the info label; Q starts the keyboard equipment insert, which re
   const canvas = { getContext: () => new Proxy({}, { get: (_t, p) => (p === "fillText" ? (t: string) => void readout.push(t) : () => {}), set: () => true }) };
   const ctx = {
     numEntry: null, placeEntry: null, equipEntry: null as unknown, openEntry: null, modalMove: null, loftActive: null,
-    ghost: new THREE.Mesh(), ghostBox: null, container: new THREE.Group(),
+    ghost: new THREE.Mesh(), ghostBox: null, container: new THREE.Group(), placeFrame: new THREE.Group(),
     readoutCanvas: canvas, readoutTex: { needsUpdate: false }, readout: new THREE.Sprite(),
   };
   useCellBuilderStore.setState({

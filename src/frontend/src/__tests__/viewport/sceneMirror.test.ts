@@ -66,7 +66,7 @@ test("a box with a material per face is six overlay meshes, each in its face's c
     const c = mats[0].color;
     assert.deepEqual(drawn[0].color, [c.r, c.g, c.b], "the material's colour, linear as three.js holds it");
     assert.equal(drawn[0].onTop, false);
-    assert.equal(drawn[0].clipped, false, "builder geometry is not cut by the section planes, as on the three.js viewport");
+    assert.equal(drawn[0].clipped, false, "untagged geometry with no clippingPlanes is not cut");
     assert.equal(drawn[0].matrix?.[12], 5, "placed by the object's world matrix");
     assert.equal(drawn[0].fitted, false);
 });
@@ -190,6 +190,28 @@ test("depthTest off draws over the model; clipping planes cut it", () => {
     const [a, b] = [...rec.meshes.values()];
     assert.equal(a.onTop, true);
     assert.equal(b.clipped, true);
+});
+
+// `__clipWithModel` tagged alone (no live `clippingPlanes` on the material) also cuts: the
+// cell builder's own scene, mirrored here for the three.js-free viewport, is never walked by
+// SectionPlanesController (the three.js viewport's own, mounted only there), so its tagged objects
+// never carry `clippingPlanes` -- the tag is what the three.js-free renderer's own shared clip-plane
+// set (set from the section-plane store, same as the model) needs to cut a builder mesh or line too.
+test("a __clipWithModel-tagged mesh or line is reported clipped even with no clippingPlanes on its material", () => {
+    const scene = new THREE.Scene();
+    const taggedMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    taggedMesh.userData.__clipWithModel = true;
+    const plainMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    const taggedLine = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1], 3)), new THREE.LineBasicMaterial());
+    taggedLine.userData.__clipWithModel = true;
+    scene.add(taggedMesh, plainMesh, taggedLine);
+    const rec = recordingTarget();
+    createSceneMirror(scene, camera, rec.target).sync();
+    const [a, b] = [...rec.meshes.values()];
+    assert.equal(a.clipped, true, "tagged mesh");
+    assert.equal(b.clipped, false, "untagged mesh");
+    const [line] = [...rec.lines.values()];
+    assert.equal(line.clipped, true, "tagged line");
 });
 
 test("depthWrite off is handed on, for meshes and lines: a grid drawn under a see-through box hides none of its edges", () => {

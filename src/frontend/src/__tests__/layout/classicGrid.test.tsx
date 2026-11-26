@@ -8,7 +8,7 @@ await import("../fixtures/panelRealm");
 
 const React = (await import("react")).default;
 const { renderToStaticMarkup } = await import("react-dom/server");
-const { registerPanel, getPanel, listPanels } = await import("@/layout/registry");
+const { registerPanel, getPanel, listPanels, setPanelOverrides } = await import("@/layout/registry");
 const { CORE_PANEL_IDS, CORE_PANEL_OWNER, registerCorePanels } = await import("@/layout/corePanels");
 const { CLASSIC_ZONES } = await import("@/layout/layout");
 const { emptyLayoutDoc, dockInGridDoc, floatPanel, gridOf } = await import("@/layout/reducers");
@@ -295,4 +295,31 @@ test("a plugin panel whose dock is a window starts floated, once, in core's own 
   P.backHome("pl:win");
   P.adoptDockedPanels();
   assert.equal(P.placeOf(P.classicDoc(), "pl:win"), "home");
+});
+
+// No render test pinned that a dock tab's title follows `titleFor` (registry.ts) on a
+// mode switch -- only that `getPanel` itself recomputes it (registry.test.ts). This renders the
+// actual grid tab and switches the shell mode under it.
+test("a dock tab's title follows titleFor on a mode switch", () => {
+  const { setShellModes, setShellMode } = shellModesMod;
+  setShellModes(
+    [
+      { id: "input", label: "Input", order: 0 },
+      { id: "output", label: "Output", order: 1 },
+    ],
+    "input",
+  );
+  setPanelOverrides({ "t:a": { titleFor: (mode) => (mode === "output" ? "Panel A (Output)" : "Panel A (Input)") } });
+  try {
+    const htmlInput = draw();
+    assert.match(htmlInput, /role="tab"[^>]*id="grid-tab-t:a"[\s\S]*?Panel A \(Input\)/);
+    assert.doesNotMatch(htmlInput, /Panel A \(Output\)/);
+    setShellMode("output");
+    const htmlOutput = draw();
+    assert.match(htmlOutput, /role="tab"[^>]*id="grid-tab-t:a"[\s\S]*?Panel A \(Output\)/);
+    assert.doesNotMatch(htmlOutput, /Panel A \(Input\)/);
+  } finally {
+    setPanelOverrides(null);
+    setShellModes([]);
+  }
 });

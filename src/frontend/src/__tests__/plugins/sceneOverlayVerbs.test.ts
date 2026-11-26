@@ -6,9 +6,9 @@ import * as THREE from "three";
 import type {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
-import {addElementOutlines, addLines, boundaryEdges, paintFeaElements, removeOwnerOverlays} from "@/plugins/sceneOverlays";
+import {addElementOutlines, addLabels, addLines, boundaryEdges, OVERLAY_FRAMES, paintFeaElements, removeOwnerOverlays} from "@/plugins/sceneOverlays";
 // The three.js loader's result as what the verbs act on: registered where the loader is.
-import "@/utils/scene/fea/meshOverlayTarget";
+import {feaMeshChanged} from "@/utils/scene/fea/meshOverlayTarget";
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
 import {activeViewport, setActiveViewport} from "@/viewport/api/viewportApi";
@@ -151,4 +151,51 @@ test("element paint on the beam solids goes on the beam-solid mesh, and only whi
     assert.equal(solids.children.length, 0);
     solids.visible = false;
     assert.equal(paintFeaElements("p", {colors: new Map([[2, "#ff0000"]]), on: "beamSolids"}), null);
+});
+
+/** A viewport that keeps what it is asked to draw: each line's segments and matrix, each label. */
+function countingViewport(): {lines: Map<number, {segments: Float32Array; matrix: ArrayLike<number> | null}>; labels: Map<number, {position: number[]}>} {
+    const lines = new Map<number, {segments: Float32Array; matrix: ArrayLike<number> | null}>();
+    const labels = new Map<number, {position: number[]}>();
+    let next = 1;
+    withdraw?.();
+    withdraw = setActiveViewport({
+        overlays: () => ({
+            addLines: (spec: {segments: Float32Array; matrix?: ArrayLike<number> | null}) => (lines.set(next, {segments: spec.segments, matrix: spec.matrix ?? null}), next++),
+            remove: (h: number) => void lines.delete(h),
+            setPositions: () => {},
+            dispose: () => {},
+        }),
+        billboards: () => ({add: (b: {position: number[]}) => (labels.set(next, {position: [...b.position]}), next++), remove: (h: number) => void labels.delete(h), update: () => {}, dispose: () => {}}),
+    } as never);
+    return {lines, labels};
+}
+
+test('frame "world": lines and labels stay where given while an FEA model is loaded, and stay when it goes', () => {
+    const {lines, labels} = countingViewport();
+    const mesh = feaMesh();
+    mesh.position.set(0, 0, 10);
+    mesh.updateMatrixWorld();
+    open(mesh);
+    feaMeshChanged(); // what the loader says once its mesh is on the session
+    addLines("p", {segments: [0, 0, 0, 1, 0, 0]});
+    addLines("p", {segments: [0, 0, 0, 1, 0, 0], frame: "world"});
+    const [fea, world] = [...lines.values()];
+    assert.equal(fea.matrix?.[14], 10, "the default: in the FEA mesh's frame");
+    assert.equal(world.matrix, null, "world: no FEA matrix");
+    addLabels("p", [{text: "a", position: [1, 2, 3]}]);
+    addLabels("p", [{text: "b", position: [1, 2, 3]}], {frame: "world"});
+    const [inFea, inWorld] = [...labels.values()];
+    assert.deepEqual(inFea.position, [1, 2, 13]);
+    assert.deepEqual(inWorld.position, [1, 2, 3]);
+    // The result leaves: what was drawn in its frame goes with it, what was drawn in the world stays.
+    useModelSessionStore.getState().close();
+    feaMeshChanged();
+    assert.equal(lines.size, 1);
+    assert.equal([...lines.values()][0], world);
+    assert.deepEqual([...labels.values()].map((l) => l.position), [[1, 2, 3]]);
+});
+
+test("the frames a plugin may ask for", () => {
+    assert.deepEqual([...OVERLAY_FRAMES], ["fea", "world"]);
 });

@@ -246,6 +246,46 @@ test("an in-place switch swaps the layout's shell without remounting the layout,
   U.resetUiShells();
 });
 
+test("a crashed chrome slot resets on an in-place switch to a different shell, instead of staying blank for it too", async () => {
+  const a: import("@/plugins/uiShells").UiShellSpec = {
+    id: "t-crash-a",
+    label: "A",
+    chrome: {
+      header: () =>
+        Promise.resolve({
+          default: () => {
+            throw new Error("header boom");
+          },
+        }),
+    },
+  };
+  const b: import("@/plugins/uiShells").UiShellSpec = { id: "t-crash-b", label: "B", chrome: { header: header("data-crash-b-header") } };
+  const origError = console.error;
+  console.error = () => {};
+  const el = dom.container();
+  const root = createRoot(el as unknown as Element);
+  const show = async (spec: import("@/plugins/uiShells").UiShellSpec | null) => {
+    // `children` so the layout never mounts the real LayoutRoot (which pulls in camera controls
+    // and the rest of the viewer bootstrap -- nothing this test is about).
+    await act(async () => root.render(React.createElement(ComposedLayout, { spec }, React.createElement("div", { "data-body": "" }))));
+    await flush();
+  };
+  try {
+    await show(a);
+    assert.equal(el.querySelector("[data-crash-b-header]"), null, "A's header crashed; the boundary shows nothing for it");
+
+    await show(b);
+    assert.ok(
+      el.querySelector("[data-crash-b-header]"),
+      "B's header renders fine -- without key={spec.id} the SAME boundary instance would still be reporting A's crash",
+    );
+  } finally {
+    console.error = origError;
+    await act(async () => root.unmount());
+    U.resetUiShells();
+  }
+});
+
 test("a mode switch keeps the layout mounted and the model and the selection as they were (the canvas, and its camera, is never remounted)", async () => {
   const desk: import("@/plugins/uiShells").UiShellSpec = {
     id: "t-modes",

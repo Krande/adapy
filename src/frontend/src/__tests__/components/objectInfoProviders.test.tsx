@@ -15,6 +15,7 @@ const { ObjectInfoBody, CORE_PROPERTY_PROVIDERS } = await import(
 const { useTreeViewStore } = await import("@/state/treeViewStore");
 const { useObjectInfoStore } = await import("@/state/objectInfoStore");
 const { useFeaAnimationStore } = await import("@/state/feaAnimationStore");
+const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { providersFor, registerPropertyProvider, listPropertyProviders } = await import("@/plugins/propertyProviders");
 
 type Props = import("@/components/info_box_selected_object/ObjectInfoBoxComponent").ObjectInfoBodyProps;
@@ -35,14 +36,22 @@ test("core's sections keep their order and rules", () => {
         ],
     );
     const ids = (sel: Snapshot) => providersFor(sel, CORE_PROPERTY_PROVIDERS, []).map((p) => p.id);
+    // clash-contact / fem-concepts / tree-node each read their own pick store, never cleared on a
+    // mode switch and never cleared by a concept click either: picking a
+    // FEM concept clears the scene selection (kind becomes "none"), so they are gated on not being a
+    // builder pick (cell/ref) and not a "builder"-only panel, rather than on kind === "mesh" -- see
+    // the dedicated test below for the "none" case.
     assert.deepEqual(ids(none), ["clash-contact", "fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node"]);
+    assert.deepEqual(ids({ ...none, kind: "mesh", name: "e", meshName: "e", count: 1 }), [
+        "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "indexed-attributes", "related", "tree-node",
+    ]);
     // The Results section: only for a selection of nodes of a stored model.
     const nodes = [{ key: "file:m.ifc#p:RACK" }];
     assert.ok(ids({ ...none, kind: "mesh", name: "e", meshName: "e", count: 1, nodes }).includes("element-links"));
     assert.ok(!ids({ ...none, kind: "mesh", name: "e", meshName: "e", count: 1 }).includes("element-links"));
     assert.ok(ids({ ...none, hasEntities: true }).includes("selection-summary"), "the summary stays while the scene holds anything");
     const cell = ids({ ...none, kind: "cell", name: "c", meshName: "m", count: 1, cellBuilderActive: true });
-    assert.deepEqual(cell, ["selection-summary", "clash-contact", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-item"]);
+    assert.deepEqual(cell, ["selection-summary", "object-metadata", "cellbuilder-item"], "no mesh-only section leaks into a cell pick");
 });
 
 test("a plugin provider slots in by order, after core's on a tie, and a throwing match is skipped", () => {
@@ -189,4 +198,92 @@ test("summary 'menu': no name row, hide buttons, notices, Clicked at or Mesh sec
 test("the summary menu's mesh line", async () => {
     const { meshStatsLine } = await import("@/components/info_box_selected_object/MeshStatsSection");
     assert.equal(meshStatsLine({ triangles: 2, vertices: 4, area: 1 }), "2 tris · 4 verts · 1.00 m²");
+});
+
+// ── selectionSource: each mode keeps its own kind of pick ──────────────────────────
+
+const cbPristine = { ...useCellBuilderStore.getInitialState() };
+/** Render with the builder store's current (live) state as the SSR snapshot too -- `render()`
+ *  above reads the stores through `useSyncExternalStore`, whose server snapshot is
+ *  `getInitialState()`, not `getState()` (same pattern as builderSections.test.tsx's `inViewer`). */
+function renderWithBuilder(props?: Props): string {
+    Object.assign(useCellBuilderStore.getInitialState(), useCellBuilderStore.getState());
+    try {
+        return render(props);
+    } finally {
+        Object.assign(useCellBuilderStore.getInitialState(), cbPristine);
+    }
+}
+
+const builderDoc = { schema_version: "1.1", grid: {}, blueprint: {}, spaces: [{ NAME: "S1", X: 0, Y: 0, Z: 0, DX: 1, DY: 1, DZ: 1 }], equipments: [] } as never;
+
+test("selectionSource='builder' never shows a scene pick, however stale, falling through to 'none'", () => {
+    const cb = useCellBuilderStore.getState();
+    // A builder item picked AND a leftover scene pick (as if Output was visited earlier and left
+    // its mesh pick in the shared stores) at once.
+    cb.open("m", "Model", 1, builderDoc);
+    const sId = Object.values(useCellBuilderStore.getState().cells)[0].id;
+    cb.setSelection({ kind: "cell", cellId: sId });
+    setServerState(useObjectInfoStore, { name: "StaleMeshPick" });
+    const seen: string[] = [];
+    const off = registerPropertyProvider({ id: "probe", order: 1000, match: () => true, render: (sel) => (seen.push(`${sel.kind}:${sel.name}`), null) });
+    try {
+        seen.length = 0;
+        renderWithBuilder({ selectionSource: "builder" });
+        assert.ok(seen.includes("cell:S1"), `builder's own pick still shows: ${seen}`);
+        assert.ok(!seen.some((s) => s.includes("StaleMeshPick")), `the stale scene pick never leaks in: ${seen}`);
+
+        seen.length = 0;
+        renderWithBuilder({ selectionSource: "scene" });
+        assert.ok(seen.includes("mesh:StaleMeshPick"), `'scene' shows the scene pick instead: ${seen}`);
+        assert.ok(!seen.some((s) => s.startsWith("cell:")), `and never the builder pick: ${seen}`);
+
+        seen.length = 0;
+        renderWithBuilder(); // "any" (default): today's rule, the builder pick wins when there is one
+        assert.ok(seen.includes("cell:S1"));
+    } finally {
+        off();
+        setServerState(useObjectInfoStore, { name: "" });
+        cb.close();
+    }
+});
+
+test("the stale-pick sections (clash-contact, fem-concepts, tree-node) stay silent under a builder pick, selectionSource='builder'", async () => {
+    const { useClashContactPickStore } = await import("@/state/clashContactPickStore");
+    const cb = useCellBuilderStore.getState();
+    cb.open("m", "Model", 1, builderDoc);
+    const sId = Object.values(useCellBuilderStore.getState().cells)[0].id;
+    cb.setSelection({ kind: "cell", cellId: sId });
+    setServerState(useTreeViewStore, { treeData: { id: "root", name: "root", children: [] } });
+    // Synced to BOTH live and initial state (setServerState): the SSR render below reads the
+    // server snapshot, so a staleness check needs the stale pick to actually be there for it,
+    // not only in the live state nothing here reads.
+    setServerState(useClashContactPickStore, { jointId: "stale-joint" }); // no matching result -> would render null anyway, were it even reached
+    try {
+        const html = renderWithBuilder({ selectionSource: "builder" });
+        assert.doesNotMatch(html, /Spatial container|Hierarchy/, "tree-node stays out");
+        assert.match(html, /data-builder-section="item"/, "the builder item still shows");
+    } finally {
+        setServerState(useTreeViewStore, { treeData: null });
+        setServerState(useClashContactPickStore, { jointId: null });
+        cb.close();
+    }
+});
+
+// A click on a FEM concept's glyph clears the viewport selection (selectClickedConcept,
+// conceptPicking.ts), so the snapshot's `kind` is "none" with nothing else picked -- it used to be
+// gated on kind === "mesh", so the fem-concepts section never showed at all.
+test("a FEM concept picked with nothing else picked shows with source 'any'/'scene', and is hidden with 'builder'", async () => {
+    const { useFemConceptsStore } = await import("@/state/femConceptsStore");
+    setServerState(useFemConceptsStore, {
+        masses: [{ name: "M1", position: [1, 2, 3], mass: 500 }],
+        selection: [{ kind: "mass", index: 0 }],
+    } as never);
+    try {
+        assert.match(renderWithBuilder({ selectionSource: "any" }), />M1</, "the default shows it");
+        assert.match(renderWithBuilder({ selectionSource: "scene" }), />M1</, "and so does 'scene'");
+        assert.doesNotMatch(renderWithBuilder({ selectionSource: "builder" }), />M1</, "but not a builder-only panel");
+    } finally {
+        setServerState(useFemConceptsStore, { masses: [], selection: [] } as never);
+    }
 });

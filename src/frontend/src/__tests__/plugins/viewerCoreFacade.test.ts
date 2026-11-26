@@ -148,6 +148,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     // The Model panel's helpers: pure (type-only imports of the builder's types).
     "@/utils/cellbuilder/modelTree",
     "@/utils/cellbuilder/include",
+    "@/utils/cellbuilder/refInclude",
     "@/utils/cellbuilder/blueprintColours",
     // The builder refs' types (type-only here; the module's own imports are types too).
     "@/state/cellbuilder/refsSlice",
