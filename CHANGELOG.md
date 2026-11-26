@@ -2,6 +2,15 @@
 
 
 
+## v0.175.0 (2026-11-26)
+
+### Feature
+
+* feat(clash): complete the convex-contact check for in-process callers (#606)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`e1a7fc1`](https://github.com/Krande/adapy/commit/e1a7fc12fb8ac4124d693c58a20af6db79412581))
+
+
 ## v0.174.1 (2026-11-25)
 
 ### Fix
