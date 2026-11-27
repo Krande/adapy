@@ -9,6 +9,9 @@
 import {runtime, ConversionOption} from "@/runtime/config";
 import {workerPreferred} from "@/services/compute/workerAccess";
 
+/** The client tessellator token for adacpp's native CAD->GLB embind modules. */
+export const NATIVE_TESSELLATOR = "wasm-native";
+
 export interface SerializerSelection {
     serializer?: string;
     tessellator?: string;
@@ -64,10 +67,14 @@ export function normalizeSelection(
         ? value.serializer
         : defaultSerializer(schema);
     const allowed = tessellatorsFor(schema, serializer);
+    const isClient = schema.serializer.runtime?.[serializer] === "client";
+    // An untouched client row starts on adacpp's native (embind, no Pyodide) module when the
+    // row offers it: the same reader/writer as the server, so the same scene hierarchy, and no
+    // Python runtime to boot. An explicit choice (e.g. "pyodide") is always honoured.
+    const untouchedDefault = isClient && allowed.includes(NATIVE_TESSELLATOR) ? NATIVE_TESSELLATOR : allowed[0] ?? "";
     const tessellator = value.tessellator && allowed.includes(value.tessellator)
         ? value.tessellator
-        : allowed[0] ?? "";
-    const isClient = schema.serializer.runtime?.[serializer] === "client";
+        : untouchedDefault;
     return {serializer, tessellator, isClient};
 }
 

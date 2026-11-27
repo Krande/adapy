@@ -28,6 +28,25 @@ function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolea
     return !workerPreferred();
 }
 
+/** STEP/IFC -> GLB in the browser through adacpp's native (embind, no Pyodide) CAD->GLB
+ * modules: the same reader and writer the server uses, so the GLB carries the same scene
+ * hierarchy, and no Python runtime has to boot. Returns the derived key, or null when no
+ * native module covers the pair or it failed -- the caller then uses the Pyodide pipeline. */
+async function convertNativeFirst(
+    scope: ScopeUrl,
+    sourceKey: string,
+    targetFormat: TargetFormat,
+): Promise<string | null> {
+    const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import("./nativeCadGlbPipeline");
+    if (!nativeCadGlbSupported(sourceKey, targetFormat)) return null;
+    try {
+        return await convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
+    } catch (err) {
+        console.warn(`native ${extOf(sourceKey)} -> ${targetFormat} failed; using the Pyodide pipeline`, err);
+        return null;
+    }
+}
+
 /** True when a supported in-browser conversion goes to the worker because the
  * user chose it: the submission the server's worker-access policy judges. */
 function choseWorker(sourceKey: string, targetFormat: TargetFormat): boolean {
@@ -63,6 +82,11 @@ export async function ensureConverted(
     },
 ): Promise<string> {
     if (shouldUsePyodide(sourceKey, targetFormat)) {
+        // A forced streaming-STEP request is a worker-side engine knob; honour it there.
+        if (!opts?.conversionOptions?.step_streamer) {
+            const native = await convertNativeFirst(scope, sourceKey, targetFormat);
+            if (native !== null) return native;
+        }
         const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
         return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
     }
@@ -111,11 +135,18 @@ export async function convertWithSelection(
         //                 (STEP → GLB only, 2.3 MB, no Python runtime).
         //   pyodide     → the Pyodide pipeline (ifc / step / mesh, wasm wheels).
         if (resolved.tessellator === "wasm-native") {
-            // CAD→GLB (step/ifc → glb) via the native embind GLB modules.
+            // CAD→GLB (step/ifc → glb) via the native embind GLB modules. The default for an
+            // untouched row (normalizeSelection): then a native failure falls back to Pyodide;
+            // an explicit "wasm-native" pick reports it.
+            const untouched = !selection.tessellator;
+            if (untouched) {
+                const native = await convertNativeFirst(scope, sourceKey, targetFormat);
+                if (native !== null) return native;
+            }
             const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import(
                 "./nativeCadGlbPipeline"
             );
-            if (nativeCadGlbSupported(sourceKey, targetFormat)) {
+            if (!untouched && nativeCadGlbSupported(sourceKey, targetFormat)) {
                 return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
             }
             // B-rep→B-rep (step→ifc / ifc→step) via the native embind writer module.
@@ -141,6 +172,8 @@ export async function convertWithSelection(
     // every other conversion (`ensureConverted`). Without this the converter page sent them to a
     // worker even with "Convert in-browser" on.
     if (!schema && shouldUsePyodide(sourceKey, targetFormat)) {
+        const native = await convertNativeFirst(scope, sourceKey, targetFormat);
+        if (native !== null) return native;
         const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
         return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
     }
