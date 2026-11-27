@@ -26,6 +26,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..components_manifest import (
     _scope_url_segment,
     expose_manifest,
@@ -208,4 +209,4 @@ async def api_components_build(
             target_capability=target_capability,
         )
     )
-    return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+    return JSONResponse({**job_fields(job), "derived_key": derived_key})

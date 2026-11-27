@@ -16,7 +16,8 @@
 //       {"name": "pandas", "file": "pandas-....whl", "sha256": "<hex>", "source": "pyodide"},
 //       {"name": "openpyxl", "file": "openpyxl-....whl", "sha256": "<hex>", "source": "wheel"}
 //     ],
-//     "gate": "<plugin access gate>"         // prewarm only where this gate is open
+//     "gate": "<plugin access gate>",        // prewarm only where this gate is open
+//     "capabilities": ["<pool>"]             // the worker pools whose core jobs it serves here
 //   }
 // plus, once per manifest, an optional staged Pyodide runtime:
 //   "pyodide": {"version": "0.29.4", "index_url": "/wheels/pyodide/"}
@@ -62,6 +63,10 @@ export interface PluginWheelEntry {
     packages?: BakedPackage[];
     sha256?: string;
     gate?: string;
+    /** The worker capabilities (pools) whose core jobs this wheel serves in the browser: a clash
+     * checker or a connection spec it registers runs on that pool on a worker, and a browser run
+     * of such a job installs this wheel first (`pluginsForCapability`). */
+    capabilities?: string[];
 }
 
 export interface StagedPyodide {
@@ -154,6 +159,9 @@ export function parsePluginWheelsManifest(
         if (typeof e.entrypoint === "string" && e.entrypoint) entry.entrypoint = e.entrypoint;
         if (typeof e.register === "string" && e.register) entry.register = e.register;
         if (typeof e.gate === "string" && e.gate.trim()) entry.gate = e.gate.trim().toLowerCase();
+        const caps = typeof e.capabilities === "string" ? [e.capabilities] : Array.isArray(e.capabilities) ? e.capabilities : [];
+        const capList = caps.filter((c): c is string => typeof c === "string" && !!c.trim()).map((c) => c.trim().toLowerCase());
+        if (capList.length) entry.capabilities = [...new Set(capList)];
         if (typeof e.sha256 === "string" && SHA256.test(e.sha256.toLowerCase())) entry.sha256 = e.sha256.toLowerCase();
         if (Array.isArray(e.deps)) entry.deps = e.deps.filter((d): d is string => typeof d === "string" && !!d.trim());
         if (Array.isArray(e.packages)) {
@@ -314,6 +322,19 @@ export function planPluginsInstall(manifest: PluginWheelsManifest, pluginIds: re
         }
     }
     return out;
+}
+
+/** The manifest plugins that serve `capability`'s core jobs in the browser (listed under the
+ * capability's name, or naming it in their `capabilities`), in manifest order; none for a job
+ * with no capability (core's own). */
+export function pluginsForCapability(manifest: PluginWheelsManifest, capability: string | null | undefined): string[] {
+    const cap = String(capability ?? "").trim().toLowerCase();
+    if (!cap) return [];
+    // A wheel listed under the capability's own name serves it too -- the convention an asset
+    // builder's entry follows (its plugin id is its build capability).
+    return Object.entries(manifest.plugins ?? {})
+        .filter(([id, entry]) => normalizeName(id) === normalizeName(cap) || entry.capabilities?.includes(cap))
+        .map(([id]) => id);
 }
 
 /** Every baked Pyodide package across the manifest, once per name. */

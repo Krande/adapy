@@ -13,6 +13,7 @@ import {
     patchPyodideLock,
     planPluginInstall,
     planPluginsInstall,
+    pluginsForCapability,
     PLUGIN_WHEELS_DIR,
     PYODIDE_VERSION,
     resolvePyodideSource,
@@ -60,6 +61,13 @@ type WorkerMessage =
           reqId: number;
           summary: Record<string, unknown>;
           localArtefacts: LocalArtefactOutput[];
+          heap?: number;
+      }
+    | {
+          type: "core-result";
+          reqId: number;
+          status: string;
+          outputs: Array<{name: string; bytes: Uint8Array}>;
           heap?: number;
       }
     | {type: "error"; reqId?: number; message: string};
@@ -470,6 +478,95 @@ export async function runPluginJobViaPyodide(opts: {
         authHeaders: opts.authHeaders,
     });
     return resultPromise;
+}
+
+/** A claimed core job (services/compute/coreJobs.ts) as the worker gets it. */
+export interface CoreJobClaimMessage {
+    id: string;
+    kind: string;
+    source_key: string;
+    derived_key: string;
+    conversion_options: Record<string, unknown>;
+    target_capability: string | null;
+    scope: string;
+}
+
+/** Run a claimed core job (a clash check, a detail, a component build, a selection export, an
+ * equipment bbox, a scene utility) in the browser Pyodide worker: ada.comms.rest.wasm_jobs.run,
+ * the worker handler's own work, reading the scope's blobs through a synchronous facade. The
+ * plugin wheels that serve the job's pool (manifest `capabilities`) are installed first, so a
+ * checker or spec they register is there. Resolves to the run's status and its outputs by name. */
+export async function runCoreJobViaPyodide(
+    claim: CoreJobClaimMessage,
+    opts: {
+        apiBase?: string;
+        authHeaders?: Record<string, string>;
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+    } = {},
+): Promise<{status: "done" | "error"; error: string | null; traceback?: string | null; outputs: Record<string, Uint8Array>}> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const manifest = await loadPluginWheelsManifest();
+    const plugins = pluginsForCapability(manifest, claim.target_capability);
+    const plans = plugins.length ? planPluginsInstall(manifest, plugins) : [];
+    const worker = await ensurePyodideWorker(opts.onLog);
+    const reqId = nextReqId++;
+    const result = new Promise<{status: string; outputs: Array<{name: string; bytes: Uint8Array}>}>((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            clearTimeout(timer);
+        };
+        const fail = (message: string, kill: boolean) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            if (kill) killWorker();
+            reject(new Error(message));
+        };
+        const onMessage = (e: MessageEvent<WorkerMessage>) => {
+            const data = e.data;
+            if (data.type === "log") {
+                opts.onLog?.(data.message);
+                return;
+            }
+            if (data.type === "progress" && data.reqId === reqId) {
+                opts.onProgress?.(data.message, data.fraction);
+                return;
+            }
+            if ((data.type === "core-result" || data.type === "error") && data.reqId !== reqId) return;
+            if (settled) return;
+            if (data.type === "core-result") {
+                settled = true;
+                cleanup();
+                if (typeof data.heap === "number") lastHeapBytes = data.heap;
+                resolve({status: data.status, outputs: data.outputs});
+            } else if (data.type === "error") {
+                fail(data.message, false);
+            }
+        };
+        const onError = () => fail("wasm worker crashed (likely out-of-memory); it was restarted", true);
+        const timer = setTimeout(
+            () => fail(`wasm core job exceeded ${JOB_TIMEOUT_MS / 1000}s; worker terminated`, true),
+            JOB_TIMEOUT_MS,
+        );
+        worker.addEventListener("message", onMessage);
+        worker.addEventListener("error", onError);
+    });
+    worker.postMessage({
+        type: "run-core-job",
+        reqId,
+        claim: JSON.stringify(claim),
+        plans,
+        apiBase: opts.apiBase ?? "/api",
+        authHeaders: opts.authHeaders,
+    });
+    const {status, outputs} = await result;
+    const doc = JSON.parse(status) as {status: "done" | "error"; error: string | null; traceback?: string | null};
+    return {...doc, outputs: Object.fromEntries(outputs.map((o) => [o.name, o.bytes]))};
 }
 
 /** Run a procedural engine registered in /wheels/plugin-wheels-manifest.json

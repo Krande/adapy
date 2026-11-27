@@ -43,7 +43,7 @@ describe("policy model", () => {
       assert.deepEqual(d[op]["*"], ["pyodide", "worker"]);
       for (const ext of [".ifc", ".step", ".stp"]) assert.deepEqual(d[op][ext], ["native", "pyodide", "worker"]);
     }
-    for (const op of ["fea_bake", "procedural_compile", "plugin_job", "procedural_io", "asset_build"] as const) {
+    for (const op of ["fea_bake", "procedural_compile", "plugin_job", "procedural_io", "asset_build", "core_job"] as const) {
       assert.deepEqual(d[op], { "*": ["pyodide", "worker"] });
     }
     d.convert["*"].push("native");

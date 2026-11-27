@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 
 from .. import auth as auth_module
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..scope import Scope
 from .deps import RestContext, require_catalog_store, rest_context, scope_from_path
 
@@ -257,15 +258,22 @@ async def api_equipment_types_infer_bbox(
         return JSONResponse({"job_id": None, "status": "done", "bbox": bbox, "derived_key": derived_key})
     if not ctx.queue.enabled:
         raise HTTPException(status_code=503, detail="bbox inference disabled (no NATS configured)")
-    job = await ctx.queue.enqueue(
-        f"_synthetic/equipment/{type_id}/bbox",
-        target_format="equipment_bbox",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={"type_id": type_id, "cad_key": row["cad_key"], "cad_z_up": cad_z_up},
-        derived_key=derived_key,
+    from ..job_transport import JobRequest
+
+    # Through the transport like every other job (it was the one enqueue that skipped the
+    # worker-access gate): judged when the viewer chose the worker, a claim when it asked to infer
+    # in the browser (``browser_jobs``).
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=f"_synthetic/equipment/{type_id}/bbox",
+            target_format="equipment_bbox",
+            scope=scope_obj,
+            feature="bbox_inference",
+            conversion_options={"type_id": type_id, "cad_key": row["cad_key"], "cad_z_up": cad_z_up},
+            derived_key=derived_key,
+        )
     )
-    return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+    return JSONResponse({**job_fields(job), "derived_key": derived_key})
 
 
 async def _infer_bbox_here(

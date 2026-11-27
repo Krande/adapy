@@ -198,22 +198,17 @@ export const conversionApi = {
     utilityName: string,
     kwargs: Record<string, boolean | string | number | null>,
   ): Promise<ConvertResponse> {
-    const r = await authedFetch(
+    // In this browser first when the execution policy says so (core_job, utility): the same
+    // @utility handler runs in Pyodide and its viewer-ops land at the same key.
+    const { postCoreJob } = await import("@/services/compute/coreJobs");
+    const settled = await postCoreJob<ConvertResponse>(
+      scope,
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/utility`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source_key: sourceKey,
-          utility_name: utilityName,
-          kwargs,
-        }),
-      },
-    );
-    return jsonOrThrow<ConvertResponse>(
-      r,
+      { source_key: sourceKey, utility_name: utilityName, kwargs },
+      "utility",
       `runUtility(${utilityName} on ${sourceKey})`,
     );
+    return settled as ConvertResponse;
   },
 
   /** In-flight conversions the current user started in this scope.

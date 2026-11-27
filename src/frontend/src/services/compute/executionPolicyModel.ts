@@ -15,6 +15,7 @@ export const EXEC_OPERATIONS = [
     "plugin_job",
     "procedural_io",
     "asset_build",
+    "core_job",
 ] as const;
 export type ExecOperation = (typeof EXEC_OPERATIONS)[number];
 
@@ -34,6 +35,18 @@ export const ENGINE_OPERATIONS: ReadonlySet<ExecOperation> = new Set(["procedura
 
 /** Operations whose qualifier is an asset build capability (a node's `build` claim). */
 export const CAPABILITY_OPERATIONS: ReadonlySet<ExecOperation> = new Set(["asset_build"]);
+/** The "core_job" operation's qualifiers: the families of core work the browser runs first
+ * (the server's CORE_JOB_FAMILIES). One operation, a row per family, as plugin_job has a row
+ * per plugin. */
+export const CORE_JOB_FAMILIES = [
+    "clash_check",
+    "clash_detail",
+    "component_build",
+    "export_selection",
+    "equipment_bbox",
+    "utility",
+] as const;
+export type CoreJobFamily = (typeof CORE_JOB_FAMILIES)[number];
 
 export const OPERATION_LABELS: Record<ExecOperation, string> = {
     convert: "Convert (converter page, re-convert)",
@@ -43,6 +56,7 @@ export const OPERATION_LABELS: Record<ExecOperation, string> = {
     plugin_job: "Plugin job",
     procedural_io: "Procedural Excel, relocations and IFC/Genie export",
     asset_build: "Asset node build (Sources tab load)",
+    core_job: "Clash check and detail, component build, selection export, equipment bbox, scene utility",
 };
 
 export const ENGINE_LABELS: Record<ExecEngine, string> = {
@@ -60,6 +74,7 @@ export const QUALIFIER_HINTS: Record<ExecOperation, string> = {
     plugin_job: "plugin id",
     procedural_io: "engine slug",
     asset_build: "build capability",
+    core_job: CORE_JOB_FAMILIES.join(" / "),
 };
 
 const BROWSER_FIRST: ExecEngine[] = ["pyodide", "worker"];
@@ -75,6 +90,7 @@ export const DEFAULT_EXECUTION_POLICY: Readonly<Record<ExecOperation, Readonly<R
     plugin_job: {"*": BROWSER_FIRST},
     procedural_io: {"*": BROWSER_FIRST},
     asset_build: {"*": BROWSER_FIRST},
+    core_job: {"*": BROWSER_FIRST},
 };
 
 /** A deep, mutable copy of the defaults. */
@@ -98,6 +114,11 @@ export function normaliseQualifier(op: ExecOperation, qualifier: string): {value
         return EXT_QUALIFIER.test(q)
             ? {value: q}
             : {error: `${op}: qualifier '${qualifier}' must be '*' or a source extension with its dot (e.g. '.ifc')`};
+    }
+    if (op === "core_job") {
+        return (CORE_JOB_FAMILIES as readonly string[]).includes(q)
+            ? {value: q}
+            : {error: `${op}: qualifier '${qualifier}' must be '*' or one of ${CORE_JOB_FAMILIES.join(", ")}`};
     }
     if (NAME_QUALIFIER.test(q)) return {value: q};
     const what = ENGINE_OPERATIONS.has(op)

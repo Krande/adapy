@@ -19,8 +19,11 @@ Operations (:data:`OPERATIONS`): ``convert`` (an explicit conversion: the conver
 page, a re-convert), ``read`` (loading a source for viewing), ``fea_bake``,
 ``procedural_compile`` (qualifier: engine slug), ``plugin_job`` (qualifier:
 plugin id) and ``procedural_io`` (a procedural model's Excel export / import, its
-relocation proposals and its IFC/Genie export; qualifier: engine slug) and ``asset_build`` (an
-asset node's on-demand build; qualifier: the build capability of the node's claim). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
+relocation proposals and its IFC/Genie export; qualifier: engine slug), ``asset_build`` (an
+asset node's on-demand build; qualifier: the build capability of the node's claim) and ``core_job``
+(core work that used to need a worker and that the browser now runs first: the clash check,
+clash detailing, component builds, the selection export, equipment bounding boxes and scene
+utilities; qualifier: the job family, :data:`CORE_JOB_FAMILIES`). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
 source extension including the dot (``".ifc"``). A lookup takes the row for
 ``(operation, qualifier)`` and otherwise ``(operation, "*")``.
 
@@ -65,6 +68,7 @@ OPERATIONS: tuple[str, ...] = (
     "plugin_job",
     "procedural_io",
     "asset_build",
+    "core_job",
 )
 ENGINES: tuple[str, ...] = ("native", "pyodide", "worker")
 WILDCARD = "*"
@@ -77,6 +81,18 @@ ENGINE_OPERATIONS: frozenset[str] = frozenset({"procedural_compile", "procedural
 PROCEDURAL_IO_FEATURES: frozenset[str] = frozenset({"procedural_export", "procedural_import", "procedural_relocations"})
 #: Operations whose qualifier is an asset build capability.
 CAPABILITY_OPERATIONS: frozenset[str] = frozenset({"asset_build"})
+#: The ``core_job`` operation's qualifiers, by the job feature each family is submitted under:
+#: core work the browser runs first (``ada.comms.rest.wasm_jobs``). One operation with a row per
+#: family, as ``plugin_job`` has a row per plugin: an administrator can send clash detailing to the
+#: worker and keep the check in the browser, and the operation list stays short.
+CORE_JOB_FAMILIES: dict[str, str] = {
+    "clash_check": "clash_check",
+    "clash_detail": "clash_detail",
+    "component_build": "component_build",
+    "export_selection": "export_selection",
+    "bbox_inference": "equipment_bbox",
+    "utilities": "utility",
+}
 
 _EXT_QUALIFIER = re.compile(r"^\.[a-z0-9][a-z0-9_+-]{0,31}$")
 _NAME_QUALIFIER = re.compile(r"^[a-z0-9][a-z0-9_.:@/+-]{0,127}$")
@@ -94,6 +110,7 @@ DEFAULT_POLICY: dict[str, dict[str, list[str]]] = {
     "plugin_job": {"*": _BROWSER_FIRST},
     "procedural_io": {"*": _BROWSER_FIRST},
     "asset_build": {"*": _BROWSER_FIRST},
+    "core_job": {"*": _BROWSER_FIRST},
 }
 
 
@@ -115,6 +132,13 @@ def normalise_qualifier(operation: str, qualifier: str) -> str:
         if not _EXT_QUALIFIER.match(q):
             raise ExecutionPolicyError(
                 f"{operation}: qualifier {qualifier!r} must be '*' or a source extension with its dot (e.g. '.ifc')"
+            )
+        return q
+    if operation == "core_job":
+        families = sorted(set(CORE_JOB_FAMILIES.values()))
+        if q not in families:
+            raise ExecutionPolicyError(
+                f"{operation}: qualifier {qualifier!r} must be '*' or one of {', '.join(families)}"
             )
         return q
     if not _NAME_QUALIFIER.match(q):
@@ -270,6 +294,8 @@ def job_operation(
     if feature in PROCEDURAL_IO_FEATURES:
         engine = str(opts.get("engine") or "").strip().lower()
         return "procedural_io", engine or WILDCARD
+    if feature in CORE_JOB_FAMILIES:
+        return "core_job", CORE_JOB_FAMILIES[feature]
     if feature == "plugin_jobs":
         pid = str(plugin_id or opts.get("plugin_id") or "").strip().lower()
         return "plugin_job", pid or WILDCARD

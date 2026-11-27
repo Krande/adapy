@@ -638,6 +638,111 @@ _pio_out.encode("utf-8") if isinstance(_pio_out, str) else _pio_out
     }
 }
 
+// The stack a core job runs on (ada.comms.rest.wasm_jobs): adapy with adacpp's kernel and coal
+// clash module (pydantic for the connection specs, Pillow for the GLB writer, sqlite3 for the
+// readers that import it), ifcopenshell only for a job that reads or writes IFC.
+let coreJobStackPromise = null;
+async function ensureCoreJobStack() {
+    if (!coreJobStackPromise) {
+        coreJobStackPromise = (async () => {
+            await pyodide.loadPackage(["pydantic", "Pillow", "sqlite3"]);
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            await pyodide.runPythonAsync(`
+import ada.cad
+ada.cad.select_backend(prefer="adacpp")
+import ada.comms.rest.wasm_jobs
+`);
+        })();
+        coreJobStackPromise.catch(() => {
+            coreJobStackPromise = null;
+        });
+    }
+    return coreJobStackPromise;
+}
+
+// Run a claimed core job (services/compute/coreJobs.ts): the worker handler's own work
+// (ada.comms.rest.wasm_jobs.run) on the claim, reading the scope's blobs with synchronous GETs.
+// plans: the plugin wheels serving the job's pool (their register hooks add a checker or a spec).
+// Answers the status document and the outputs by name; the main thread stores them via the API.
+async function runCoreJob(reqId, claimJson, plans, apiBase, authHeaders) {
+    await ensureCoreJobStack();
+    if (claimJson.toLowerCase().includes(".ifc")) await ensureIfcStack();
+    for (const plan of Array.isArray(plans) ? plans : []) await ensurePluginWheel(plan);
+    const claim = JSON.parse(claimJson);
+    const scope = String(claim.scope || "shared");
+    const base = (apiBase || "/api").replace(/\/+$/, "");
+    pyodide.globals.set("_cj_claim", claimJson);
+    pyodide.globals.set("_cj_get_bytes", (key) => syncBlobGet(base, scope, key, authHeaders));
+    pyodide.globals.set("_cj_list_keys", (prefix) => {
+        const p = String(prefix || "");
+        return syncListScopeKeys(base, scope, authHeaders).filter((k) => !p || k.startsWith(p)).sort();
+    });
+    pyodide.globals.set("_cj_progress", (stage, fraction) =>
+        self.postMessage({type: "progress", reqId, message: String(stage || ""), fraction: typeof fraction === "number" ? fraction : 0}),
+    );
+    try {
+        const status = await pyodide.runPythonAsync(`
+import pathlib
+
+class _CoreJobStorage:
+    """The synchronous facade a worker hands a handler, over the API's blob GETs."""
+
+    def get_bytes(self, key):
+        try:
+            return bytes(_cj_get_bytes(key).to_py())
+        except Exception as exc:
+            if "GET 404 " in str(exc):
+                raise FileNotFoundError(key) from exc
+            raise
+
+    def list_keys(self, prefix=""):
+        return list(_cj_list_keys(prefix).to_py())
+
+    def get_many(self, keys):
+        out = {}
+        for key in keys:
+            try:
+                out[key] = self.get_bytes(key)
+            except (FileNotFoundError, KeyError):
+                out[key] = None
+        return out
+
+    def fetch_to_path(self, key, dest):
+        p = pathlib.Path(dest)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(self.get_bytes(key))
+        return dest
+
+    def provider_denial(self, key):
+        return None
+
+import ada.comms.rest.wasm_jobs as _wj
+_cj_status, _cj_outputs = _wj.run_json(_cj_claim, _CoreJobStorage(), lambda s, f=0.0: _cj_progress(str(s), float(f)))
+_cj_status
+`);
+        const outputs = [];
+        const proxy = pyodide.globals.get("_cj_outputs");
+        try {
+            for (const name of proxy.keys()) {
+                const value = proxy.get(name);
+                const bytes = value && typeof value.toJs === "function" ? value.toJs() : value;
+                outputs.push({name: String(name), bytes: new Uint8Array(bytes)});
+                if (value && typeof value.destroy === "function") value.destroy();
+            }
+        } finally {
+            proxy.destroy();
+        }
+        return {status: String(status), outputs};
+    } finally {
+        for (const g of ["_cj_claim", "_cj_get_bytes", "_cj_list_keys", "_cj_progress", "_cj_status", "_cj_outputs"]) {
+            try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
+        }
+    }
+}
+
 // Every cell dispatches through `import ada.cadit.wasm_convert`, so the adapy
 // wheel is a precondition of all of them, not just the CAD formats. ada's
 // __init__ is eager, hence trimesh + pyquaternion first (numpy comes from
@@ -1082,6 +1187,23 @@ self.onmessage = async (e) => {
                 /* heap introspection unavailable */
             }
             self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
+        }
+        return;
+    }
+
+    if (data.type === "run-core-job") {
+        const reqId = data.reqId;
+        try {
+            const {status, outputs} = await runCoreJob(reqId, data.claim, data.plans, data.apiBase, data.authHeaders);
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            self.postMessage({type: "core-result", reqId, status, outputs, heap}, outputs.map((o) => o.bytes.buffer));
         } catch (err) {
             self.postMessage({type: "error", reqId, message: String(err.message || err)});
         }

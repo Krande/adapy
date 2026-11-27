@@ -46,13 +46,14 @@ from __future__ import annotations
 import logging
 import pathlib
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
 
 from fastapi import HTTPException
 
 from . import local_jobs
 from .auth import User, get_request_user
+from .browser_jobs import RUN_ON_BROWSER, browser_choice, claimable
 from .execution_policy import current_requested_operation, require_execution_policy
 from .queue import JobQueue
 from .scope import Scope
@@ -247,6 +248,8 @@ class SubmittedJob:
     progress: float
     target_capability: str | None
     payload: dict[str, Any]
+    #: ``"browser"``: a claim the viewer runs itself (:mod:`.browser_jobs`), queued for no pool.
+    run_on: str | None = None
 
 
 #: Called after a job is durable and BEFORE anything can start running it.
@@ -382,6 +385,8 @@ class QueueJobTransport(_BaseTransport):
         return self._queue
 
     async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
+        if browser_choice() and claimable(req.target_format, req.conversion_options):
+            return await self._claim_for_browser(req, before_dispatch)
         effective_user = req.user if req.user is not None else get_request_user()
         db_pool = self._pool() if callable(self._pool) else self._pool
         # An explicit worker choice must be one the execution policy offers for this
@@ -431,6 +436,30 @@ class QueueJobTransport(_BaseTransport):
             await self._queue.publish(job)
         return submitted
 
+    async def _claim_for_browser(self, req: JobRequest, before_dispatch: BeforeDispatch | None) -> SubmittedJob:
+        """A core job the viewer asked to run itself (``X-Ada-Run-On: browser``): the job record is
+        kept, exactly as the route made it, and published to no pool (:mod:`.browser_jobs`). No
+        worker is involved, so neither the execution policy's worker rule nor worker access is
+        judged here; handing the claim to a worker later is (``routes/browser_jobs.py``)."""
+        job = await self._queue.enqueue(
+            req.source_key,
+            target_format=req.target_format,
+            scope_kind=req.scope.kind,
+            scope_id=req.scope.id,
+            step=req.step,
+            field=req.field_name,
+            conversion_options=req.conversion_options,
+            derived_key=req.derived_key,
+            target_capability=req.target_capability,
+            force_rebuild=req.force_rebuild,
+            publish=False,
+            run_on=RUN_ON_BROWSER,
+        )
+        submitted = replace(_submitted_from_job(job), run_on=RUN_ON_BROWSER)
+        if before_dispatch is not None:
+            await before_dispatch(submitted)
+        return submitted
+
     def inprocess(self, job_id: str) -> JobSnapshot | None:
         # Nothing runs in this process behind a queue: `local_jobs` is only
         # ever written by LocalJobTransport, and answering from it here would
@@ -442,9 +471,7 @@ class QueueJobTransport(_BaseTransport):
         if job is None:
             return None
         scope = (
-            Scope.shared()
-            if job.scope_kind == "shared"
-            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
+            Scope.shared() if job.scope_kind == "shared" else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
         )
         return JobSnapshot(job_id=job.job_id, status=job.status, scope=scope, payload=asdict(job), local=False)
 

@@ -34,6 +34,7 @@ from ada.clash.options import ClashOptions
 
 from .. import auth as auth_module
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..job_transport import JobRequest
 from ..scope import Scope
 from ..selection_export import (
@@ -235,7 +236,7 @@ async def api_export_selection(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False, "filename": filename})
+    return JSONResponse({**job_fields(submitted), "derived_key": derived_key, "cached": False, "filename": filename})
 
 
 async def _submit_group_export(
@@ -321,4 +322,4 @@ async def _submit_group_export(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False, "filename": filename})
+    return JSONResponse({**job_fields(submitted), "derived_key": derived_key, "cached": False, "filename": filename})

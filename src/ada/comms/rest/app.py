@@ -41,6 +41,7 @@ from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
 from .routes.attribute_search import router as attribute_search_router
 from .routes.audit_local import router as audit_local_router
+from .routes.browser_jobs import router as browser_jobs_router
 from .routes.clash_check import router as clash_check_router
 from .routes.clash_contacts import router as clash_contacts_router
 from .routes.components import router as components_router
@@ -332,13 +333,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             set_explicit_worker_choice,
         )
 
+        from .browser_jobs import requests_browser, reset_browser_choice, set_browser_choice
+
         token = auth_module.set_request_user(None)
         choice = set_explicit_worker_choice(requests_worker(request.headers))
+        browser = set_browser_choice(requests_browser(request.headers))
         operation = set_requested_operation(requested_operation(request.headers))
         try:
             return await call_next(request)
         finally:
             reset_requested_operation(operation)
+            reset_browser_choice(browser)
             reset_explicit_worker_choice(choice)
             auth_module.reset_request_user(token)
 
@@ -445,6 +450,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # In-browser (WASM) conversion audit rows and viewer load/render samples (routes/audit_local.py).
     api.include_router(audit_local_router)
+    api.include_router(browser_jobs_router)
 
     api.include_router(fea_router)
 

@@ -99,6 +99,10 @@ class Job:
     # "fields_ready": int, "fields_total": int | None, "complete": bool}`` as its
     # uploader lands the preliminary manifests (formats/fea.py). None: nothing to say.
     artefacts_ready: dict | None = None
+    # ``"browser"``: a CLAIM -- the job record of a core job the viewer runs in its own browser
+    # (``browser_jobs``), kept but never published to a pool unless the browser hands it to one
+    # (``"worker"`` then). None: an ordinary job.
+    run_on: str | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -832,6 +836,7 @@ class JobQueue:
         target_capability: str | None = None,
         force_rebuild: bool = False,
         publish: bool = True,
+        run_on: str | None = None,
     ) -> Job:
         # ``derived_key`` lets callers pin an explicit produced-blob
         # path. The convert flow leaves it None and lets
@@ -859,7 +864,10 @@ class JobQueue:
             conversion_options=conversion_options,
             target_capability=target_capability,
             force_rebuild=force_rebuild,
+            run_on=run_on,
         )
+        if run_on == "browser":
+            job.stage = "browser"
         # Resolve which pool should handle this job. When the caller
         # passes ``target_capability`` explicitly (admin audit form,
         # CI pipeline tagging), honour it. Otherwise look up the

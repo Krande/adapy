@@ -45,6 +45,10 @@ WORKER_SIDE_FILES = {
     "subprocess_convert.py",
     "selection_export.py",
     "search_export.py",
+    # The core jobs' own work, run on a worker (formats/clash_contacts.py) and in the browser's
+    # Pyodide worker (wasm_jobs.py); the API imports neither.
+    "clash_contacts_work.py",
+    "wasm_jobs.py",
     "__main__.py",
 }
 # Imports the API makes only behind a caller that catches ImportError and degrades (the guard cannot see

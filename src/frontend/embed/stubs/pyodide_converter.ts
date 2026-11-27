@@ -55,6 +55,11 @@ export async function convertIfcViaPyodide(): Promise<never> {
     throw new Error(UNAVAILABLE);
 }
 
+/** A core job never runs in the embed: the caller hands it to the worker (coreJobs.ts). */
+export async function runCoreJobViaPyodide(): Promise<never> {
+    throw new Error(UNAVAILABLE);
+}
+
 export function shutdownPyodideWorker(): void {
     /* no worker in the embed */
 }
