@@ -380,11 +380,11 @@ class _SyncStorageFacade:
 
     With ``db_pool``, READS of provider data resolve as the API routes resolve them: a key under a
     collection the scope is granted, and the provider store holds, is read from the store
-    (:class:`~.provider_reads.ProviderReads`). Writes always land in the job's scope.
+    (:class:`~ada.comms.rest.provider_reads.ProviderReads`). Writes always land in the job's scope.
     """
 
     def __init__(self, storage, scope, loop, db_pool=None):
-        from .provider_reads import ProviderReads
+        from ..provider_reads import ProviderReads
 
         self._s, self._scope, self._loop = storage, scope, loop
         self._reads = ProviderReads(storage, scope, db_pool)

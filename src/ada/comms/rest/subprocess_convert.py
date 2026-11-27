@@ -487,7 +487,7 @@ _RPC_EXC_TYPES: dict[str, type[Exception]] = {
     "KeyError": KeyError,
     "ValueError": ValueError,
     "PermissionError": PermissionError,
-    # Provider data the job's scope holds no grant on (``worker/provider_reads.py``): still an
+    # Provider data the job's scope holds no grant on (``provider_reads.py``): still an
     # absence to a reader, with the message saying why.
     "ProviderDataNotGranted": FileNotFoundError,
 }
