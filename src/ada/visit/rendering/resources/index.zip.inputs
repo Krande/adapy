@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 74c163c7ddd2833b224967595fd6445a642b9471897aec2abcc883e4401841ad
-bundle-sha256 36690bf6b07851534658ec65a8d96827b66a16ac778b191be010638d9e7c2405
+inputs-sha256 3b40ee2f71122d6f181cee8b986c28f0c0ac66cf1c22fabbee5e1257374ce00e
+bundle-sha256 6f8e8910dd26e182a04beb3d3d6dc6ec52b1bdfca3f9f8c4d9fd900ed10cd753
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -771,13 +771,13 @@ src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts 944ebf224d5754d843e64e44e6f2bd923c380bca
 src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
-src/frontend/src/services/api/client.ts e6084a92e558f5dc68288c894133e8cca7ea5e7d
+src/frontend/src/services/api/client.ts 85d634050fcf8fa3eca486d6debd959d74a723d8
 src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
-src/frontend/src/services/api/conversion.ts 52c083c3080d8006af02a149f12a0c5309211979
+src/frontend/src/services/api/conversion.ts 991e6f6e2c8ca24ba35d3613eef923f327e6d896
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
 src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
 src/frontend/src/services/api/equipmentTypes.ts 1d043d8b3a1f97853c3ddd95f7195030ae2cd8b4
-src/frontend/src/services/api/fea.ts 76eace4bd4def090cf8279c2cc263131d7a83162
+src/frontend/src/services/api/fea.ts 6b4358750cfe5d65578963d924db1201b9bebdbe
 src/frontend/src/services/api/files.ts 62a4cb9b0d83bfe4bd74a44f0b6d4a44ea52c5a4
 src/frontend/src/services/api/geometryCompare.ts 130336a08b2439cafc55e46b70e1c7e4fba24f84
 src/frontend/src/services/api/localJobs.ts 380c7c76c7dc160ce2b7abdb9ac4d64285e7d052
@@ -785,9 +785,9 @@ src/frontend/src/services/api/metrics.ts 21a548edc37fdeb46d89df8c05084ec1c9954cb
 src/frontend/src/services/api/nodeBounds.ts 3502a1696a3e7f6d71036cd76fb0c1bf415aac07
 src/frontend/src/services/api/nodeRelations.ts dd4b4d1505f1192b150410e429b1e9ffde7f8c6e
 src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d83c91ee
-src/frontend/src/services/api/plugins.ts 2d055798f8e495bcfa88f98cb26a51e42f2f232c
+src/frontend/src/services/api/plugins.ts 4c51d95b8533376961bd1825dbabbc24bdacd091
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
-src/frontend/src/services/api/procedural.ts 8bf2444a610c987d99d65b7da2700de21859dd98
+src/frontend/src/services/api/procedural.ts e0f1ab7699fa689d29f1fe89a7e6393b43390bc0
 src/frontend/src/services/api/proceduralCatalog.ts 08b94f3c9139455348eefbdb679813e16aae0b68
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
@@ -808,8 +808,8 @@ src/frontend/src/services/assets.ts 5aa618bc75f15a02d86755c542e04920dc6d85bd
 src/frontend/src/services/audit/wasmSweep.ts 0606b25383ef8f32cc03c1bbc1a4ea6b22cfa311
 src/frontend/src/services/auth/oidc.ts f3cbdaaa7aa853d8dda3b9fb28ac962d862f7069
 src/frontend/src/services/capabilities/index.ts 93810f5190aa7b35a9a5d789b286ec0852c5560c
-src/frontend/src/services/capabilities/rest_capabilities.ts aa466eedab66cbf23ae36725866d6edf5757be46
-src/frontend/src/services/capabilities/types.ts 7fbae911f16f3341e0236685ae5715a38737ae01
+src/frontend/src/services/capabilities/rest_capabilities.ts 2182e03fa599002a04afc1d85f1e12b02e9e1c41
+src/frontend/src/services/capabilities/types.ts 63a3a7829f237b3f9383d5b267c45a92774e6655
 src/frontend/src/services/capabilities/ws_capabilities.ts adcf10a4eb04793b51e120b44cc87b0f63e0877f
 src/frontend/src/services/clash/browserClashCheck.ts b7f83bf44c716eb7f9e671e7d1778bb896ccd99e
 src/frontend/src/services/clash/contactRuns.ts 8bc196a03170bd08e7dc287a3cb03bda38075e66
@@ -818,15 +818,15 @@ src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
 src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862fd5d6e8b9882391
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
-src/frontend/src/services/compute/pluginJobRouter.ts 5073f42e220279951b4df939c093e3efb269f06b
+src/frontend/src/services/compute/pluginJobRouter.ts df8c488e3df9dac07180aca2a0026b4933ad7c4e
 src/frontend/src/services/compute/workerAccess.ts 6f6b3e9dd62a6adf624e8a9daac4010a7f9a0c4c
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
-src/frontend/src/services/conversion/index.ts fe1a84199d7b9d1f216d903c85e0f1ae8a689a3b
+src/frontend/src/services/conversion/index.ts ccd7ec8af63fd60f7adfd044f2707441692683eb
 src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts c89e715567363a3b14e6540b2b136c29e4a9e838
 src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 80c400fe75ff7fed98133a31daa788c82e36b9ed
 src/frontend/src/services/conversion/pyodidePipeline.ts be3ba10c30ed0cb2fc4876d36235d4d5f78caf6f
 src/frontend/src/services/conversion/serializerMatrix.ts b6136e0cde3ba796e9c9b181f69af00a61b9b8d5
-src/frontend/src/services/conversion/serverPipeline.ts 02d5c54024d9a62bc26de915aee9ef4253ef69d9
+src/frontend/src/services/conversion/serverPipeline.ts 51820f59a6ab959d2cbc2f6da1e21409fce60dd1
 src/frontend/src/services/conversion/wasmSupport.ts 27763766815ead01eb8d94c2ab2f56054696c90e
 src/frontend/src/services/devConnections/connectionBuilderSession.ts 4684e42c7acb8b5bed2153c3a603cd1eb7319e0a
 src/frontend/src/services/devConnections/previewOnShow.ts 8bf4253950e37cb6fe3471f171a88306ec110bb9
@@ -914,7 +914,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts 534cd9885cbc24c9af888cb6dbab5eed95a7b2f5
+src/frontend/src/state/cellbuilder/jobsSlice.ts 24bb9559b41ea63e757f35dbb482e90b0cb4ccd8
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -1300,7 +1300,7 @@ src/frontend/src/utils/scene/fea/streaming/layerLines.ts 29fd6dca6931f1713be3975
 src/frontend/src/utils/scene/fea/streaming/layerOverlayTarget.ts 1b544b20bdb238f952b2b95f9d5f79978e5b5dbc
 src/frontend/src/utils/scene/fea/streaming/layerSession.ts 02fa25dff5d9ed775d27530eaffd49c057155025
 src/frontend/src/utils/scene/fea/streaming/legendSync.ts 63d46221d1a56c43bd62bc6ae6df3dea66a634c2
-src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts d21dff3aef279dc2c67405bffa1b4dc28b014bc6
+src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts 02b1c77877d6a01a8ddde4eb32a0bba775a439dc
 src/frontend/src/utils/scene/fea/streaming/manifestStores.ts 4e3ed949a0259271fa74ffd7bfb0650875f7b2b0
 src/frontend/src/utils/scene/fea/streaming/meshFirst.ts 47313501ab62e60583d9870d18227490bc221e82
 src/frontend/src/utils/scene/fea/streaming/paintElemField.ts 538445e30b3ae272342f2a4f17082a289996dd02
