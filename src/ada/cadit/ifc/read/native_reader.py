@@ -3,8 +3,8 @@
 The geometry-shapes counterpart of ``ada.cadit.step.read.native_reader`` for IFC: iterate the native
 per-product ``IfcNgeomStream`` (blob + meta = guid/color/transforms/instance_paths) and build the
 Assembly's Part/ShapeProxy tree directly — lazy ShapeStore blobs, colour + spatial hierarchy resolved
-in C++. This is a geometry-shapes mode (like the STEP product tree): it does NOT reconstruct typed
-Beam/Plate/Pipe objects — the ifcopenshell reader remains the typed-object path.
+in C++. Beams and plates the native member scan reads fully (``native_members``) come back as the
+typed ``Beam`` / ``Plate`` the ifcopenshell reader would build; every other product is a shape.
 """
 
 from __future__ import annotations
@@ -47,13 +47,46 @@ def native_stream_read_ifc_blobs(ifc_path: str | pathlib.Path) -> Iterator[tuple
         yield nbytes, (guid or name), color, mats, paths
 
 
-def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree: bool = True) -> int:
+def _native_members_by_guid(ifc_path) -> dict[str, dict]:
+    """The member scan's beam/plate records by GlobalId, or {} where the installed adacpp scan
+    cannot state a member fully (no structural fields): a member rebuilt from its axis alone would
+    be a lesser object than the shape it replaces."""
+    from ada.cadit.ifc.read.native_members import (
+        _BEAM_CLASSES,
+        _PLATE_CLASSES,
+        native_members_available,
+        scan_ifc_members,
+    )
+
+    if not native_members_available():
+        return {}
+    out: dict[str, dict] = {}
+    for rec in scan_ifc_members(ifc_path):
+        if "cuts" not in rec:
+            return {}
+        cls = (rec.get("ifc_class") or "").upper()
+        if rec.get("guid") and (cls in _BEAM_CLASSES or cls in _PLATE_CLASSES):
+            out[rec["guid"]] = rec
+    return out
+
+
+def native_read_ifc_into(
+    assembly, ifc_path: str | pathlib.Path, *, product_tree: bool = True, members: bool = True
+) -> int:
     """Populate ``assembly`` with a Part/ShapeProxy tree from the native IFC reader. Returns the
-    number of shapes added. Lazy ShapeStore by default (``Config().cad_lazy_shape_store``); the eager
-    fallback hydrates each blob to a ``Geometry``."""
+    number of objects added. Lazy ShapeStore by default (``Config().cad_lazy_shape_store``); the eager
+    fallback hydrates each blob to a ``Geometry``.
+
+    ``members``: a beam or plate the native member scan reads fully (its section, cuts, material and
+    property sets) is added as that ``Beam`` / ``Plate`` -- the object the ifcopenshell reader would
+    build -- in place of its shape. A product the scan cannot rebuild stays a shape."""
     from ada.api.shapes import ShapeProxy, ShapeStore
     from ada.api.spatial import Part
-    from ada.config import Config
+    from ada.cadit.ifc.read.native_members import member_object
+    from ada.config import Config, logger
+
+    by_guid = _native_members_by_guid(ifc_path) if members else {}
+    materials: dict = {}
 
     # Lazy store retains each product's NGEOM blob (the zero-copy ndarray view the C++ IfcNgeomStream
     # yields — no memcpy) and, when cad_shape_store_compress is on, zlib-compresses it in place to cut
@@ -82,6 +115,18 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
 
     n = 0
     for i, (blob, pname, guid, color, mats, paths) in enumerate(_native_ifc_products(ifc_path)):
+        parent = _tree_parent(paths) if product_tree else assembly
+        rec = by_guid.pop(guid, None) if guid else None
+        if rec is not None:
+            try:
+                obj = member_object(rec, materials)
+            except Exception as exc:  # noqa: BLE001 - not rebuildable: keep the product as its shape
+                logger.debug(f"native IFC reader: member {rec.get('name')!r} kept as a shape ({exc})")
+                obj = None
+            if obj is not None:
+                parent.add_object(obj)
+                n += 1
+                continue
         # Named after the product, as the ifcopenshell reader names it, so an object keeps its name
         # through a write/read round-trip; the GlobalId rides as the shape's guid. A product the
         # file leaves unnamed falls back to its GlobalId, then to a positional name.
@@ -106,7 +151,6 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
                 color=color,
                 **ident,
             )
-        parent = _tree_parent(paths) if product_tree else assembly
         parent.add_shape(shp)
         n += 1
     return n

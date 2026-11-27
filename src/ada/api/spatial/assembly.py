@@ -182,8 +182,10 @@ class Assembly(Part):
 
         ``reader="native"`` uses adacpp's pure-C++ IFC reader (IfcNgeomStream) to build a
         geometry-shapes Part/ShapeProxy tree (no ifcopenshell/OCC) — colour + spatial hierarchy from
-        the C++ resolver; does NOT reconstruct typed Beam/Plate objects. Default (``ifcopenshell``)
-        is the full typed reader.
+        the C++ resolver. Beams and plates whose member data the native member scan can read come
+        back as Beam / Plate (section, cuts, material, property sets), as the ifcopenshell reader
+        rebuilds them; every other product is a ShapeProxy. Default (``ifcopenshell``) is the full
+        typed reader.
         """
         if reader == "native":
             from ada.cadit.ifc.read.native_reader import (
