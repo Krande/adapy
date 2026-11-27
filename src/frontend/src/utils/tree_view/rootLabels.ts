@@ -18,8 +18,10 @@ export type RootLabelMode = "name" | "id";
 
 const STORAGE_KEY = "ada.sceneTree.rootLabels";
 
-/** Root names that say nothing: what an exporter calls a scene it did not name. */
-const GENERIC_ROOT_NAMES = new Set(["", "root", "scene", "auxscene", "model", "world", "node", "group"]);
+/** Root names that say nothing: what an exporter calls a scene it did not name. "ada" is the
+ *  default name of an adapy Assembly, the root of every GLB adapy's own writer produces from a
+ *  model nobody named (an IFC, SAT, STEP, FEM or Genie file converted through adapy). */
+const GENERIC_ROOT_NAMES = new Set(["", "root", "scene", "auxscene", "model", "world", "node", "group", "ada"]);
 
 /** The name a model's root row shows in "name" mode. */
 export function topLevelName(displayName: string | null | undefined, rootName: string | null | undefined, sourceLabel: string): string {
