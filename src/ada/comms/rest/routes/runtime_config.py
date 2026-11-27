@@ -209,6 +209,12 @@ async def config_js(request: Request, ctx: RestContext = Depends(rest_context)) 
         body += "window.ADA_NO_DATABASE = true;\n"
     if not storage.supports_presigned_uploads:
         body += "window.ADA_NO_PRESIGNED_URLS = true;\n"
+    # Where the in-browser Python engine loads Pyodide from, for a deployment that
+    # serves it itself (an offline site, a mirror). Emitted only when set: absent,
+    # the page uses a runtime staged next to its wheels, else the public CDN.
+    pyodide_index_url = os.environ.get("ADA_VIEWER_PYODIDE_INDEX_URL", "").strip()
+    if pyodide_index_url:
+        body += f"window.PYODIDE_INDEX_URL = {_json.dumps(pyodide_index_url)};\n"
 
     # config.js is the SPA's source of truth for runtime config
     # (worker registry → extraSourceExts / streamingOnlyExts, image

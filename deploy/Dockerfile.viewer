@@ -138,8 +138,10 @@ COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 # Optional extra pure-Python plugin wheels overlay — GENERIC, names no plugin here.
 # When EXTRA_WHEELS_DIR is set (relative to src/frontend/), its .whl files and
 # plugin-wheels-manifest.json are copied into /build/dist/wheels/ and every
-# wheel referenced by the manifest is verified to exist at build time. Unset is
-# a no-op so standalone public adapy builds are unchanged.
+# wheel referenced by the manifest is verified to exist at build time -- the
+# plugin wheels, the dependency files an entry lists under `packages`, and a
+# Pyodide runtime the manifest says is staged there. Unset is a no-op so
+# standalone public adapy builds are unchanged (and carry no plugin deps).
 ARG EXTRA_WHEELS_DIR=""
 RUN set -eu; \
     if [ -n "${EXTRA_WHEELS_DIR}" ]; then \
@@ -161,6 +163,18 @@ RUN set -eu; \
                     console.error(`ERROR: plugin-wheels-manifest.json entry "${id}" references missing wheel "${whl}"`); \
                     process.exit(1); \
                 } \
+                for (const pkg of (entry.packages || [])) { \
+                    const f = typeof pkg === "string" ? pkg : pkg && pkg.file; \
+                    if (!f || !fs.existsSync(path.join(dir, f))) { \
+                        console.error(`ERROR: plugin-wheels-manifest.json entry "${id}" references missing package file "${f}"`); \
+                        process.exit(1); \
+                    } \
+                } \
+            } \
+            const py = m.pyodide && m.pyodide.index_url; \
+            if (py && py.startsWith("/wheels/") && !fs.existsSync(path.join(dir, py.slice("/wheels/".length), "pyodide.js"))) { \
+                console.error(`ERROR: plugin-wheels-manifest.json stages Pyodide at "${py}" but it holds no pyodide.js`); \
+                process.exit(1); \
             } \
         '; \
     fi

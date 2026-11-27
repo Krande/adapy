@@ -5,8 +5,23 @@
 // reuse the warm worker. Each request gets a unique reqId so
 // concurrent calls don't cross-talk.
 
+import {runtime} from "@/runtime/config";
+import {
+    bakedPyodidePackages,
+    loadPluginWheelsManifest,
+    patchPyodideLock,
+    planPluginInstall,
+    planPluginsInstall,
+    PLUGIN_WHEELS_DIR,
+    PYODIDE_VERSION,
+    resolvePyodideSource,
+    type PluginInstallPlan,
+} from "./pluginWheels";
+
 let workerPromise: Promise<Worker> | null = null;
 let nextReqId = 1;
+// Plugins whose install the live worker was already asked to prewarm.
+let prewarmedPlugins = new Set<string>();
 // Peak wasm linear-memory the live worker last reported. Pyodide never frees
 // heap back to the OS, so once a worker has grown near the wasm32 ceiling we
 // recycle it (terminate + respawn) before the NEXT job rather than risk an OOM
@@ -54,7 +69,41 @@ function killWorker(): void {
     const p = workerPromise;
     workerPromise = null;
     lastHeapBytes = 0;
+    prewarmedPlugins = new Set();
     if (p) p.then((w) => w.terminate()).catch(() => {});
+}
+
+/** What the worker boots with: where Pyodide loads from and, when the build baked
+ * Pyodide packages next to the plugin wheels, a lock file pointing at them. */
+export interface PyodideBootConfig {
+    version: string;
+    indexURL: string;
+    lockFileContents?: unknown;
+}
+
+// The page's URL, to resolve origin-relative Pyodide and wheel URLs against.
+function pageUrl(): string {
+    return (globalThis as {location?: {href?: string}}).location?.href ?? "http://localhost/";
+}
+
+async function resolveBootConfig(onLog?: (msg: string) => void): Promise<PyodideBootConfig> {
+    const here = pageUrl();
+    const manifest = await loadPluginWheelsManifest();
+    const source = resolvePyodideSource(runtime.pyodideIndexUrl(), manifest, here, (m) => onLog?.(m));
+    const config: PyodideBootConfig = {version: PYODIDE_VERSION, indexURL: source.indexURL};
+    const baked = bakedPyodidePackages(manifest);
+    if (baked.length === 0) return config;
+    try {
+        const resp = await fetch(`${source.indexURL}pyodide-lock.json`);
+        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+        const patch = patchPyodideLock(await resp.json(), baked, new URL(PLUGIN_WHEELS_DIR, here).href);
+        for (const s of patch.skipped) onLog?.(`baked ${s.name} not used: ${s.reason}`);
+        if (patch.redirected.length > 0) config.lockFileContents = patch.lock;
+    } catch (err) {
+        // The packages then load from the index by name, as without baking.
+        onLog?.(`Pyodide lock file not read (${err instanceof Error ? err.message : String(err)}); baked packages unused`);
+    }
+    return config;
 }
 
 function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
@@ -84,11 +133,23 @@ function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
             workerPromise = null;
             reject(new Error(e.message || "worker spawn error"));
         });
-        // Boot is implicit on first message. Send a ping-style message
-        // to kick it off; the worker treats any message as the boot
-        // trigger.
-        worker.postMessage({type: "boot"});
+        // Boot is implicit on the first message, which must carry the boot config
+        // (the worker cannot load Pyodide before it knows where from). Every
+        // other message waits for "ready", so this one is always first.
+        resolveBootConfig(onLog)
+            .catch((): PyodideBootConfig => {
+                const source = resolvePyodideSource(runtime.pyodideIndexUrl(), {plugins: {}}, pageUrl());
+                return {version: PYODIDE_VERSION, indexURL: source.indexURL};
+            })
+            .then((pyodide) => worker.postMessage({type: "boot", pyodide}));
     });
+}
+
+/** The install plans for one plugin, or none when the manifest does not list it. */
+async function pluginPlans(pluginId: string): Promise<PluginInstallPlan[] | null> {
+    const manifest = await loadPluginWheelsManifest();
+    if (!manifest.plugins[pluginId]) return null;
+    return planPluginInstall(manifest, pluginId);
 }
 
 export function isPyodideWorkerReady(): boolean {
@@ -104,13 +165,29 @@ export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promis
 
 /** Boot the worker and pre-load the CAD stack in the background. Call when the
  * WASM engine is enabled so the first conversion doesn't pay the cold
- * pyodide-boot + kernel-load cost when the user opens a file. Fire-and-forget. */
-export function prewarmPyodide(onLog?: (msg: string) => void): void {
-    ensurePyodideWorker(onLog)
-        .then((w) => w.postMessage({type: "prewarm"}))
-        .catch(() => {
-            /* best-effort warm-up; a real conversion will surface any error */
-        });
+ * pyodide-boot + kernel-load cost when the user opens a file. Fire-and-forget.
+ *
+ * `plugins`: manifest plugin ids to install too, after the core stack, one at a
+ * time (their dependency files included). Each id is sent once per worker; a job
+ * for a plugin still installing waits for that same install. */
+export function prewarmPyodide(onLog?: (msg: string) => void, opts?: {plugins?: readonly string[]}): void {
+    void (async () => {
+        let ids: string[] = [];
+        let plans: PluginInstallPlan[] = [];
+        if (opts?.plugins) {
+            // A plugins-only call with nothing new to install does not boot the worker.
+            const manifest = await loadPluginWheelsManifest();
+            ids = opts.plugins.filter((id) => !prewarmedPlugins.has(id) && id in manifest.plugins);
+            if (ids.length === 0) return;
+            plans = planPluginsInstall(manifest, ids);
+        }
+        const w = await ensurePyodideWorker(onLog);
+        for (const id of ids) prewarmedPlugins.add(id);
+        w.postMessage({type: "prewarm", plugins: plans});
+    })().catch((err) => {
+        onLog?.(`prewarm not started: ${err instanceof Error ? err.message : String(err)}`);
+        /* best-effort warm-up; a real conversion will surface any error */
+    });
 }
 
 export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea_glb" | "fem" | "genie";
@@ -322,6 +399,8 @@ export async function runPluginJobViaPyodide(opts: {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
+    const plans = await pluginPlans(opts.pluginId);
+    if (!plans) throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${opts.pluginId}"`);
     const worker = await ensurePyodideWorker(opts.onLog);
     const reqId = nextReqId++;
     const resultPromise = new Promise<PluginJobResult>((resolve, reject) => {
@@ -377,6 +456,7 @@ export async function runPluginJobViaPyodide(opts: {
         type: "run-plugin-job",
         reqId,
         pluginId: opts.pluginId,
+        plans,
         scope: opts.scope,
         options: opts.options,
         derivedPrefix: opts.derivedPrefix ?? "",
@@ -397,6 +477,7 @@ export async function runProceduralEngineViaPyodide(
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
+    const plans = await pluginPlans(engineId);
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
@@ -404,6 +485,7 @@ export async function runProceduralEngineViaPyodide(
         type: "run-procedural-engine",
         reqId,
         engineId,
+        plans,
         doc: JSON.stringify(doc),
     });
     return result;

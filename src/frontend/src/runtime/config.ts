@@ -132,6 +132,10 @@ declare global {
         // True on a server with a local store: it mints no presigned URLs, so
         // the page reads blobs through /blobs without asking for one first.
         ADA_NO_PRESIGNED_URLS?: boolean;
+        // Where the in-browser Python engine loads Pyodide from (its "full/" directory),
+        // for a deployment that serves Pyodide from its own origin or a mirror. Absent =
+        // a runtime staged next to the wheels, else jsDelivr (utils/pyodide/pluginWheels.ts).
+        PYODIDE_INDEX_URL?: string;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -181,6 +185,9 @@ export const runtime = {
     // What the server offers. Absent (an older server) = offered.
     hasDatabase: (): boolean => w().ADA_NO_DATABASE !== true,
     presignedUrls: (): boolean => w().ADA_NO_PRESIGNED_URLS !== true,
+
+    // The Pyodide index the deployment configured; "" = not configured.
+    pyodideIndexUrl: (): string => (typeof window === "undefined" ? "" : (w().PYODIDE_INDEX_URL || "").trim()),
 
     // Image identity (REST mode only). Either may be empty in dev or
     // when the worker hasn't reported in yet.

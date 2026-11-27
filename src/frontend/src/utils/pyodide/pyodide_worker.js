@@ -14,10 +14,15 @@
 // keeping the comment here so the genealogy of the bootstrap idiom
 // (loadPyodide → micropip.install → import) is discoverable.
 
-// 0.29.4: Python 3.13 + emscripten 4.0.9 + native wasm-EH — the ABI the adacpp
-// wheel (cp313/pyodide_2025_0) and the ifcopenshell wasm wheel target. Keep in
-// lockstep with adacpp's tools/build_wheel.py tags + pixi.toml.
-const PYODIDE_VERSION = "0.29.4";
+// Where Pyodide loads from (and its version) arrives in the first message, the
+// boot config the main thread resolves in pyodide_converter.ts: PYODIDE_VERSION
+// and the default index live in pluginWheels.ts, next to the deployment's
+// PYODIDE_INDEX_URL and a Pyodide runtime the build may stage beside the wheels.
+// So pyodide.js is loaded in bootstrap(), not at the top of this file.
+//
+// This file is a classic worker that the dev server serves unbundled, so it
+// imports nothing: install decisions (which baked files, which index packages,
+// which PyPI deps) are made on the main thread and arrive as plans.
 const IFC_WASM_WHEEL =
     "https://ifcopenshell.github.io/wasm-wheels/ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl";
 
@@ -31,9 +36,6 @@ const IFC_WASM_WHEEL =
 // next to each resolves the filename so we don't hardcode the version.
 const ADACPP_MANIFEST_URL = "/wheels/manifest.json"; // {"adacpp": "<file>.whl"}
 const ADAPY_MANIFEST_URL = "/wheels/adapy-manifest.json"; // {"adapy": "<file>.whl"}
-const PLUGIN_WHEELS_MANIFEST_URL = "/wheels/plugin-wheels-manifest.json"; // {"plugins": {...}}
-
-importScripts(`https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`);
 
 let pyodide = null;
 let bootPromise = null;
@@ -47,18 +49,28 @@ let trimeshPromise = null;
 let pyquaternionPromise = null;
 let adacppWheelPromise = null;
 let adapyWheelPromise = null;
-let pluginManifestPromise = null;
 const pluginWheelPromises = new Map();
 
 function log(message) {
     self.postMessage({type: "log", message});
 }
 
-async function bootstrap() {
-    log(`Loading Pyodide v${PYODIDE_VERSION}…`);
-    pyodide = await loadPyodide({
-        indexURL: `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
-    });
+// config: {version, indexURL, lockFileContents?} from the boot message.
+// lockFileContents is Pyodide's own lock with baked packages pointed at
+// /wheels/; Pyodide still resolves their dependencies and checks their sha256.
+async function bootstrap(config) {
+    if (!config || !config.indexURL) {
+        throw new Error("no Pyodide boot config in the first message");
+    }
+    log(`Loading Pyodide v${config.version} from ${config.indexURL}…`);
+    importScripts(`${config.indexURL}pyodide.js`);
+    const options = {indexURL: config.indexURL};
+    if (config.lockFileContents) {
+        options.lockFileContents = config.lockFileContents;
+        // Without a lock URL Pyodide has no base for the lock's relative file names.
+        options.packageBaseUrl = config.indexURL;
+    }
+    pyodide = await loadPyodide(options);
     // Pillow is loaded here, before ANY `import ada` (and therefore before the
     // first `import trimesh` the real ada init triggers). trimesh decides
     // whether it has image/texture support at import time by probing for PIL;
@@ -212,64 +224,75 @@ async function ensureAdapyWheel() {
     return adapyWheelPromise;
 }
 
-// Resolve and cache /wheels/plugin-wheels-manifest.json (no-store on first fetch).
-async function loadPluginWheelsManifest() {
-    if (!pluginManifestPromise) {
-        pluginManifestPromise = (async () => {
-            const resp = await fetch(PLUGIN_WHEELS_MANIFEST_URL, {cache: "no-store"});
-            if (resp.status === 404) {
-                return {plugins: {}};
-            }
-            if (!resp.ok) {
-                throw new Error(
-                    `plugin wheels manifest fetch failed: ${resp.status} ${resp.statusText} (${PLUGIN_WHEELS_MANIFEST_URL})`,
-                );
-            }
-            const parsed = await resp.json();
-            return parsed && typeof parsed === "object" ? parsed : {plugins: {}};
-        })();
+// Fetch a file baked under /wheels/, check its sha256 when the plan names one,
+// and stage it on the pyodide FS. Returns the emfs: URL micropip installs from.
+async function stageBakedFile(file, sha256) {
+    const url = `/wheels/${encodeURIComponent(file)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+        throw new Error(`baked file fetch failed: ${resp.status} ${resp.statusText} (${url})`);
     }
-    return pluginManifestPromise;
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    if (sha256) {
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+        const hex = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+        if (hex !== sha256) {
+            throw new Error(`sha256 mismatch for ${file}: manifest ${sha256}, served ${hex}`);
+        }
+    }
+    pyodide.FS.mkdirTree("/wheels");
+    const fsPath = `/wheels/${file}`;
+    pyodide.FS.writeFile(fsPath, bytes);
+    return `emfs:${fsPath}`;
 }
 
-// Lazy-install a plugin wheel declared in /wheels/plugin-wheels-manifest.json.
-// Resolves well-known runtime deps (adapy, adacpp, pydantic, h5py, sqlite3, scipy),
-// sibling plugin wheels declared in the same manifest, and pure-Python PyPI deps.
-async function ensurePluginWheel(pluginId, _visiting = new Set()) {
+async function micropipInstallNoDeps(emfsUrl) {
+    pyodide.globals.set("_pw_wheel_emfs", emfsUrl);
+    try {
+        await pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install(_pw_wheel_emfs, deps=False)
+        `);
+    } finally {
+        try { pyodide.globals.delete("_pw_wheel_emfs"); } catch (_) { /* fine */ }
+    }
+}
+
+// The worker's own stacks a plugin may name in its deps.
+async function ensureRuntimeDep(dep) {
+    if (dep === "adapy") return ensureAdapyRuntime();
+    if (dep === "adacpp") return ensureAdacppWheel();
+    if (dep === "ifcopenshell") return ensureIfcStack();
+    if (dep === "trimesh") return ensureTrimesh();
+    if (dep === "pyquaternion") return ensurePyquaternion();
+    throw new Error(`unknown runtime dependency "${dep}"`);
+}
+
+// Install one plugin from its plan (pluginWheels.ts planPluginInstall), once per
+// worker: a job and the background prewarm asking for the same plugin share the
+// install. Order: the worker's stacks, Pyodide packages by name (baked ones come
+// from /wheels/ through the boot lock file), baked wheels (deps=False, in order),
+// unbaked deps through micropip (Pyodide's index, then PyPI), the plugin wheel
+// itself (deps=False), then its register hook.
+function ensurePluginWheel(plan) {
+    const pluginId = plan.id;
     if (pluginWheelPromises.has(pluginId)) {
         return pluginWheelPromises.get(pluginId);
     }
-    if (_visiting.has(pluginId)) {
-        throw new Error(`Circular plugin wheel dependency detected for "${pluginId}"`);
-    }
-    _visiting.add(pluginId);
     const p = (async () => {
-        const manifest = await loadPluginWheelsManifest();
-        const plugins = manifest.plugins || {};
-        const entry = plugins[pluginId];
-        if (!entry || !entry.wheel) {
-            throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${pluginId}"`);
+        for (const dep of plan.runtime || []) {
+            await ensureRuntimeDep(dep);
         }
-        const deps = Array.isArray(entry.deps) ? entry.deps : [];
-        const pyodidePkgs = [];
-        const micropipPkgs = [];
-        for (const dep of deps) {
-            if (dep === "adapy") {
-                await ensureAdapyRuntime();
-            } else if (dep === "adacpp") {
-                await ensureAdacppWheel();
-            } else if (["pydantic", "h5py", "sqlite3", "scipy", "Pillow", "numpy"].includes(dep)) {
-                pyodidePkgs.push(dep);
-            } else if (plugins[dep]) {
-                await ensurePluginWheel(dep, _visiting);
-            } else {
-                micropipPkgs.push(dep);
-            }
+        const names = plan.pyodidePackages || [];
+        if (names.length > 0) {
+            log(`Loading Pyodide packages for ${pluginId}: ${names.join(", ")}…`);
+            await pyodide.loadPackage(names);
         }
-        if (pyodidePkgs.length > 0) {
-            log(`Loading Pyodide packages for ${pluginId}: ${pyodidePkgs.join(", ")}…`);
-            await pyodide.loadPackage(pyodidePkgs);
+        for (const pkg of plan.bakedWheels || []) {
+            log(`Installing baked ${pkg.file} for ${pluginId}…`);
+            await micropipInstallNoDeps(await stageBakedFile(pkg.file, pkg.sha256));
         }
+        const micropipPkgs = plan.micropip || [];
         if (micropipPkgs.length > 0) {
             log(`Installing Python deps for ${pluginId}: ${micropipPkgs.join(", ")}…`);
             pyodide.globals.set("_pw_deps_json", JSON.stringify(micropipPkgs));
@@ -282,26 +305,10 @@ async function ensurePluginWheel(pluginId, _visiting = new Set()) {
                 try { pyodide.globals.delete("_pw_deps_json"); } catch (_) { /* fine */ }
             }
         }
-        const wheelUrl = `/wheels/${entry.wheel}`;
-        log(`Fetching plugin wheel ${entry.wheel}…`);
-        const wResp = await fetch(wheelUrl);
-        if (!wResp.ok) {
-            throw new Error(`plugin wheel fetch failed: ${wResp.status} ${wResp.statusText} (${wheelUrl})`);
-        }
-        pyodide.FS.mkdirTree("/wheels");
-        const fsPath = `/wheels/${entry.wheel}`;
-        pyodide.FS.writeFile(fsPath, new Uint8Array(await wResp.arrayBuffer()));
-        pyodide.globals.set("_pw_wheel_emfs", `emfs:${fsPath}`);
-        try {
-            await pyodide.runPythonAsync(`
-                import micropip
-                await micropip.install(_pw_wheel_emfs, deps=False)
-            `);
-        } finally {
-            try { pyodide.globals.delete("_pw_wheel_emfs"); } catch (_) { /* fine */ }
-        }
-        if (entry.register) {
-            pyodide.globals.set("_pw_register_spec", entry.register);
+        log(`Fetching plugin wheel ${plan.wheel}…`);
+        await micropipInstallNoDeps(await stageBakedFile(plan.wheel, plan.wheelSha256));
+        if (plan.register) {
+            pyodide.globals.set("_pw_register_spec", plan.register);
             try {
                 await pyodide.runPythonAsync(`
                     import importlib
@@ -317,11 +324,41 @@ async function ensurePluginWheel(pluginId, _visiting = new Set()) {
                 try { pyodide.globals.delete("_pw_register_spec"); } catch (_) { /* fine */ }
             }
         }
-        return entry;
+        return plan;
     })();
     pluginWheelPromises.set(pluginId, p);
     p.catch(() => pluginWheelPromises.delete(pluginId));
     return p;
+}
+
+// Install a plugin's plans (the plugins it depends on first, itself last) and
+// return its own plan.
+async function ensurePluginPlans(pluginId, plans) {
+    if (!Array.isArray(plans) || plans.length === 0) {
+        throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${pluginId}"`);
+    }
+    let own = null;
+    for (const plan of plans) {
+        const done = await ensurePluginWheel(plan);
+        if (plan.id === pluginId) own = done;
+    }
+    if (!own) throw new Error(`install plans for "${pluginId}" do not include it`);
+    return own;
+}
+
+// Background install of the plugins the main thread selected (enabled where the
+// user is, Pyodide first in their execution order), one after another so a job
+// that starts meanwhile is not starved. A failure is logged and the next plugin
+// still installs; a job for the failed one retries the install.
+async function prewarmPlugins(plans) {
+    for (const plan of plans) {
+        try {
+            await ensurePluginWheel(plan);
+            log(`plugin ${plan.id} pre-installed`);
+        } catch (err) {
+            log(`plugin ${plan.id} prewarm failed: ${String((err && err.message) || err)}`);
+        }
+    }
 }
 
 // Synchronous blob GET / file listing helpers for BrowserStorageFacade.
@@ -378,9 +415,9 @@ function guessContentType(key) {
 // Execute a plugin job_entrypoint in Pyodide against BrowserStorageFacade.
 // All written outputs are collected in-memory and returned to the main thread
 // for local OPFS/memory storage + optional explicit Publish to Scope.
-async function runPluginJob(reqId, pluginId, scope, options, authHeaders, apiBase, derivedPrefix, entrypointOverride) {
+async function runPluginJob(reqId, pluginId, plans, scope, options, authHeaders, apiBase, derivedPrefix, entrypointOverride) {
     await ensureAdapyRuntime();
-    const entry = await ensurePluginWheel(pluginId);
+    const entry = await ensurePluginPlans(pluginId, plans);
     const entrypoint = entrypointOverride || entry.entrypoint;
     if (!entrypoint) {
         throw new Error(`Plugin "${pluginId}" has no job entrypoint in plugin-wheels-manifest.json`);
@@ -516,12 +553,12 @@ json.dumps(_res if isinstance(_res, dict) else {"result": _res})
 }
 
 // Run a procedural engine registered via plugin-wheels-manifest.json.
-async function runProceduralEngine(engineId, docJson) {
+// plans: the engine's install plans when the manifest lists it, else null (a
+// built-in engine).
+async function runProceduralEngine(engineId, docJson, plans) {
     await ensureProceduralStack();
-    const manifest = await loadPluginWheelsManifest();
-    const plugins = manifest.plugins || {};
-    if (plugins[engineId]) {
-        await ensurePluginWheel(engineId);
+    if (Array.isArray(plans) && plans.length > 0) {
+        await ensurePluginPlans(engineId, plans);
     }
     return compileProcedural(docJson, engineId, null);
 }
@@ -889,7 +926,8 @@ _wc.run_stream("fea", _wcs_ext, "glb", _JsRangeFetcher(_wcs_fetch, _wcs_size), u
 self.onmessage = async (e) => {
     const data = e.data;
     if (!bootPromise) {
-        bootPromise = bootstrap().catch((err) => {
+        // The first message is the boot message (pyodide_converter.ts spawnWorker).
+        bootPromise = bootstrap(data && data.pyodide).catch((err) => {
             self.postMessage({type: "error", message: `bootstrap failed: ${err}`});
             throw err;
         });
@@ -905,11 +943,17 @@ self.onmessage = async (e) => {
         // the engine is enabled, so the first conversion after toggling on is
         // instant instead of cold-loading on file open. IFC (ifcopenshell, a
         // large wheel) and FEA (h5py) add their extras lazily on first use.
+        // data.plugins: install plans of plugins to pre-install once the core
+        // stack is warm (see prewarmPlugins).
         try {
             await ensureSatStack();
             self.postMessage({type: "log", message: "WASM engine pre-warmed"});
         } catch (err) {
             self.postMessage({type: "log", message: `prewarm failed: ${String(err.message || err)}`});
+            return;
+        }
+        if (Array.isArray(data.plugins) && data.plugins.length > 0) {
+            await prewarmPlugins(data.plugins);
         }
         return;
     }
@@ -936,7 +980,7 @@ self.onmessage = async (e) => {
     if (data.type === "run-procedural-engine") {
         const reqId = data.reqId;
         try {
-            const bytes = await runProceduralEngine(data.engineId, data.doc);
+            const bytes = await runProceduralEngine(data.engineId, data.doc, data.plans);
             let heap = 0;
             try {
                 heap = pyodide._module.HEAP8.length;
@@ -956,6 +1000,7 @@ self.onmessage = async (e) => {
             const {summary, localArtefacts} = await runPluginJob(
                 reqId,
                 data.pluginId,
+                data.plans,
                 data.scope,
                 data.options,
                 data.authHeaders,

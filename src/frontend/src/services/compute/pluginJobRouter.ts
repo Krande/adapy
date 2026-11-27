@@ -12,22 +12,14 @@ import type { WorkerAccessPolicy } from "@/services/api/auth";
 import type { ScopeUrl } from "@/services/api/client";
 import { pluginsApi } from "@/services/api/plugins";
 import { getAccessToken } from "@/services/auth/oidc";
+import { loadPluginWheelsManifest } from "@/utils/pyodide/pluginWheels";
 import { runPluginJobViaPyodide } from "@/utils/pyodide/pyodide_converter";
 
 import { engineOrder, type ExecEngine } from "./executionPolicy";
 import { localArtefactStore, type LocalArtefactStore } from "./localArtefactStore";
 import { canUseWorker, refreshAccessIfStale } from "./workerAccess";
 
-export interface PluginWheelEntry {
-  wheel: string;
-  entrypoint?: string;
-  register?: string;
-  deps?: string[];
-}
-
-export interface PluginWheelsManifest {
-  plugins: Record<string, PluginWheelEntry>;
-}
+export type { PluginWheelEntry, PluginWheelsManifest } from "@/utils/pyodide/pluginWheels";
 
 export type ExecutionDecision =
   | { target: "browser" }
@@ -51,10 +43,7 @@ export interface WorkerPluginJobOutcome {
 
 export type DispatchPluginJobOutcome = BrowserPluginJobOutcome | WorkerPluginJobOutcome;
 
-const PLUGIN_WHEELS_MANIFEST_URL = "/wheels/plugin-wheels-manifest.json";
-let cachedManifestPromise: Promise<PluginWheelsManifest> | null = null;
-
-export { canUseWorker };
+export { canUseWorker, loadPluginWheelsManifest };
 
 /** Decide whether a workload should execute in the browser, on the server worker
  * pool, or be denied with an actionable message.
@@ -109,27 +98,6 @@ export function decideExecutionTarget(params: {
     reason:
       "No execution engine is allowed for this plugin job. Ask an administrator to change the execution policy in the Admin Panel (Execution).",
   };
-}
-
-/** Fetch and cache `/wheels/plugin-wheels-manifest.json`. Returns `{ plugins: {} }`
- * when no plugin wheels are baked into the deployment (e.g. standalone `adapy`). */
-export async function loadPluginWheelsManifest(
-  fetchImpl: typeof fetch = fetch,
-  forceReload = false,
-): Promise<PluginWheelsManifest> {
-  if (!cachedManifestPromise || forceReload) {
-    cachedManifestPromise = (async () => {
-      try {
-        const resp = await fetchImpl(PLUGIN_WHEELS_MANIFEST_URL, { cache: "no-store" });
-        if (!resp.ok) return { plugins: {} };
-        const parsed = (await resp.json()) as Partial<PluginWheelsManifest>;
-        return { plugins: parsed?.plugins ?? {} };
-      } catch {
-        return { plugins: {} };
-      }
-    })();
-  }
-  return cachedManifestPromise;
 }
 
 export async function isPluginWasmCapable(

@@ -7,6 +7,7 @@ import {engineOrder} from "@/services/compute/executionPolicy";
 import {useExecutionPolicyStore, useExecutionPreferenceStore} from "@/state/executionPolicyStore";
 import {loadWorkerAccess} from "@/services/compute/workerAccess";
 import {prewarmPyodide} from "@/utils/pyodide/pyodide_converter";
+import {startPluginPrewarm} from "@/services/compute/pluginPrewarm";
 import {runtime} from "@/runtime/config";
 
 // Aggregator for all REST-mode-only floating UI. Lazy-loaded by
@@ -77,6 +78,9 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
     useEffect(() => {
         if (wasmEngineOn) prewarmPyodide();
     }, [wasmEngineOn]);
+    // Then, at idle, the wheels and baked dependencies of the plugins enabled in
+    // this scope whose plugin jobs run in the browser first (services/compute/pluginPrewarm).
+    useEffect(() => startPluginPrewarm(), []);
     return (
         <>
             <ConversionProgress anchor={toastAnchor}/>
