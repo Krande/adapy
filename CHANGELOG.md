@@ -2,6 +2,13 @@
 
 
 
+## v0.177.1 (2026-11-27)
+
+### Fix
+
+* fix(clash): clash and selection-export routes read group members through provider grants (#610) ([`5506ed7`](https://github.com/Krande/adapy/commit/5506ed758da627bf65a338134a5e86eb73a8b3ac))
+
+
 ## v0.177.0 (2026-11-27)
 
 ### Feature
