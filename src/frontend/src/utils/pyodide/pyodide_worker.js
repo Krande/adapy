@@ -669,7 +669,17 @@ import ada.comms.rest.wasm_jobs
 // Answers the status document and the outputs by name; the main thread stores them via the API.
 async function runCoreJob(reqId, claimJson, plans, apiBase, authHeaders) {
     await ensureCoreJobStack();
-    if (claimJson.toLowerCase().includes(".ifc")) await ensureIfcStack();
+    // ifcopenshell for a job that reads or writes IFC. A run's annotate / detail / subjects and a
+    // node or group check name no source in the claim (they rebuild the members from what the
+    // run or the manifests say), so they may read an IFC too.
+    let claimKind = "";
+    try {
+        claimKind = String(JSON.parse(claimJson).kind || "");
+    } catch (_) {
+        /* the Python side reports a bad claim */
+    }
+    const readsUnnamedSources = ["clash_contacts", "clash_detail", "clash_detail_group", "clash_check_asset", "clash_check_group"];
+    if (claimJson.toLowerCase().includes(".ifc") || readsUnnamedSources.includes(claimKind)) await ensureIfcStack();
     for (const plan of Array.isArray(plans) ? plans : []) await ensurePluginWheel(plan);
     const claim = JSON.parse(claimJson);
     const scope = String(claim.scope || "shared");

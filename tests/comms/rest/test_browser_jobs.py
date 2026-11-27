@@ -252,6 +252,8 @@ def test_clash_check_claimed_and_completed_in_the_browser(client):
 
     done = client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"})
     assert done.status_code == 200 and done.json()["status"] == "done"
+    # Ending a claim queued no job: no `job_id` a client could read as a worker job.
+    assert "job_id" not in done.json() and done.json()["id"] == claim["id"]
     status = client.get(f"/api/convert/{claim['id']}").json()
     assert status["status"] == "done" and status["run_on"] == "browser"
     # The result is where the check is read from, and a repeat is a cache hit.

@@ -174,7 +174,9 @@ async def api_browser_job_complete(
         error=error,
     )
     await _finish_audit(request, job, status, error, traceback)
-    return JSONResponse({"job_id": job_id, "status": status, "derived_key": job.derived_key, "error": error})
+    # `id`, not `job_id`: ending a claim queued no job, and a client that reads a `job_id` in an
+    # answer as "a worker job was queued" (a WASM-only check) must not count it as one.
+    return JSONResponse({"id": job_id, "status": status, "derived_key": job.derived_key, "error": error})
 
 
 @router.post("/scopes/{scope}/browser-jobs/{job_id}/to-worker")
