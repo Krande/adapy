@@ -646,6 +646,9 @@ async def test_an_apply_changes_start_runs_the_named_collection_without_the_defa
     assert inserted["collections"] == ["ALPHA", "BETA"] and inserted["excluded"] == frozenset()
     await sweeps.start_sweep(None, None, collections=["alpha"], **kw)
     assert inserted["collections"] == ["ALPHA"] and spawned["entry"]["kind"] == "apply-changes"
+    # Applying changes needs the full export first: it cannot be limited to the ones missing it.
+    with pytest.raises(sweeps.SweepRefused, match="only a full export"):
+        await sweeps.start_sweep(None, None, only_missing_full_export=True, **kw)
 
 
 @pytest.mark.asyncio

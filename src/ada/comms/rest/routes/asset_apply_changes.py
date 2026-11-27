@@ -193,6 +193,21 @@ async def has_full_export(ctx, scope_obj, *, provider: str, collection: str, sta
         return found
 
 
+async def split_by_full_export(
+    ctx, scope_obj, *, provider: str, collections: list[str]
+) -> tuple[list[str], list[str]]:
+    """``(missing, exported)``: ``collections`` in order, split by :func:`has_full_export` -- the
+    same check that leaves a collection out of an apply-changes run, so "missing a full export"
+    means the same thing on both sides. One store listing for the lot."""
+    state = ApplyRunState()
+    missing: list[str] = []
+    exported: list[str] = []
+    for collection in collections:
+        full = await has_full_export(ctx, scope_obj, provider=provider, collection=collection, state=state)
+        (exported if full else missing).append(collection)
+    return missing, exported
+
+
 def _mode(run: dict) -> str:
     value = (run.get("settings") or {}).get(MISSING_FULL_EXPORT)
     return MISSING_FULL_EXPORT_EXPORT if value == MISSING_FULL_EXPORT_EXPORT else MISSING_FULL_EXPORT_WARN

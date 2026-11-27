@@ -5,6 +5,9 @@ import {
     NO_FULL_EXPORT,
     applyChangesOf,
     countsLine,
+    exportedAlreadyOf,
+    missingFullExportsOf,
+    offersMissingFullExport,
     queuedByApplyRunOf,
     queuedFullExportOf,
     runWarningsOf,
@@ -68,6 +71,25 @@ test("run-level warnings and the links between an apply-changes run and its queu
     assert.equal(queuedByApplyRunOf({summary: {apply_changes_run_id: "run-1"}}), "run-1");
     assert.deepEqual(runWarningsOf({}), []);
     assert.equal(queuedFullExportOf({summary: {queued_full_exports: {collections: ["X"]}}}), null);
+});
+
+test("a finished run that left collections out offers a full export of exactly those", () => {
+    const items = [
+        {collection: "ALPHA", status: "done"},
+        {collection: "BETA", status: NO_FULL_EXPORT},
+        {collection: "GAMMA", status: NO_FULL_EXPORT},
+    ];
+    assert.deepEqual(missingFullExportsOf({items}), ["BETA", "GAMMA"]);
+    assert.deepEqual(missingFullExportsOf({}), []);
+    // The listing has counts, not items.
+    assert.equal(offersMissingFullExport({status: "done", counts: {[NO_FULL_EXPORT]: 2}}), true);
+    assert.equal(offersMissingFullExport({status: "running", counts: {[NO_FULL_EXPORT]: 2}}), false);
+    assert.equal(offersMissingFullExport({status: "done", counts: {done: 3}}), false);
+    // It queued one itself (missing_full_export: export): no second offer.
+    const queued = {status: "done", counts: {[NO_FULL_EXPORT]: 2}, summary: {queued_full_exports: {run_id: "f", collections: ["BETA"]}}};
+    assert.equal(offersMissingFullExport(queued), false);
+    assert.deepEqual(exportedAlreadyOf({summary: {only_missing_full_export: {exported: ["ALPHA", 3]}}}), ["ALPHA", "3"]);
+    assert.equal(exportedAlreadyOf({summary: {}}), null);
 });
 
 test("a collection left out for want of a full export counts as finished, and says so", () => {
