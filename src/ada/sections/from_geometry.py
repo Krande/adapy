@@ -26,11 +26,17 @@ def section_from_polyline(
     name: str | None = None,
     units: Units = Units.M,
     tol: float | None = None,
+    params: dict | None = None,
 ):
     """Return a :class:`Section` reconstructed from 2D cross-section curves.
 
     Tries parametric recognition first and falls back to a POLY section that
     preserves the exact geometry. Never returns ``None``.
+
+    ``params``: the scalars an adapy-written POLY section stated beside its curves
+    (``ada.cadit.ifc.sections_props``, e.g. a rounded hollow section's ``t_w``). With
+    them the section was POLY when written, so it is kept POLY, with those scalars,
+    rather than re-recognised from its curves.
     """
     from ada.sections.concept import Section
 
@@ -40,9 +46,17 @@ def section_from_polyline(
     outer = _dedup_closing(outer_pts, tol)
     inner = _dedup_closing(inner_pts, tol) if inner_pts else None
 
-    sec = _recognize_parametric(name, outer, inner, units, tol)
-    if sec is not None:
-        return sec
+    scalars = {}
+    if params:
+        from ada.cadit.ifc.sections_props import SECTION_PARAM_KEYS
+
+        scalars = {k: float(params[k]) for k in SECTION_PARAM_KEYS if params.get(k) is not None}
+    elif not (_is_rounded(outer) or _is_rounded(inner)):
+        # A corner rounded by a fillet is none of the sharp-cornered shapes recognised here, so a
+        # rounded outline is kept as the POLY it is, fillets and all.
+        sec = _recognize_parametric(name, outer, inner, units, tol)
+        if sec is not None:
+            return sec
 
     # Fallback: keep the geometry as-is.
     return Section(
@@ -51,6 +65,8 @@ def section_from_polyline(
         outer_poly=_as_curve_poly(outer),
         inner_poly=_as_curve_poly(inner) if inner else None,
         units=units,
+        sec_str=(params or {}).get("sec_str"),
+        **scalars,
     )
 
 
@@ -157,11 +173,16 @@ def _recognize_i_or_t(name, outer, units, tol):
 
 
 def _dedup_closing(pts, tol):
-    """Drop a trailing point that merely repeats the first (closing vertex)."""
-    out = [tuple(float(c) for c in (p[0], p[1])) for p in pts]
+    """Drop a trailing point that merely repeats the first (closing vertex). A corner's fillet
+    radius, ``(x, y, r)``, is kept."""
+    out = [tuple(float(c) for c in (p[:3] if len(p) > 2 and p[2] else p[:2])) for p in pts]
     if len(out) > 1 and _close(out[0], out[-1], tol):
         out = out[:-1]
     return out
+
+
+def _is_rounded(pts) -> bool:
+    return any(len(p) > 2 for p in pts or ())
 
 
 def _close(a, b, tol):
