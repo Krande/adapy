@@ -105,10 +105,10 @@ class ChildStorage:
 def storage_serve(storage, scope, db_pool=None) -> "subprocess_convert.ServeFn":
     """The parent half of :class:`ChildStorage`: each op runs against the real async storage.
 
-    Reads resolve as the API routes resolve them (``worker/provider_reads.py``): with ``db_pool``, a
+    Reads resolve as the API routes resolve them (``provider_reads.py``): with ``db_pool``, a
     key of a provider dataset the scope is granted, and the provider store holds, is read from the
     store. Writes land in ``scope``."""
-    from ..worker.provider_reads import ProviderReads
+    from ..provider_reads import ProviderReads
 
     reads = ProviderReads(storage, scope, db_pool)
 
@@ -171,7 +171,7 @@ async def run_clash_work(
 
     ``storage`` + ``scope`` give ``work`` a synchronous storage facade (served by the parent when
     forked); leave them None for work that needs nothing beyond what the caller fetched. Its reads
-    of provider data follow the scope's grants through ``db_pool`` (``worker/provider_reads.py``),
+    of provider data follow the scope's grants through ``db_pool`` (``provider_reads.py``),
     so a member published to the provider store is read there when the scope may read it.
     """
     job_id = job.job_id
