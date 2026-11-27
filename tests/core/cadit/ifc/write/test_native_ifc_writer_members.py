@@ -43,6 +43,8 @@ def _model() -> ada.Assembly:
     bm2 = ada.Beam("bm2", (0, 0, 0), (0, 0, 1.5), "IPE300", up=(1, 0, 0), metadata={"Ref": "R-9/2"})
     bm3 = ada.Beam("bm3", (1, 1, 0), (1, 1, 3.25), _poly_section(), metadata={"Ref": "R-9/3", "Extra": {"k": 1.5}})
     pl = ada.Plate("pl1", [(0, 0), (0.4, 0), (0.4, 0.3), (0, 0.3)], 0.01, metadata={"Ref": "R-9/4"})
+    # A hole: not a half-space, so it is an opening element voiding the plate, as both writers state it.
+    pl.add_boolean(ada.PrimCyl("hole", (0.2, 0.15, -0.1), (0.2, 0.15, 0.1), 0.03))
     return ada.Assembly("a") / (ada.Part("p") / [bm1, bm2, bm3, pl])
 
 
@@ -72,6 +74,14 @@ def test_a_poly_section_is_described_with_its_arcs():
     # POLY carries only the scalar its curves cannot state (beside its type and name string).
     bag = prof["properties"]["ADA_SectionParameters"]
     assert {k: v for k, v in bag.items() if k != "sec_str"} == {"sec_type": "poly", "t_w": 0.006}
+
+
+def test_a_hole_is_described_as_an_opening():
+    rec = member_record(_model().get_by_name("pl1"))
+    assert rec["ifc_class"] == "IfcPlate"
+    assert rec["cuts"] == []
+    (opening,) = rec["openings"]
+    assert opening["blob"] and len(opening["placement"]) == 16
 
 
 def test_a_beam_that_is_not_a_straight_extrusion_is_left_to_its_solid():

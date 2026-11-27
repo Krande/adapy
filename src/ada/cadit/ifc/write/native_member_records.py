@@ -20,6 +20,7 @@ The record (lengths in model units, the file states the unit)::
                  "inners": [curve], "radius", "wall_thickness", "properties": {set: {k: v}}},
      "extrusion": {"origin", "axis", "ref", "direction", "depth"},
      "cuts": [{"origin", "normal", "xdir", "agreement"}],        # in the order applied
+     "openings": [{"name", "guid", "blob": NGEOM bytes, "placement": 16 floats}],  # other booleans
      "material": {"name", "category", "properties_name", "properties": [(name, value, type)]},
      "psets": {set: {k: v}}, "color": rgba | None}
 
@@ -141,16 +142,48 @@ def _extrusion(eas) -> dict:
     }
 
 
-def _cuts(obj) -> list | None:
-    """The object's booleans as half-space cuts, in order; None when any is not a half-space (the
-    native writer then writes the object from its solid, as before)."""
+def _opening(pen) -> dict | None:
+    """A boolean that is not a half-space as the opening the ifcopenshell writer makes of it
+    (``write_openings.generate_ifc_opening``): its solid -- here an NGEOM blob, in the primitive's
+    own frame -- placed by the primitive's world matrix. None when the solid does not encode."""
+    import numpy as np
+
+    from ada.cadit.ngeom.serialize import _Encoder
+    from ada.core.guid import create_guid
+
+    prim = pen.primitive
+    enc = _Encoder()
+    idx = enc.root(prim.solid_geom())
+    blob = enc.finish([(idx, str(pen.name))])
+    world = prim.world_matrix()
+    if world is None:
+        world = np.eye(4)
+    return {
+        "name": str(pen.name),
+        "guid": create_guid(),
+        "blob": bytes(blob),
+        "placement": [float(v) for v in np.asarray(world, dtype=float).flatten(order="F")],
+    }
+
+
+def _cuts(obj) -> tuple[list, list] | None:
+    """The object's booleans: half-spaces as clipping cuts (in order) and every other primitive as
+    an opening, as the ifcopenshell writer splits them (``create_ifc_openings``). None when an
+    opening's solid cannot be encoded (the native writer then writes the object from its solid)."""
     from ada import BoolHalfSpace
 
-    cuts = []
+    cuts, openings = [], []
     for pen in obj.booleans:
         prim = getattr(pen, "primitive", None)
-        if not isinstance(prim, BoolHalfSpace):
+        if prim is None:
             return None
+        if not isinstance(prim, BoolHalfSpace):
+            try:
+                openings.append(_opening(pen))
+            except Exception as exc:  # noqa: BLE001 - not encodable: leave the object to its solid
+                logger.debug(f"native IFC writer: opening {pen.name} of {obj.name} not encodable ({exc})")
+                return None
+            continue
         hs = prim.solid_geom().geometry
         pos = hs.base_surface.position
         cuts.append(
@@ -161,7 +194,7 @@ def _cuts(obj) -> list | None:
                 "agreement": bool(hs.agreement_flag),
             }
         )
-    return cuts
+    return cuts, openings
 
 
 def _material(material) -> dict | None:
@@ -207,9 +240,10 @@ def _common(obj) -> dict | None:
     meta = obj.metadata or {}
     if IFC_ENTITY_KEY in meta or meta.get("segment_ifc_class"):
         return None  # an entity choice the schema decides on: the ifcopenshell writer's business
-    cuts = _cuts(obj)
-    if cuts is None:
+    split = _cuts(obj)
+    if split is None:
         return None
+    cuts, openings = split
     world = obj.world_matrix()  # None for the identity
     if world is None:
         world = np.eye(4)
@@ -219,6 +253,7 @@ def _common(obj) -> dict | None:
         "name": str(obj.name),
         "placement": [float(v) for v in np.asarray(world, dtype=float).flatten(order="F")],
         "cuts": cuts,
+        "openings": openings,
         "material": _material(getattr(obj, "material", None)),
         "psets": _psets(meta),
         "color": [float(c) for c in col][:4] if col is not None else None,
