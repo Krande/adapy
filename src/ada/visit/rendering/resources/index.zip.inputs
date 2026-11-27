@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 9aa0954116449b36d4a0ba0b6e738dea57af5efef5bde148ccd5b7e98eeb8bfb
-bundle-sha256 bb1306c25a952d6fddf757c30d2b27c43683950e2596ea96669e47acbffce8cb
+inputs-sha256 b92431879757e0c95bbf265e24b66ba1107cfbd4f01b52b90a0cc74674510a36
+bundle-sha256 ed40a70e9d05e7b7e2787d3de1cf8be8bfa1e1968c82241b9a8d6489827d9d3c
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -775,13 +775,13 @@ src/frontend/src/services/api/assetSchedules.ts 8570cbf18c2d6d4f416980519dc77816
 src/frontend/src/services/api/assets.ts a5bec4ae2fcbb103ec421565333ea28209105180
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts e284808556c4231159e39c8a99f9ed8e136da12b
-src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
+src/frontend/src/services/api/clashCheck.ts 81a4790e0d7e678c09107bf1a5c4f8dc22693257
 src/frontend/src/services/api/client.ts 302282d6a62b09a0d7a80599ce33c21592ca033b
-src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
-src/frontend/src/services/api/conversion.ts 05c007ea6c7aba587017190bfa1c90c5bc3fa80d
+src/frontend/src/services/api/components.ts c3251aa5f0646b739cdb5b7307ac941bf4e18db4
+src/frontend/src/services/api/conversion.ts 416a396f994f329882980502feb531a05944f28c
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
 src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
-src/frontend/src/services/api/equipmentTypes.ts 1d043d8b3a1f97853c3ddd95f7195030ae2cd8b4
+src/frontend/src/services/api/equipmentTypes.ts fae2a1072c784acdc6e62bfdc946b6373d24f844
 src/frontend/src/services/api/fea.ts 6b4358750cfe5d65578963d924db1201b9bebdbe
 src/frontend/src/services/api/files.ts 62a4cb9b0d83bfe4bd74a44f0b6d4a44ea52c5a4
 src/frontend/src/services/api/geometryCompare.ts 130336a08b2439cafc55e46b70e1c7e4fba24f84
@@ -798,7 +798,7 @@ src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c703
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
 src/frontend/src/services/api/robotBundles.ts dfbfd042a2f673dbebd2978bd2e0d2fab19ae50f
 src/frontend/src/services/api/searchExport.ts d71890bb1b227535348c879e8a01e5ec848a8588
-src/frontend/src/services/api/selectionExport.ts 8e3350e73fbdefe1136f8e61e78219f91b1cda16
+src/frontend/src/services/api/selectionExport.ts 4e4bd0ffeb94a9d8d443c55a8f2388b2fc66f939
 src/frontend/src/services/api/settings.ts a784b6d64a95c50d41c14b56a3eae13e38bc987f
 src/frontend/src/services/api/simulations.ts af2056c4ee66a28ad0410d3fa93acc2869e7dd47
 src/frontend/src/services/api/sourceNodes.ts e5c9d27a62da0fef8a8e79fe40d75e1f8fd79c4f
@@ -817,14 +817,15 @@ src/frontend/src/services/capabilities/rest_capabilities.ts d06e1aeaac42c9abe982
 src/frontend/src/services/capabilities/types.ts 6cf8971901a96cef2ca35dba5db521d01b7c00fa
 src/frontend/src/services/capabilities/ws_capabilities.ts 5c3c83ee82b3faafa8390cb768fcb4c0c1847562
 src/frontend/src/services/clash/browserClashCheck.ts b7f83bf44c716eb7f9e671e7d1778bb896ccd99e
-src/frontend/src/services/clash/contactRuns.ts 8bc196a03170bd08e7dc287a3cb03bda38075e66
+src/frontend/src/services/clash/contactRuns.ts 23c81d8f4cd4aad43868fa6610644706155db4c0
 src/frontend/src/services/clashSpecProviders.ts 7b03e19f9fec35fcd8e8b2929969fff72400cb3c
 src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239793289
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
 src/frontend/src/services/compute/assetBuild.ts 809b1a2772ffafbab23cec45e672d58fb88a04e3
 src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862fd5d6e8b9882391
+src/frontend/src/services/compute/coreJobs.ts 39422017ff21028d733b9002bd3eab5cc6472659
 src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
-src/frontend/src/services/compute/executionPolicyModel.ts ab987f22b46ef35cc967056b21a3635821b34010
+src/frontend/src/services/compute/executionPolicyModel.ts b425081c75691b0d518edbe78f776f2187e97f00
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
 src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
 src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
@@ -1192,9 +1193,9 @@ src/frontend/src/utils/openedByRunLink.ts 9e7dfbbf17e691b82133abc8bba7c4c3247484
 src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed55181170a9123cbb8db0
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
-src/frontend/src/utils/pyodide/pluginWheels.ts e20e91be59b6dfb08564dc6629972f33ea838c28
-src/frontend/src/utils/pyodide/pyodide_converter.ts e4d86ef95aae5cc223fd972038ae737e648e7ac2
-src/frontend/src/utils/pyodide/pyodide_worker.js 3326094ba817727ffbaa8dd00de0c5c280446d56
+src/frontend/src/utils/pyodide/pluginWheels.ts a25b947c8cd930834846067c22a73b2b4c40716b
+src/frontend/src/utils/pyodide/pyodide_converter.ts f0bba731d35258577987866aebd676100d9631ec
+src/frontend/src/utils/pyodide/pyodide_worker.js 60c73df4f943d5c23b160d5901366cff62afc629
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
