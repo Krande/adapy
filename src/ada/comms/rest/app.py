@@ -24,6 +24,7 @@ from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_db import retention_loop as db_retention_loop
 from .routes.admin_db import router as admin_db_router
+from .routes.admin_execution_policy import router as admin_execution_policy_router
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
 from .routes.admin_provider_grants import router as admin_provider_grants_router
@@ -320,6 +321,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def _reset_request_user_middleware(request, call_next):
+        from .execution_policy import (
+            requested_operation,
+            reset_requested_operation,
+            set_requested_operation,
+        )
         from .worker_access import (
             requests_worker,
             reset_explicit_worker_choice,
@@ -328,9 +334,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         token = auth_module.set_request_user(None)
         choice = set_explicit_worker_choice(requests_worker(request.headers))
+        operation = set_requested_operation(requested_operation(request.headers))
         try:
             return await call_next(request)
         finally:
+            reset_requested_operation(operation)
             reset_explicit_worker_choice(choice)
             auth_module.reset_request_user(token)
 
@@ -589,6 +597,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_projects_router)
 
     admin.include_router(admin_users_router)
+    admin.include_router(admin_execution_policy_router)
 
     admin.include_router(admin_storage_router)
 

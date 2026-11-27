@@ -53,10 +53,15 @@ from fastapi import HTTPException
 
 from . import local_jobs
 from .auth import User, get_request_user
+from .execution_policy import current_requested_operation, require_execution_policy
 from .queue import JobQueue
 from .scope import Scope
 from .storage import Storage
-from .worker_access import require_worker_access, worker_access_applies
+from .worker_access import (
+    explicit_worker_choice,
+    require_worker_access,
+    worker_access_applies,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +384,18 @@ class QueueJobTransport(_BaseTransport):
     async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
         effective_user = req.user if req.user is not None else get_request_user()
         db_pool = self._pool() if callable(self._pool) else self._pool
+        # An explicit worker choice must be one the execution policy offers for this
+        # operation (execution_policy.py); then the user must have worker access.
+        await require_execution_policy(
+            db_pool,
+            effective_user,
+            explicit=explicit_worker_choice(),
+            feature=req.feature,
+            source_key=req.source_key,
+            conversion_options=req.conversion_options,
+            plugin_id=req.plugin_id,
+            requested=current_requested_operation(),
+        )
         target_capability = req.target_capability
         if target_capability is None and worker_access_applies(db_pool, effective_user):
             # Conversions and bakes carry no capability: the queue routes them by
