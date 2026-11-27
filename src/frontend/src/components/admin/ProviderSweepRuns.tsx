@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
 import {itemChoiceLines, type CollectionChoiceDecl} from "@/assets/collectionChoices";
-import type {SweepItem, SweepRun} from "@/services/viewerApi";
+import type {ProviderScheduleJob, SweepItem, SweepRun} from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import {REQUEUE_FROM, isSweepTracked, sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTracking";
 import {useRunFocusStore} from "@/state/runFocusStore";
@@ -11,6 +11,9 @@ import {
     NO_FULL_EXPORT,
     applyChangesOf,
     countsLine,
+    exportedAlreadyOf,
+    missingFullExportsOf,
+    offersMissingFullExport,
     queuedByApplyRunOf,
     queuedFullExportOf,
     runWarningsOf,
@@ -20,6 +23,7 @@ import {
     prebuildOf,
 } from "./applyChangesItem";
 import GeometryCompareGallery from "./GeometryCompareGallery";
+import {withMultiDefaults} from "./scheduleSettings";
 import ExtendJobButton from "@/components/conversion/ExtendJobButton";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
@@ -93,13 +97,22 @@ const STATUS_TONE: Record<string, string> = {
 const countsText = sweepCountsText;
 
 /** An apply-changes run's run-level notes and its link to the full export it queued -- or, on that
- *  queued export, the link back. `onOpen` opens a linked run. */
-export const RunNotes: React.FC<{run: SweepRun; onOpen: (id: string) => void}> = ({run, onOpen}) => {
+ *  queued export, the link back. `onOpen` opens a linked run. `onRunMissing`, when given, offers a
+ *  finished run that left collections out for want of a full export the export of exactly those. */
+export const RunNotes: React.FC<{
+    run: SweepRun;
+    onOpen: (id: string) => void;
+    onRunMissing?: () => void;
+    busy?: boolean;
+}> = ({run, onOpen, onRunMissing, busy = false}) => {
     const warnings = runWarningsOf(run);
     const queued = queuedFullExportOf(run);
     const queuedBy = queuedByApplyRunOf(run);
-    if (!warnings.length && !queued && !queuedBy) return null;
+    const exportedAlready = exportedAlreadyOf(run);
+    const offer = !!onRunMissing && offersMissingFullExport(run);
+    if (!warnings.length && !queued && !queuedBy && !exportedAlready && !offer) return null;
     const link = "underline decoration-dotted hover:text-white";
+    const missingCount = run.counts?.[NO_FULL_EXPORT] ?? missingFullExportsOf(run).length;
     return (
         <div className="space-y-0.5" data-testid="sweep-run-notes">
             {warnings.length > 0 && (
@@ -108,6 +121,24 @@ export const RunNotes: React.FC<{run: SweepRun; onOpen: (id: string) => void}> =
                         <li key={w}>⚠ {w}</li>
                     ))}
                 </ul>
+            )}
+            {offer && (
+                <button
+                    type="button"
+                    className="border border-blue-700 text-blue-200 hover:bg-blue-900/40 disabled:opacity-50 px-1.5 rounded-sm"
+                    disabled={busy}
+                    onClick={onRunMissing}
+                    title="Start a full project export (every target, the sweep's defaults) of only the collections this run left out; any exported since are dropped"
+                    data-testid="sweep-run-missing-full-export"
+                >
+                    {busy ? "…" : `Run full export on the ${missingCount} missing`}
+                </button>
+            )}
+            {exportedAlready && (
+                <div className="text-gray-400" data-testid="sweep-run-only-missing">
+                    Only collections missing a full export
+                    {exportedAlready.length > 0 && <>; {exportedAlready.length} already had one and were left out</>}
+                </div>
             )}
             {queued && (
                 <div className="text-blue-300" data-testid="sweep-run-follow-up">
@@ -514,10 +545,13 @@ const ProviderSweepRuns: React.FC<{
     refreshKey: number;
     /** The provider's per-collection choices, to label what each item was sent. */
     choiceDecls?: CollectionChoiceDecl[];
-}> = ({provider, refreshKey, choiceDecls = []}) => {
+    /** The provider's full export (its `sweep` entry): what "Run full export on the missing" starts. */
+    fullExportJob?: ProviderScheduleJob;
+}> = ({provider, refreshKey, choiceDecls = [], fullExportJob}) => {
     const [runs, setRuns] = useState<SweepRun[]>([]);
     const [open, setOpen] = useState<SweepRun | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [startingFor, setStartingFor] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -599,6 +633,43 @@ const ProviderSweepRuns: React.FC<{
             await load();
         },
         [load, openRun],
+    );
+
+    /** "Run full export on the missing": the provider's full export (every target, as its defaults)
+     *  of exactly the collections run `id` left out for want of one. The listing carries no items, so
+     *  the run is read for them; core drops any exported since (`only_missing_full_export`). */
+    const runMissing = useCallback(
+        async (id: string) => {
+            if (!fullExportJob) return;
+            setStartingFor(id);
+            try {
+                const run = open?.id === id && open.items ? open : await viewerApi.adminAssetSweep(id);
+                const collections = missingFullExportsOf(run);
+                if (!collections.length) {
+                    setError("That run left no collection out for want of a full export");
+                    return;
+                }
+                const what = `${fullExportJob.label} for ${collections.length} collection(s): ${collections.join(", ")}`;
+                if (!confirm(`Start ${what}?`)) return;
+                const started = await viewerApi.adminStartAssetSweep({
+                    provider,
+                    job: fullExportJob.id,
+                    settings: withMultiDefaults(fullExportJob.settings ?? [], {}),
+                    collections,
+                    only_missing_full_export: true,
+                    // Linked both ways: this run then shows "Full project export queued … open that run".
+                    apply_changes_run_id: id,
+                });
+                setError(null);
+                await load();
+                await openRun(started.id);
+            } catch (e) {
+                setError(errText(e));
+            } finally {
+                setStartingFor(null);
+            }
+        },
+        [fullExportJob, open, provider, load, openRun],
     );
 
     /** "Skip current" on the run row: the listing carries no items, so read the run for the item in
@@ -767,6 +838,8 @@ const ProviderSweepRuns: React.FC<{
                         {/* At the top of the run: what it left out and the export it queued. */}
                         <RunNotes
                             run={open?.id === r.id ? open : r}
+                            onRunMissing={fullExportJob ? () => void runMissing(r.id) : undefined}
+                            busy={startingFor === r.id}
                             onOpen={(id) =>
                                 // Re-list first: a follow-up queued a moment ago may not be listed yet.
                                 void load()

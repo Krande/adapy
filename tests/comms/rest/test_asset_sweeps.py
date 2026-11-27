@@ -407,6 +407,95 @@ async def test_new_sweeps_start_with_the_default_list_ticked_off(monkeypatch):
     assert inserted["collections"] == ["ALPHA", "BETA"] and inserted["excluded"] == frozenset({"BETA"})
 
 
+def _store_ctx(blobs: dict[str, bytes]):
+    """A ctx whose storage holds ``blobs`` (key -> bytes), listed the way the store lists children."""
+
+    async def children(scope, prefix):
+        return sorted({k[len(prefix) :].split("/", 1)[0] for k in blobs if k.startswith(prefix)})
+
+    async def get(scope, key):
+        return blobs[key]
+
+    return SimpleNamespace(storage=SimpleNamespace(list_child_names=children, get_bytes=get))
+
+
+@pytest.mark.asyncio
+async def test_a_start_limited_to_missing_full_exports_runs_only_those(monkeypatch):
+    inserted = {}
+
+    async def specs(ctx):
+        return {"vendor": [SPEC]}
+
+    async def setting(pool, key):
+        return json.dumps({"excluded": []}) if key == "asset_sweeps.defaults.vendor" else None
+
+    async def insert(pool, **kw):
+        inserted.clear()
+        inserted.update(kw)
+        return {"id": "r1", **kw}
+
+    monkeypatch.setattr(sweeps, "provider_specs", specs)
+    monkeypatch.setattr(sweeps, "spawn", lambda coro, name: coro.close())
+    monkeypatch.setattr(dbm, "get_setting", setting)
+    monkeypatch.setattr(dbm, "insert_asset_sweep_run", insert)
+    mine = json.dumps({"provider": "vendor"}).encode()
+    other = json.dumps({"provider": "other"}).encode()
+    # ALPHA has this provider's full export; BETA only another provider's.
+    ctx = _store_ctx({"assets/alpha/alpha/20260101T000000Z/asset.json": mine, "assets/beta/beta/r1/asset.json": other})
+    kw = dict(
+        scope="providers", scope_obj=Scope.shared(), provider="vendor", settings={}, user=None, via="user",
+        only_missing_full_export=True,
+    )  # fmt: skip
+    await sweeps.start_sweep(ctx, None, job="project-sweep", **kw)
+    assert inserted["collections"] == ["BETA"]
+    assert inserted["summary"] == {"only_missing_full_export": {"exported": ["ALPHA"]}}
+    # Named collections are narrowed the same way.
+    await sweeps.start_sweep(ctx, None, job="project-sweep", collections=["beta", "alpha"], **kw)
+    assert inserted["collections"] == ["BETA"]
+    with pytest.raises(sweeps.SweepRefused, match="every collection already has a full export"):
+        await sweeps.start_sweep(ctx, None, job="project-sweep", collections=["ALPHA"], **kw)
+
+
+@pytest.mark.asyncio
+async def test_a_start_for_an_apply_changes_run_links_the_two(monkeypatch):
+    started, merged = {}, []
+    body = {
+        "provider": "vendor",
+        "job": "project-sweep",
+        "settings": {},
+        "collections": ["BETA", "GAMMA"],
+        "only_missing_full_export": True,
+        "apply_changes_run_id": "apply-1",
+    }
+
+    class FakeRequest:
+        async def body(self):
+            return json.dumps(body).encode()
+
+        async def json(self):
+            return body
+
+    async def specs(ctx):
+        return {}  # no declaration found: the settings go through as given
+
+    async def start(ctx, pool, **kw):
+        started.update(kw)
+        return {"id": "full-1", "collections": ["BETA"]}  # GAMMA was exported since
+
+    async def merge(pool, run_id, summary):
+        merged.append((run_id, summary))
+
+    monkeypatch.setattr(sweeps, "require_pool", lambda request: "pool")
+    monkeypatch.setattr(sweeps, "provider_specs", specs)
+    monkeypatch.setattr(sweeps, "start_sweep", start)
+    monkeypatch.setattr(dbm, "merge_asset_sweep_run_summary", merge)
+    resp = await sweeps.admin_asset_sweep_start(FakeRequest(), user=None, ctx=None)
+    assert resp.status_code == 202
+    assert started["only_missing_full_export"] is True and started["collections"] == ["BETA", "GAMMA"]
+    assert started["summary"] == {"apply_changes_run_id": "apply-1"}
+    assert merged == [("apply-1", {"queued_full_exports": {"run_id": "full-1", "collections": ["BETA"]}})]
+
+
 @pytest.mark.asyncio
 async def test_start_refuses_an_offline_provider_but_not_a_second_run(monkeypatch):
     async def no_specs(ctx):

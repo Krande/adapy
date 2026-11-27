@@ -323,6 +323,13 @@ export const assetSchedulesApi = {
     settings: Record<string, unknown>;
     /** An `apply-changes` run of ONE collection; omitted, every collection the provider offers. */
     collection?: string;
+    /** Only these collections (the provider's default exclusions then do not apply). */
+    collections?: string[];
+    /** A full export (a `sweep`) of only the collections the store holds no full export of yet:
+     *  core narrows the collections run (named, or every one offered) and refuses when none is left. */
+    only_missing_full_export?: boolean;
+    /** The apply-changes run this export is for: core links the two (its `queued_full_exports`). */
+    apply_changes_run_id?: string;
   }): Promise<SweepRun> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps`, json("POST", body));
     return jsonOrThrow(r, "adminStartAssetSweep");

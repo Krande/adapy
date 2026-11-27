@@ -235,6 +235,33 @@ export function queuedByApplyRunOf(run: unknown): string | null {
     return isRecord(run) && isRecord(run.summary) ? text(run.summary.apply_changes_run_id) : null;
 }
 
+/** The collections a run's items left out for want of a full export (needs the run's items: the
+ *  listing carries only counts), in item order. */
+export function missingFullExportsOf(run: unknown): string[] {
+    if (!isRecord(run) || !Array.isArray(run.items)) return [];
+    return run.items
+        .filter((i) => isRecord(i) && i.status === NO_FULL_EXPORT)
+        .map((i) => text((i as Record<string, unknown>).collection))
+        .filter((c): c is string => !!c);
+}
+
+/** Whether a run offers "Run full export on the missing": it has FINISHED, left collections out
+ *  for want of a full export (its counts say so, items or not), and queued no follow-up itself. */
+export function offersMissingFullExport(run: unknown): boolean {
+    if (!isRecord(run) || run.status === "running" || run.status === "interrupted") return false;
+    const counts = isRecord(run.counts) ? run.counts : {};
+    const n = typeof counts[NO_FULL_EXPORT] === "number" ? (counts[NO_FULL_EXPORT] as number) : 0;
+    return (n > 0 || missingFullExportsOf(run).length > 0) && queuedFullExportOf(run) === null;
+}
+
+/** On a run started "only missing a full export": the collections it dropped because they already
+ *  had one, or null for any other run. */
+export function exportedAlreadyOf(run: unknown): string[] | null {
+    const o = isRecord(run) && isRecord(run.summary) ? run.summary.only_missing_full_export : null;
+    if (!isRecord(o)) return null;
+    return Array.isArray(o.exported) ? o.exported.map(text).filter((c): c is string => !!c) : [];
+}
+
 /** "3 changed · 1 inserted · 2 deleted", leaving out the zeros. */
 export function countsLine(c: ApplyCounts | null): string {
     if (!c) return "";
