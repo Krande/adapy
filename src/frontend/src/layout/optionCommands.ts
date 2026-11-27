@@ -17,7 +17,7 @@ import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useComputeStore, COMPUTE_MODES, type ComputeMode} from "@/state/computeStore";
 import {CAMERA_ACTIONS, CAMERA_PRESETS, CAMERA_PRESET_IDS, MOUSE_BUTTONS, ONE_FINGER_ACTIONS, TWO_FINGER_ACTIONS, presetOf} from "@/utils/camera/cameraMapping";
 import {appearanceIsDefault, useAppearanceStore} from "@/state/appearanceStore";
-import {useExperimentalStore} from "@/state/experimentalStore";
+import {useConversionEngineStore, type ConversionEngine} from "@/state/conversionEngineStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useMeStore} from "@/state/meStore";
 import {useModelState} from "@/state/modelState";
@@ -277,8 +277,9 @@ export function optionDescriptors(): OptionDescriptor[] {
     {kind: "open", id: "spacemouse-sensitivity", title: "3D mouse: sensitivity…", group: "3D mouse", keywords: SM_KEYS, setters: ["setSensitivity"], focus: "spacemouse-sensitivity"},
     {kind: "open", id: "spacemouse-dead-zone", title: "3D mouse: dead zone…", group: "3D mouse", keywords: SM_KEYS, setters: ["setDeadZone"], focus: "spacemouse-dead-zone"},
     // --- Conversion engine ---
-    {kind: "toggle", id: "pyodide-converter", title: "In-browser conversion engine (WASM)", group: "Conversion", keywords: ["pyodide", "convert", "experimental", ...GEN],
-      setters: ["setPyodideConverter"], get: () => useExperimentalStore.getState().pyodideConverter, set: (v) => useExperimentalStore.getState().setPyodideConverter(v)},
+    {kind: "choice", id: "conversion-engine", title: "Conversion engine", group: "Conversion", keywords: ["pyodide", "wasm", "browser", "worker", "server", "convert", ...GEN],
+      setters: ["setEngine"], choices: [{value: "browser", label: "In-browser (WASM)"}, {value: "worker", label: "Server worker pool"}],
+      get: () => useConversionEngineStore.getState().engine, set: (v) => useConversionEngineStore.getState().setEngine(v as ConversionEngine)},
     // --- Calculations ---
     {kind: "choice", id: "compute-mode", title: "Calculations", group: "Calculations", keywords: ["compute", "cores", "workers", "performance mode", ...GEN],
       setters: ["setMode"], choices: COMPUTE_MODES.map((m) => ({value: m, label: {interactive: "Interactive", balanced: "Balanced", throughput: "All cores"}[m]})),

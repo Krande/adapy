@@ -137,7 +137,9 @@ def _unshipped_imports(path: pathlib.Path) -> list[tuple[int, str]]:
         for t in targets:
             if t.split(".")[0] != "ada":
                 continue
-            if t.startswith(WORKER_PACKAGES):
+            # By package, not by string prefix: ``ada.comms.rest.worker_access`` is an API
+            # module, not part of the ``ada.comms.rest.worker`` package.
+            if any(t == p or t.startswith(p + ".") for p in WORKER_PACKAGES):
                 bad.append((node.lineno, t))
             elif t not in SHIPPED and _exists_in_full_tree(t):
                 bad.append((node.lineno, t))

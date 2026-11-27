@@ -19,10 +19,12 @@ const WASM_MESH_EXTS = ["obj", "stl", "ply", "gltf", "dae", "off", "glb"] as con
 const WASM_FEM_DECK_EXTS = ["inp", "fem"] as const;
 
 // FEA result sources the browser can bake into the streaming-viewer
-// artefact tree (h5py for .rmed/.med; pure-python for .sif/.sin). These
-// don't produce a single GLB — they go through the FEA bake path, not the
-// GLB conversion path — so they're matched separately.
-const WASM_FEA_EXTS = ["rmed", "med", "sif", "sin"] as const;
+// artefact tree (h5py for .rmed/.med; pure-python for .sif/.sin; stdlib
+// sqlite3 for already-converted .sqlite results). Native .odb conversion
+// stays server-worker only (`abaqus` capability). These don't produce a
+// single GLB — they go through the FEA bake path, not the GLB conversion
+// path — so they're matched separately.
+const WASM_FEA_EXTS = ["rmed", "med", "sif", "sin", "sqlite"] as const;
 
 export interface WasmFormat {
     format: PyodideSourceFormat;

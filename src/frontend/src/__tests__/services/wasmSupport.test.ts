@@ -35,10 +35,12 @@ test("detectWasmFormat returns null for unsupported / bake-only sources", () => 
 });
 
 test("isWasmFeaSource matches the FEA bake sources only", () => {
-    for (const k of ["a.rmed", "x/y.MED", "z.sif", "w.sin"]) {
+    // .sqlite: an already-exported Abaqus results DB, read with stdlib sqlite3.
+    for (const k of ["a.rmed", "x/y.MED", "z.sif", "w.sin", "results/job.sqlite"]) {
         assert.equal(isWasmFeaSource(k), true, k);
     }
-    for (const k of ["a.step", "a.ifc", "a.obj", "a.glb", "a.fem"]) {
+    // .odb needs the native Abaqus export — server worker only.
+    for (const k of ["a.step", "a.ifc", "a.obj", "a.glb", "a.fem", "job.odb"]) {
         assert.equal(isWasmFeaSource(k), false, k);
     }
 });

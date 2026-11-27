@@ -15,6 +15,13 @@ export interface AdminUserProject {
   archived: boolean;
 }
 
+export interface AdminUserWorkerAccess {
+  enabled: boolean;
+  allowed_capabilities: string[];
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
 export interface AdminUser {
   /** The OIDC `sub` claim — the durable id every audit row and membership
    * references. Never the email, which can change. */
@@ -32,6 +39,7 @@ export interface AdminUser {
   first_activity_at: string | null;
   last_activity_at: string | null;
   projects: AdminUserProject[];
+  worker_access?: AdminUserWorkerAccess;
 }
 
 export const adminUsersApi = {
@@ -39,5 +47,29 @@ export const adminUsersApi = {
     const r = await authedFetch(`${runtime.apiBase()}/admin/users`);
     const body = await jsonOrThrow<{ users: AdminUser[] }>(r, "adminListUsers");
     return body.users;
+  },
+
+  async adminGetUserWorkerAccess(
+    userSub: string,
+  ): Promise<AdminUserWorkerAccess & { user_sub: string }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/users/${encodeURIComponent(userSub)}/worker-access`,
+    );
+    return jsonOrThrow(r, "adminGetUserWorkerAccess");
+  },
+
+  async adminUpdateUserWorkerAccess(
+    userSub: string,
+    policy: { enabled: boolean; allowed_capabilities: string[] },
+  ): Promise<AdminUserWorkerAccess & { user_sub: string }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/users/${encodeURIComponent(userSub)}/worker-access`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(policy),
+      },
+    );
+    return jsonOrThrow(r, "adminUpdateUserWorkerAccess");
   },
 };

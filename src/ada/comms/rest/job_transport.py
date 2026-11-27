@@ -52,9 +52,11 @@ from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
 from fastapi import HTTPException
 
 from . import local_jobs
+from .auth import User, get_request_user
 from .queue import JobQueue
 from .scope import Scope
 from .storage import Storage
+from .worker_access import require_worker_access, worker_access_applies
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +222,10 @@ class JobRequest:
     #: but no queue compiles against the same catalogs its catalog fingerprint describes.
     #: Never sent to a queue: :class:`QueueJobTransport` ignores it.
     inprocess_inputs: dict[str, Any] | None = None
+    #: Optional explicit caller for worker-pool access enforcement. When None,
+    #: :class:`QueueJobTransport` falls back to :func:`~.auth.get_request_user`
+    #: (which is None for system/scheduled background ticks, bypassing the gate).
+    user: User | None = None
 
 
 @dataclass(frozen=True)
@@ -351,9 +357,16 @@ class QueueJobTransport(_BaseTransport):
     kind: Literal["queue", "local"] = "queue"
     _features = frozenset(FEATURE_UNAVAILABLE_DETAIL)
 
-    def __init__(self, queue: JobQueue, worker_registry: dict) -> None:
+    def __init__(
+        self,
+        queue: JobQueue,
+        worker_registry: dict,
+        *,
+        pool: Callable[[], Any] | Any = None,
+    ) -> None:
         self._queue = queue
         self._registry = worker_registry
+        self._pool = pool
 
     @property
     def queue(self) -> JobQueue:
@@ -364,6 +377,18 @@ class QueueJobTransport(_BaseTransport):
         return self._queue
 
     async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
+        effective_user = req.user if req.user is not None else get_request_user()
+        db_pool = self._pool() if callable(self._pool) else self._pool
+        target_capability = req.target_capability
+        if target_capability is None and worker_access_applies(db_pool, effective_user):
+            # Conversions and bakes carry no capability: the queue routes them by
+            # source extension. Resolve that pool now and hand it to enqueue, so
+            # the gate judges the pool the job will actually land on (an
+            # ``abaqus``-only grant must admit an ``.odb`` bake).
+            resolve = getattr(self._queue, "resolve_capability", None)
+            if resolve is not None:
+                target_capability = await resolve(req.source_key, req.target_format, req.conversion_options)
+        await require_worker_access(db_pool, effective_user, target_capability)
         # The publish is held back ONLY when there is a hook to run in the
         # gap. A caller with nothing to sequence takes the single-call form,
         # so the common path stays one round trip and one code path in the
@@ -379,7 +404,7 @@ class QueueJobTransport(_BaseTransport):
             field=req.field_name,
             conversion_options=req.conversion_options,
             derived_key=req.derived_key,
-            target_capability=req.target_capability,
+            target_capability=target_capability,
             force_rebuild=req.force_rebuild,
             publish=before_dispatch is None,
         )
@@ -1012,10 +1037,16 @@ def _submitted_from_job(job) -> SubmittedJob:
     )
 
 
-def build_transport(queue: JobQueue, storage: Storage, worker_registry: dict) -> JobTransport:
+def build_transport(
+    queue: JobQueue,
+    storage: Storage,
+    worker_registry: dict,
+    *,
+    pool: Callable[[], Any] | Any = None,
+) -> JobTransport:
     """The one place the choice is made. Called once at app build time, so no
     request ever has to ask which shape the deployment is."""
     if queue.enabled:
-        return QueueJobTransport(queue, worker_registry)
+        return QueueJobTransport(queue, worker_registry, pool=pool)
     logger.info("no job queue configured — jobs run in this environment (see ada.comms.rest.local_jobs)")
     return LocalJobTransport(storage)

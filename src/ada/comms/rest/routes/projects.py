@@ -20,6 +20,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..worker_access import default_policy, policy_from_row, serialize_me_worker_access
 
 router = APIRouter()
 
@@ -67,6 +68,14 @@ async def api_me(
         except Exception:
             logger.exception("api_me: listing corpora failed")
 
+    worker_policy = default_policy()
+    if pool is not None:
+        try:
+            wa_row = await db_module.get_user_worker_access(pool, user.sub)
+            worker_policy = policy_from_row(wa_row)
+        except Exception:
+            logger.exception("api_me: reading worker_access failed")
+
     return JSONResponse(
         {
             "sub": user.sub,
@@ -75,6 +84,7 @@ async def api_me(
             "isAdmin": user.is_admin,
             "scopes": scopes,
             "projects": projects,
+            "worker_access": serialize_me_worker_access(user, worker_policy),
         }
     )
 

@@ -66,7 +66,12 @@ FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset(
     # .inp/.fem/.med are design-model FEM meshes — they bake through the same streaming path
     # (mesh + beam-solids, no result fields) so FE-mesh viewing has a single pipeline. They
     # remain legacy-convertible (ifc/xml/step/…) on the /convert page, like .sif.
-    {".rmed", ".sif", ".sin", ".inp", ".fem", ".med", ".radanim"}
+    # .sqlite is an already-exported Abaqus results database: the BROWSER bakes it (stdlib
+    # sqlite3, ada.fem.formats.abaqus.results.sqlite_stream) and uploads the tree, so the API
+    # must accept and serve it even with no abaqus worker online. Unlike the others it is not a
+    # built-in worker reader — a worker bakes it only where the abaqus plug-in registered it.
+    # The native .odb export stays worker-only (advertised by the abaqus pool).
+    {".rmed", ".sif", ".sin", ".inp", ".fem", ".med", ".radanim", ".sqlite"}
 )
 
 # Union of source extensions the legacy /convert pipeline knows how

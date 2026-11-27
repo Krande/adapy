@@ -15,6 +15,7 @@ import {currentScopePart, setProceduralToast} from "./shared";
 import {modelMaxX} from "./bounds";
 import {placedCells} from "@/utils/cellbuilder/include";
 import {makeStartCompileJob} from "./compileJobRunner";
+import {workerPreferred} from "@/services/compute/workerAccess";
 
 export interface JobsSlice {
   autoCompile: boolean;
@@ -75,6 +76,101 @@ export interface JobsSlice {
 export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
   const startCompileJob = makeStartCompileJob(set, get);
 
+  // Build the CURRENT document in the browser (Pyodide/WASM) and show it.
+  // LOCAL ONLY: nothing is uploaded or cached on the server (the browser has no
+  // catalog DB, so its result is not the server's and must not stand in for it).
+  // Committing still stores the model itself on the server. Drives compileJob
+  // like a server build so the toolbar, busy guards and failure surface agree.
+  // "server-only": the selected engine cannot run in a browser.
+  const runBrowserCompile = async (label: string): Promise<"done" | "server-only" | "error"> => {
+    const active = get().active;
+    if (!active) return "error";
+    const doc = get().toDoc();
+    set({
+      compileJob: { jobId: null, derivedKey: "", status: "running" },
+      compileLog: null,
+      compileLogRunId: null,
+      compileLogIsCurrentRun: false,
+    });
+    setProceduralToast(label, {
+      status: "running",
+      stage: "compiling in browser…",
+      progress: 0,
+      startedAt: Date.now(),
+    });
+    try {
+      // Resolve the engine for the browser: a built-in slug (e.g. echo)
+      // dispatches directly; a kind:wheel engine is micropip-installed from its
+      // presigned wheel URL then dispatched via its entrypoint; a server engine
+      // can't run in-browser.
+      const engineSlug = get().selectedEngine;
+      let engineArg: string | null =
+        engineSlug && engineSlug !== "adapy-default" ? engineSlug : null;
+      let wheel: { entrypoint: string; deps: string[]; url: string } | null = null;
+      if (engineArg) {
+        const eng = get().engines.find((e) => e.slug === engineSlug);
+        if (eng && eng.origin !== "builtin") {
+          const resolved = await capabilities.procedural.resolveEngine(currentScopePart(), eng.id);
+          if (resolved.kind === "wheel") {
+            if (!resolved.ready || !resolved.wheel_url || !resolved.entrypoint)
+              throw new Error("engine wheel is not built yet — try again shortly");
+            wheel = {
+              entrypoint: resolved.entrypoint,
+              deps: resolved.pyodide_deps ?? [],
+              url: resolved.wheel_url,
+            };
+            engineArg = null; // dispatch happens via the wheel entrypoint
+          } else if (resolved.kind === "server") {
+            set({ compileJob: null });
+            return "server-only";
+          } else if (resolved.entrypoint) {
+            engineArg = resolved.entrypoint;
+          }
+        }
+      }
+      const { compileProceduralViaPyodide } = await import("@/utils/pyodide/pyodide_converter");
+      const { load_glb_from_bytes } = await import(
+        "@/utils/scene/handlers/view_file_object_from_server"
+      );
+      const bytes = await compileProceduralViaPyodide(doc, {
+        onLog: (m) => setProceduralToast(label, { stage: m }),
+        engine: engineArg,
+        wheel,
+      });
+      const sourceName = `procedural:${active.name}`;
+      // never move the camera; only this result's own prior load is replaced
+      await load_glb_from_bytes(bytes, sourceName, false, "replaceSource");
+      set({
+        resultSourceName: sourceName,
+        compileJob: { jobId: null, derivedKey: "", status: "done" },
+      });
+      void import("@/utils/cellbuilder/groupView").then(({ reapplyGroupViewToResult }) =>
+        reapplyGroupViewToResult(),
+      );
+      if (get().sideBySide) {
+        const { applySideBySideOffset } = await import("@/utils/scene/handlers/side_by_side");
+        applySideBySideOffset(
+          sourceName,
+          true,
+          modelMaxX(placedCells(get().cells, get().groups, get().loftMembers)),
+        );
+      }
+      setProceduralToast(label, { status: "done", progress: 1, stage: "rendered in browser (not saved)" });
+      return "done";
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      set({ compileJob: { jobId: null, derivedKey: "", status: "error", error } });
+      setProceduralToast(label, { status: "error", error, stage: "browser compile failed" });
+      return "error";
+    }
+  };
+
+  // The browser is the default engine (see services/compute/workerAccess): a
+  // simulation build runs there unless the user opted into the worker pool and
+  // may use it. The detail LOD runs the server's detailing stack, so it stays a
+  // worker job (refused with a clear message without worker access).
+  const buildsInBrowser = (lod: "sim" | "detail") => lod === "sim" && !workerPreferred();
+
   return {
     autoCompile: true,
     compileJob: null,
@@ -106,6 +202,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       const active = get().active;
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
+      if (buildsInBrowser(lod) && (await runBrowserCompile(`${active.name} (browser)`)) !== "server-only") return;
       await startCompileJob(label, lod, () =>
         capabilities.procedural.compileModel(currentScopePart(), active.modelId, {
           force,
@@ -125,6 +222,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       // visualise-then-commit loop (and the ⇧↵ shortcut / side-by-side driver).
       const active = get().active;
       if (!active) return;
+      if (buildsInBrowser(lod) && (await runBrowserCompile(`${active.name} (browser)`)) !== "server-only") return;
       const doc = get().toDoc();
       const label = `${active.name} (preview)`;
       await startCompileJob(label, lod, () =>
@@ -208,87 +306,10 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       const active = get().active;
       if (!active) return;
       const label = `${active.name} (browser)`;
-      const doc = get().toDoc();
-      setProceduralToast(label, {
-        status: "running",
-        stage: "compiling in browser…",
-        progress: 0,
-        startedAt: Date.now(),
-      });
-      try {
-        const { compileProceduralViaPyodide } = await import(
-          "@/utils/pyodide/pyodide_converter"
-        );
-        const { load_glb_from_bytes } = await import(
-          "@/utils/scene/handlers/view_file_object_from_server"
-        );
-        // Resolve the engine for the browser: a built-in slug (e.g. echo)
-        // dispatches directly; a kind:wheel engine is micropip-installed from its
-        // presigned wheel URL then dispatched via its entrypoint; a server engine
-        // can't run in-browser.
-        const engineSlug = get().selectedEngine;
-        let engineArg: string | null =
-          engineSlug && engineSlug !== "adapy-default" ? engineSlug : null;
-        let wheel: { entrypoint: string; deps: string[]; url: string } | null =
-          null;
-        if (engineArg) {
-          const eng = get().engines.find((e) => e.slug === engineSlug);
-          if (eng && eng.origin !== "builtin") {
-            const resolved = await capabilities.procedural.resolveEngine(
-              currentScopePart(),
-              eng.id,
-            );
-            if (resolved.kind === "wheel") {
-              if (
-                !resolved.ready ||
-                !resolved.wheel_url ||
-                !resolved.entrypoint
-              )
-                throw new Error(
-                  "engine wheel is not built yet — try again shortly",
-                );
-              wheel = {
-                entrypoint: resolved.entrypoint,
-                deps: resolved.pyodide_deps ?? [],
-                url: resolved.wheel_url,
-              };
-              engineArg = null; // dispatch happens via the wheel entrypoint
-            } else if (resolved.kind === "server") {
-              throw new Error(
-                "this engine runs server-side only — use Compile, not in-browser",
-              );
-            } else if (resolved.entrypoint) {
-              engineArg = resolved.entrypoint;
-            }
-          }
-        }
-        const bytes = await compileProceduralViaPyodide(doc, {
-          onLog: (m) => setProceduralToast(label, { stage: m }),
-          engine: engineArg,
-          wheel,
-        });
-        const sourceName = `procedural:${active.name}`;
-        // never move the camera; only this result's own prior load is replaced
-        await load_glb_from_bytes(bytes, sourceName, false, "replaceSource");
-        set({ resultSourceName: sourceName });
-        void import("@/utils/cellbuilder/groupView").then(({ reapplyGroupViewToResult }) =>
-          reapplyGroupViewToResult(),
-        );
-        if (get().sideBySide) {
-          const { applySideBySideOffset } = await import(
-            "@/utils/scene/handlers/side_by_side"
-          );
-          applySideBySideOffset(sourceName, true, modelMaxX(placedCells(get().cells, get().groups, get().loftMembers)));
-        }
-        setProceduralToast(label, {
-          status: "done",
-          progress: 1,
-          stage: "rendered in browser",
-        });
-      } catch (e) {
+      if ((await runBrowserCompile(label)) === "server-only") {
         setProceduralToast(label, {
           status: "error",
-          error: e instanceof Error ? e.message : String(e),
+          error: "this engine runs server-side only — it needs the server worker pool",
           stage: "browser compile failed",
         });
       }

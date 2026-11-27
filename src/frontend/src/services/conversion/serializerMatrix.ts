@@ -7,6 +7,7 @@
 // (gallery tools + ConversionRow) and the client/server routing all agree.
 
 import {runtime, ConversionOption} from "@/runtime/config";
+import {workerPreferred} from "@/services/compute/workerAccess";
 
 export interface SerializerSelection {
     serializer?: string;
@@ -37,10 +38,23 @@ export function tessellatorsFor(schema: SerializerSchema, serializer: string): r
     return schema.tessellator.enum ?? [];
 }
 
+/** The serializer an untouched dropdown starts on. The backend's default names
+ * a server serializer (it is the worker's matrix), but the in-browser engine is
+ * the default engine: unless the user opted into the server worker (and may use
+ * it), the first client serializer the row offers wins. */
+function defaultSerializer(schema: SerializerSchema): string {
+    const serEnum = schema.serializer.enum ?? [];
+    if (!workerPreferred()) {
+        const client = serEnum.find((s) => schema.serializer.runtime?.[s] === "client");
+        if (client) return client;
+    }
+    return String(schema.serializer.default ?? serEnum[0] ?? "");
+}
+
 /** Resolve a (possibly partial) user selection into a fully-populated,
- * schema-valid pick. Falls the serializer back to its default and the
- * tessellator to the first token allowed for that serializer, so a stale or
- * empty selection still sends coherent tokens. */
+ * schema-valid pick. Falls the serializer back to its default (see
+ * defaultSerializer) and the tessellator to the first token allowed for that
+ * serializer, so a stale or empty selection still sends coherent tokens. */
 export function normalizeSelection(
     schema: SerializerSchema,
     value: SerializerSelection,
@@ -48,7 +62,7 @@ export function normalizeSelection(
     const serEnum = schema.serializer.enum ?? [];
     let serializer = value.serializer && serEnum.includes(value.serializer)
         ? value.serializer
-        : String(schema.serializer.default ?? serEnum[0] ?? "");
+        : defaultSerializer(schema);
     const allowed = tessellatorsFor(schema, serializer);
     const tessellator = value.tessellator && allowed.includes(value.tessellator)
         ? value.tessellator

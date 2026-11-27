@@ -27,6 +27,7 @@ import {runtime} from "@/runtime/config";
 import {listUiShells, activeUiShellId, setActiveUiShell} from "@/plugins/uiShells";
 import {promptDialog} from "@/plugins/dialogs";
 import {capabilities} from "@/services/capabilities";
+import {workerPreferred} from "@/services/compute/workerAccess";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
@@ -238,10 +239,14 @@ const builderCompileBusy = () => {
   const job = useCellBuilderStore.getState().compileJob;
   return job && (job.status === "queued" || job.status === "running") ? "A compile is running" : null;
 };
+// A compile builds in the browser by default (local only; see jobsSlice); only a
+// user who opted into the worker pool needs the server's preview route.
 const builderServerCompile = () =>
   builderReadOnly() ??
   builderCompileBusy() ??
-  (capabilities.procedural.supports("previewModel") ? null : "Server-side compile is not available over this connection");
+  (!workerPreferred() || capabilities.procedural.supports("previewModel")
+    ? null
+    : "Server-side compile is not available over this connection");
 
 /** The scene's handles, when a canvas is mounted. */
 function sceneHandles() {

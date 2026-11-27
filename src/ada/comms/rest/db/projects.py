@@ -76,6 +76,10 @@ async def list_users(pool: asyncpg.Pool) -> list[dict]:
         """
         SELECT u.sub, u.email, u.display_name, u.last_seen_at, u.created_at,
                u.is_admin, u.groups,
+               wa.enabled AS wa_enabled,
+               wa.allowed_capabilities AS wa_allowed_capabilities,
+               wa.updated_by AS wa_updated_by,
+               wa.updated_at AS wa_updated_at,
                (SELECT a.ts FROM audit_log a WHERE a.user_sub = u.sub
                  ORDER BY a.ts ASC LIMIT 1) AS first_activity_at,
                (SELECT a.ts FROM audit_log a WHERE a.user_sub = u.sub
@@ -95,9 +99,10 @@ async def list_users(pool: asyncpg.Pool) -> list[dict]:
                    '[]'::json
                ) AS projects
         FROM users u
+        LEFT JOIN user_worker_access wa ON wa.user_sub = u.sub
         LEFT JOIN project_members m ON m.user_sub = u.sub
         LEFT JOIN projects p ON p.id = m.project_id
-        GROUP BY u.sub
+        GROUP BY u.sub, wa.user_sub
         ORDER BY lower(COALESCE(u.display_name, u.email, u.sub)), u.sub
         """
     )
@@ -115,6 +120,14 @@ async def list_users(pool: asyncpg.Pool) -> list[dict]:
                 "first_activity_at": _iso(r["first_activity_at"]),
                 "last_activity_at": _iso(r["last_activity_at"]),
                 "projects": _loads_jsonb(r["projects"]) or [],
+                # LEFT JOIN: a user with no user_worker_access row has NULLs here,
+                # which is the default policy (no worker access).
+                "worker_access": {
+                    "enabled": bool(r.get("wa_enabled") or False),
+                    "allowed_capabilities": list(r.get("wa_allowed_capabilities") or []),
+                    "updated_by": r.get("wa_updated_by"),
+                    "updated_at": _iso(r.get("wa_updated_at")),
+                },
             }
         )
     return out

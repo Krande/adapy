@@ -3,7 +3,8 @@ import ConversionProgress, {type ToastAnchor} from "../conversion/ConversionProg
 import UploadContextMenu from "../upload/UploadContextMenu";
 import {useRestoreInflightJobs} from "@/hooks/useRestoreInflightJobs";
 import {useCompressionSweepPoll} from "@/hooks/useCompressionSweepPoll";
-import {useExperimentalStore} from "@/state/experimentalStore";
+import {useConversionEngineStore} from "@/state/conversionEngineStore";
+import {loadWorkerAccess} from "@/services/compute/workerAccess";
 import {prewarmPyodide} from "@/utils/pyodide/pyodide_converter";
 import {runtime} from "@/runtime/config";
 
@@ -58,11 +59,15 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
             unfollow?.();
         };
     }, []);
-    // Pre-warm the in-browser (WASM) engine in the background whenever it's
-    // enabled — both when the user flips it on and on a reload where the
-    // persisted toggle is already on — so opening a file converts immediately
+    // The caller's worker policy, read once so routing can consult it
+    // synchronously (see services/compute/workerAccess).
+    useEffect(() => {
+        void loadWorkerAccess();
+    }, []);
+    // Pre-warm the in-browser (WASM) engine in the background while it is the
+    // engine in use (the default), so opening a file converts immediately
     // instead of cold-loading pyodide + the CAD kernel on first click.
-    const wasmEngineOn = useExperimentalStore((s) => s.pyodideConverter);
+    const wasmEngineOn = useConversionEngineStore((s) => s.engine === "browser");
     useEffect(() => {
         if (wasmEngineOn) prewarmPyodide();
     }, [wasmEngineOn]);

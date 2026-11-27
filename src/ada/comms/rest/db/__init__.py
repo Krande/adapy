@@ -306,6 +306,11 @@ from .user_preferences import (
     get_user_preference,
     set_user_preference,
 )
+from .worker_access import (
+    get_user_worker_access,
+    list_user_worker_access,
+    set_user_worker_access,
+)
 from .workers import get_worker_packages, upsert_worker_packages
 
 __all__ = [
@@ -349,6 +354,9 @@ __all__ = [
     "get_user_preference",
     "set_user_preference",
     "delete_user_preference",
+    "get_user_worker_access",
+    "set_user_worker_access",
+    "list_user_worker_access",
     "insert_cli_token",
     "check_cli_token",
     "list_cli_tokens",

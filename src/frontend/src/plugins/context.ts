@@ -11,6 +11,15 @@
 
 import { trackJob } from "@/services/jobTracking";
 import { runtime } from "@/runtime/config";
+import type { WorkerAccessPolicy } from "@/services/api/auth";
+import { loadWorkerAccess, workerPreferred } from "@/services/compute/workerAccess";
+import type { ScopeUrl } from "@/services/api/client";
+import { localArtefactStore } from "@/services/compute/localArtefactStore";
+import {
+  canUseWorker as policyCanUseWorker,
+  dispatchPluginJob as routePluginJob,
+  isPluginWasmCapable,
+} from "@/services/compute/pluginJobRouter";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
@@ -72,10 +81,51 @@ import { getSingletonViewerStores, type AdaViewerStores } from "@/state/AdaViewe
 import type {
   AdaPluginContext,
   PluginApiClient,
+  PluginComputeHandle,
   PluginLogLevel,
   SceneColorFieldResult,
   SceneHandle,
 } from "./registry";
+
+const fetchWorkerAccessPolicy = (): Promise<WorkerAccessPolicy | null> => loadWorkerAccess();
+
+function makePluginCompute(defaultPluginId: string, getScope: () => string): PluginComputeHandle {
+  return {
+    async dispatchPluginJob(opts) {
+      const workerAccess = await fetchWorkerAccessPolicy();
+      return routePluginJob({
+        pluginId: opts.pluginId ?? defaultPluginId,
+        scope: (opts.scope ?? getScope()) as ScopeUrl,
+        options: opts.options,
+        capability: opts.capability,
+        derivedKey: opts.derivedKey,
+        derivedPrefix: opts.derivedPrefix,
+        // An explicit per-job choice ("Run on worker") wins; otherwise the
+        // user's engine setting, effective only with global worker access.
+        preferWorker: opts.preferWorker ?? workerPreferred(workerAccess),
+        workerAccess,
+        onLog: opts.onLog,
+        onProgress: opts.onProgress,
+      });
+    },
+    isWasmCapable: (id) => isPluginWasmCapable(id ?? defaultPluginId),
+    async canUseWorker(capability) {
+      const policy = await fetchWorkerAccessPolicy();
+      return policyCanUseWorker(policy, capability);
+    },
+    listLocalArtefacts(scope, prefix) {
+      return localArtefactStore.list(scope ?? getScope(), prefix ?? "").map((m) => ({
+        key: m.key,
+        size: m.size,
+        contentType: m.contentType,
+        storage: m.storage,
+      }));
+    },
+    publishLocalArtefacts(scope, keys, onProgress) {
+      return localArtefactStore.publishToScope(scope ?? getScope(), keys, { onProgress });
+    },
+  };
+}
 
 function makeApiClient(): PluginApiClient {
   const base = runtime.apiBase();
@@ -273,6 +323,7 @@ export function makePluginContext(
       () => getPlugin(pluginId)?.accessGate ?? null,
       () => scopeUrlPart(useScopeStore.getState().current),
     ),
+    compute: makePluginCompute(pluginId, () => scopeUrlPart(useScopeStore.getState().current)),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
     // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
     // what makes a plugin panel repaint on a theme switch. The fallback is a

@@ -180,7 +180,7 @@ function feaExt(sourceKey: string): string {
 }
 
 /**
- * Bake a FEA result file (.rmed/.med/.sif/.sin) into the streaming-viewer
+ * Bake a FEA result file (.rmed/.med/.sif/.sin/.sqlite) into the streaming-viewer
  * artefact tree entirely in the browser, then upload the tree (as a zip)
  * to ``/fea/artefacts``. The existing streaming FEA reader then consumes
  * ``_derived/<source>.fea/`` unchanged — the WASM counterpart of

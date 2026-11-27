@@ -2,9 +2,14 @@
 // in-browser Pyodide pipeline and the server-side NATS pipeline.
 
 import {useConversionStore} from "@/state/conversionStore";
-import {useExperimentalStore} from "@/state/experimentalStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
+import {
+    hasAnyWorkerAccess,
+    loadWorkerAccess,
+    serverOnlyNotice,
+    workerPreferred,
+} from "@/services/compute/workerAccess";
 import {convertViaServer} from "./serverPipeline";
 import {wasmSupportsConversion, isWasmFeaSource} from "./wasmSupport";
 import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./serializerMatrix";
@@ -18,23 +23,38 @@ import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./se
 export type {TargetFormat} from "@/services/viewerApi";
 
 function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
-    // Route to the in-browser engine only when (a) the global conversion
-    // engine is set to WASM and (b) the WASM engine actually supports this
-    // (source, target). The support matrix lives in wasmSupport.ts so the
-    // pipeline, this router, and the audit-run sweep agree. Unsupported
-    // combos silently fall through to the server worker.
+    // The in-browser engine is the default for every (source, target) it
+    // supports; the support matrix lives in wasmSupport.ts so the pipeline,
+    // this router, and the audit-run sweep agree. The server worker takes a
+    // supported conversion only when the user opted into it AND an
+    // administrator granted them worker access (workerPreferred). Unsupported
+    // combos fall through to the server worker, which enforces access itself.
     if (!wasmSupportsConversion(sourceKey, targetFormat)) return false;
-    return useExperimentalStore.getState().pyodideConverter;
+    return !workerPreferred();
+}
+
+/** Fail fast, with a notice that says what to do, when a workload has no
+ * browser path and the user has no worker access at all. The server enforces
+ * the same rule (403); this spares the round trip and names the file type. A
+ * per-capability grant is checked by the server, which knows the pool. */
+async function assertServerReachable(sourceKey: string, what?: string): Promise<void> {
+    if (!runtime.authEnabled()) return; // no users, no per-user policy
+    const policy = await loadWorkerAccess();
+    // Unknown policy (/api/me failed): let the server answer rather than guess.
+    if (policy === null || hasAnyWorkerAccess(policy)) return;
+    const ext = extOf(sourceKey) || sourceKey;
+    throw new Error(serverOnlyNotice(what ?? `Opening ${ext} files`));
 }
 
 /**
  * Enqueue a conversion for a source key in a given scope and resolve
  * when the derived blob is ready. Returns the derived storage key.
  *
- * Routes through the Pyodide in-browser path when the experimental
- * toggle is on AND the source/target combination is supported there;
- * otherwise hits the server-side NATS pipeline. Throws on API
- * rejection, job error, or poll-timeout.
+ * Routes through the Pyodide in-browser path (the default) whenever the
+ * source/target combination is supported there and the user has not opted
+ * into the server worker (see workerPreferred); otherwise hits the
+ * server-side NATS pipeline, which requires worker access. Throws on API
+ * rejection (403 without worker access), job error, or poll-timeout.
  *
  * ``opts.step``/``opts.field`` are forwarded to the server for FEA
  * result picks. The Pyodide path doesn't support FEA results, so they
@@ -61,6 +81,7 @@ export async function ensureConverted(
     if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }
+    if (!wasmSupportsConversion(sourceKey, targetFormat)) await assertServerReachable(sourceKey);
     return convertViaServer(scope, sourceKey, targetFormat, opts);
 }
 
@@ -144,6 +165,10 @@ export async function convertWithSelection(
         conversionOptions.serializer = resolved.serializer;
         conversionOptions.tessellator = resolved.tessellator;
     }
+    await assertServerReachable(
+        sourceKey,
+        resolved ? "The selected serializer" : `Converting ${ext || sourceKey} to .${targetFormat}`,
+    );
     return convertViaServer(scope, sourceKey, targetFormat, {
         conversionOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
         reconvert: opts?.reconvert,
@@ -183,9 +208,11 @@ export async function ensureBakedFeaManifest(
     scope: ScopeUrl,
     sourceKey: string,
 ): Promise<void> {
-    // In-browser (WASM) FEA bake when the engine is set to WASM and the
-    // source is bakeable client-side; otherwise the server worker bakes it.
-    if (useExperimentalStore.getState().pyodideConverter && isWasmFeaSource(sourceKey)) {
+    // In-browser (WASM) FEA bake by default for every source the browser can
+    // bake (incl. already-converted Abaqus .sqlite); the server worker bakes it
+    // only on the user's opt-in with worker access, or when the browser can't
+    // (native .odb export needs Abaqus — server only, 'abaqus' capability).
+    if (isWasmFeaSource(sourceKey) && !workerPreferred()) {
         const {convertViaPyodideFeaBake} = await import("./pyodidePipeline");
         await convertViaPyodideFeaBake(scope, sourceKey);
         return;
@@ -193,6 +220,24 @@ export async function ensureBakedFeaManifest(
     const convStore = useConversionStore.getState();
     const storeKey = `${sourceKey}::fea`;
     const startedAt = Date.now();
+    if (!isWasmFeaSource(sourceKey)) {
+        try {
+            await assertServerReachable(sourceKey);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            convStore.setJob(storeKey, {
+                sourceKey,
+                jobId: "",
+                derivedKey: "",
+                status: "error",
+                progress: 0,
+                stage: "error",
+                error: msg,
+                startedAt,
+            });
+            throw err;
+        }
+    }
     convStore.setJob(storeKey, {
         sourceKey,
         jobId: "",

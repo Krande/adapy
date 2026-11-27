@@ -4,6 +4,12 @@ import { runtime } from "@/runtime/config";
 
 import { authedFetch, jsonOrThrow } from "./client";
 
+export interface WorkerAccessPolicy {
+  enabled: boolean;
+  allowed_capabilities: string[];
+  effective_all: boolean;
+}
+
 export interface MeResponse {
   sub: string;
   email: string;
@@ -15,6 +21,7 @@ export interface MeResponse {
     name: string;
   }>;
   projects: Array<{ id: string; slug: string; name: string; role: string }>;
+  worker_access?: WorkerAccessPolicy;
 }
 
 export const authApi = {
