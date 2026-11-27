@@ -2,6 +2,13 @@
 
 
 
+## v0.178.2 (2026-11-27)
+
+### Fix
+
+* fix(ifc): native IFC reader keeps product names; native member scan keeps beam orientation (#613) ([`aabb19e`](https://github.com/Krande/adapy/commit/aabb19eafe47a8990983267620a32b0f260934bc))
+
+
 ## v0.178.1 (2026-11-27)
 
 ### Fix
