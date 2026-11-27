@@ -80,7 +80,7 @@ test("commit(): autoCompile on, a model with a space -- compile() runs as before
   }
 });
 
-test("commit(): a capability engine still auto-compiles an empty-space doc -- the skip is scoped to the built-in engine", async () => {
+test("commit(): an empty doc skips the auto-compile for any engine, not only the built-in one", async () => {
   const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
   const { capabilities } = await import("@/services/capabilities");
   const st = () => useCellBuilderStore.getState();
@@ -91,20 +91,19 @@ test("commit(): a capability engine still auto-compiles an empty-space doc -- th
   let compileCalls = 0;
   useCellBuilderStore.setState({ compile: async () => void compileCalls++ } as never);
   try {
-    // A doc naming an engine other than the built-in one: it may compile other doc keys of its
-    // own (an engine-owned docExtras list), so an empty-space doc is not necessarily "nothing to
-    // build" for it the way it is for the built-in engine.
+    // A doc naming an engine other than the built-in one: with no spaces and no loft members
+    // it has nothing to start a compile from either, so a job would only come back as an error.
     st().open("m-engine", "Model", 1, { ...emptyDoc, engine: "a-capability-engine" });
     st().setAutoCompile(true);
     assert.equal(await st().commit(), true);
-    assert.equal(compileCalls, 1, "a non-built-in engine still gets its usual auto-compile attempt");
+    assert.equal(compileCalls, 0, "nothing to compile for this engine either: auto-compile is skipped");
   } finally {
     proc.commitModel = originalCommit;
     useCellBuilderStore.setState({ compile: originalCompile } as never);
   }
 });
 
-test("commit(): the built-in engine's skip clears a previously compiled result instead of leaving it on screen", async () => {
+test("commit(): the skip clears a previously compiled result instead of leaving it on screen", async () => {
   const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
   const { capabilities } = await import("@/services/capabilities");
   const st = () => useCellBuilderStore.getState();

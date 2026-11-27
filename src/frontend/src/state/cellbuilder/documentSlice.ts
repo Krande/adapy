@@ -431,14 +431,10 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
           committing: false,
         });
         // Nothing to compile (a brand-new, still-empty model, or the model's last space/loft
-        // member was just removed): skip the auto-compile rather than firing a job the engine
-        // would just log as having nothing to do -- matches the BUILT-IN engine's own "document
-        // has no spaces or loft_members to compile" no-op. Scoped to it alone: a capability
-        // engine can compile other doc keys too (its own docExtras list), so an empty-space doc
-        // is not necessarily "nothing to build" for it, and it still gets its usual auto-compile
-        // attempt to decide that for itself.
-        const builtinEngine = (get().selectedEngine || "adapy-default") === "adapy-default";
-        if (builtinEngine && docHasNothingToCompile(committedDoc)) {
+        // member was just removed): skip the auto-compile, whatever the engine. A compile
+        // starts from the doc's spaces and loft members, so an engine handed a doc with neither
+        // can only report an error or an empty result; the user still has Compile to ask anyway.
+        if (docHasNothingToCompile(committedDoc)) {
           // The doc just emptied out: any previously compiled result (sim or detail) is stale
           // and must not linger on screen, whether or not auto-compile itself is on.
           get().hideResult();

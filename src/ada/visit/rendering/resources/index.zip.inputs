@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 e1b89e0cfb246f63abf55290fe867cd9bf18b144d85cf47a30c72ac166f790b3
-bundle-sha256 01529d82e2b45f2dacf0d421f7af2074a53bb96197924cbf081b401d254288fc
+inputs-sha256 ec1d2e3e4540f804a32bf03acfe564779be86898551f5f655f9eca077d3023df
+bundle-sha256 26dd749629ed9f34e69b838d74370fffea5d7ea7bba613309f791a6e1ce0ceea
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -904,7 +904,7 @@ src/frontend/src/state/cellbuilder/compileFailures.ts 3e7f66bb03877ae41eac30a4a6
 src/frontend/src/state/cellbuilder/compileJobRunner.ts 9eaa4169dd7ca2bbc6b7b12ad1c28badcbb620ea
 src/frontend/src/state/cellbuilder/detailingSlice.ts 3ce217e0b5dffbb14f5ffef3092aec7727ed4586
 src/frontend/src/state/cellbuilder/docCodec.ts aab4dff247e8d1403752d0f84e59bf68f88e3c5d
-src/frontend/src/state/cellbuilder/documentSlice.ts 2819bd5d281db53b6c2d06e4dfa2998df7c1c701
+src/frontend/src/state/cellbuilder/documentSlice.ts 7c3842e0b8558316ce648b2155df34733b0b4db5
 src/frontend/src/state/cellbuilder/duplicateSlice.ts 2f5bed2a80ccf2e36b33c112b43a3986c03230d9
 src/frontend/src/state/cellbuilder/exportImportSlice.ts 3accaa1c43068d0edeb9631eccb2ac78e6c0be51
 src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a179d4ca185
