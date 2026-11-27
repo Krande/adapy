@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 3b40ee2f71122d6f181cee8b986c28f0c0ac66cf1c22fabbee5e1257374ce00e
-bundle-sha256 6f8e8910dd26e182a04beb3d3d6dc6ec52b1bdfca3f9f8c4d9fd900ed10cd753
+inputs-sha256 44e1e23b735334762fe179e947839601af407701c3731dbeefdf0d40dba9a74d
+bundle-sha256 29c969dac84528c2f30270c0f8adb30691a8d330101b41cba1fc33a6b35c4e84
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -788,7 +788,7 @@ src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d8
 src/frontend/src/services/api/plugins.ts 4c51d95b8533376961bd1825dbabbc24bdacd091
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
 src/frontend/src/services/api/procedural.ts e0f1ab7699fa689d29f1fe89a7e6393b43390bc0
-src/frontend/src/services/api/proceduralCatalog.ts 08b94f3c9139455348eefbdb679813e16aae0b68
+src/frontend/src/services/api/proceduralCatalog.ts 728c7df1b0c66dfb595a960ff7f234e72cd0003a
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
 src/frontend/src/services/api/robotBundles.ts dfbfd042a2f673dbebd2978bd2e0d2fab19ae50f
@@ -914,7 +914,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts 24bb9559b41ea63e757f35dbb482e90b0cb4ccd8
+src/frontend/src/state/cellbuilder/jobsSlice.ts 0090f4bb51ded1b37d97795c7b8e718b3fd3ce75
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -1181,7 +1181,7 @@ src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed5518117
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pyodide_converter.ts 53ae5c502808575004341b168653f13ac9367f63
-src/frontend/src/utils/pyodide/pyodide_worker.js b851eef8167c7ea99a7535b4487d9eae8f9b0408
+src/frontend/src/utils/pyodide/pyodide_worker.js 05d3f1cca183babd1bfa4182c4c7e3a43f72125f
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
