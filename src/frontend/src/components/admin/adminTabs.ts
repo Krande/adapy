@@ -55,6 +55,7 @@ export const VALID_TABS: ReadonlySet<string> = new Set([
     "database",
     "workers",
     "conversion",
+    "execution",
     "procedural",
 ]);
 
