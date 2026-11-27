@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 b92431879757e0c95bbf265e24b66ba1107cfbd4f01b52b90a0cc74674510a36
-bundle-sha256 ed40a70e9d05e7b7e2787d3de1cf8be8bfa1e1968c82241b9a8d6489827d9d3c
+inputs-sha256 177a2cb98b425889da581c8c2ffaa6081ca77a41d42d0a3bcf18c7e08bf2fea4
+bundle-sha256 d0b4936020cc4747be3acae38dfb30bd0e5c38f0cb4e2ab85e10e0abe070ad03
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -1195,7 +1195,7 @@ src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pluginWheels.ts a25b947c8cd930834846067c22a73b2b4c40716b
 src/frontend/src/utils/pyodide/pyodide_converter.ts f0bba731d35258577987866aebd676100d9631ec
-src/frontend/src/utils/pyodide/pyodide_worker.js 60c73df4f943d5c23b160d5901366cff62afc629
+src/frontend/src/utils/pyodide/pyodide_worker.js cfdece8a755fd16a5664b1b1b6ebbcb81d44c1fa
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
