@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 7a9f988f121602f53752288b7c06e2ab8ae6a85ed611181d87c340b1b7c0c001
-bundle-sha256 c804ef82c8d2c2e08e9e0a520bec797939d4575a18bd1ed4b5724ceaf61d9135
+inputs-sha256 d6f4aa05ca29f38a1c0d9675b10fba2dd764e08c3fea86625292efa46d96f244
+bundle-sha256 436e22e37853376eadac8c8c910c95ee2be9ed9c883708eaa76bd9e18b0d0ccb
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -821,11 +821,11 @@ src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd4844880
 src/frontend/src/services/compute/pluginJobRouter.ts df8c488e3df9dac07180aca2a0026b4933ad7c4e
 src/frontend/src/services/compute/workerAccess.ts 6f6b3e9dd62a6adf624e8a9daac4010a7f9a0c4c
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
-src/frontend/src/services/conversion/index.ts ccd7ec8af63fd60f7adfd044f2707441692683eb
+src/frontend/src/services/conversion/index.ts 24ce61938db4cee948a8308a66c6aa3b37a2e889
 src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts c89e715567363a3b14e6540b2b136c29e4a9e838
 src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 80c400fe75ff7fed98133a31daa788c82e36b9ed
 src/frontend/src/services/conversion/pyodidePipeline.ts be3ba10c30ed0cb2fc4876d36235d4d5f78caf6f
-src/frontend/src/services/conversion/serializerMatrix.ts b6136e0cde3ba796e9c9b181f69af00a61b9b8d5
+src/frontend/src/services/conversion/serializerMatrix.ts ea07fd1d2ef786b7d6c87d38cfcb64f0d30f7d7d
 src/frontend/src/services/conversion/serverPipeline.ts 51820f59a6ab959d2cbc2f6da1e21409fce60dd1
 src/frontend/src/services/conversion/wasmSupport.ts 27763766815ead01eb8d94c2ab2f56054696c90e
 src/frontend/src/services/devConnections/connectionBuilderSession.ts 4684e42c7acb8b5bed2153c3a603cd1eb7319e0a
