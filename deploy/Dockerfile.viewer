@@ -139,8 +139,9 @@ COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 # When EXTRA_WHEELS_DIR is set (relative to src/frontend/), its .whl files and
 # plugin-wheels-manifest.json are copied into /build/dist/wheels/ and every
 # wheel referenced by the manifest is verified to exist at build time -- the
-# plugin wheels, the dependency files an entry lists under `packages`, and a
-# Pyodide runtime the manifest says is staged there. Unset is a no-op so
+# plugin wheels, the dependency files an entry lists under `packages`, the
+# wheels it bakes for the worker's own stacks under `runtime` (trimesh,
+# pyquaternion), and a Pyodide runtime the manifest says is staged there. Unset is a no-op so
 # standalone public adapy builds are unchanged (and carry no plugin deps).
 ARG EXTRA_WHEELS_DIR=""
 RUN set -eu; \
@@ -169,6 +170,13 @@ RUN set -eu; \
                         console.error(`ERROR: plugin-wheels-manifest.json entry "${id}" references missing package file "${f}"`); \
                         process.exit(1); \
                     } \
+                } \
+            } \
+            for (const [n, pkg] of Object.entries(m.runtime || {})) { \
+                const f = typeof pkg === "string" ? pkg : pkg && pkg.file; \
+                if (!f || !fs.existsSync(path.join(dir, f))) { \
+                    console.error(`ERROR: plugin-wheels-manifest.json runtime "${n}" references missing wheel "${f}"`); \
+                    process.exit(1); \
                 } \
             } \
             const py = m.pyodide && m.pyodide.index_url; \

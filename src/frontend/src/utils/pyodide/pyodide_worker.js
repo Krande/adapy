@@ -50,18 +50,23 @@ let pyquaternionPromise = null;
 let adacppWheelPromise = null;
 let adapyWheelPromise = null;
 const pluginWheelPromises = new Map();
+// Baked wheels for the pure-Python stacks (trimesh, pyquaternion), from the boot
+// config: {name: {file, sha256?}}. A stack named here installs from /wheels/;
+// otherwise micropip resolves it from Pyodide's index or PyPI, as before.
+let runtimeWheels = {};
 
 function log(message) {
     self.postMessage({type: "log", message});
 }
 
-// config: {version, indexURL, lockFileContents?} from the boot message.
-// lockFileContents is Pyodide's own lock with baked packages pointed at
+// config: {version, indexURL, lockFileContents?, runtimeWheels?} from the boot
+// message. lockFileContents is Pyodide's own lock with baked packages pointed at
 // /wheels/; Pyodide still resolves their dependencies and checks their sha256.
 async function bootstrap(config) {
     if (!config || !config.indexURL) {
         throw new Error("no Pyodide boot config in the first message");
     }
+    runtimeWheels = config.runtimeWheels && typeof config.runtimeWheels === "object" ? config.runtimeWheels : {};
     log(`Loading Pyodide v${config.version} from ${config.indexURL}…`);
     importScripts(`${config.indexURL}pyodide.js`);
     const options = {indexURL: config.indexURL};
@@ -83,17 +88,32 @@ async function bootstrap(config) {
     self.postMessage({type: "ready"});
 }
 
+// One pure-Python stack: the wheel the build baked for it (deps=False; numpy,
+// its only dependency, is loaded at boot), else micropip by name.
+async function installRuntimeWheel(name) {
+    const baked = runtimeWheels[name];
+    if (baked && baked.file) {
+        log(`Installing baked ${baked.file}…`);
+        await micropipInstallNoDeps(await stageBakedFile(baked.file, baked.sha256));
+        return;
+    }
+    log(`Installing ${name}…`);
+    pyodide.globals.set("_pw_runtime_name", name);
+    try {
+        await pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install(_pw_runtime_name)
+        `);
+    } finally {
+        try { pyodide.globals.delete("_pw_runtime_name"); } catch (_) { /* fine */ }
+    }
+}
+
 // Shared trimesh install — the IFC and mesh stacks both need it, so
-// pay the micropip cost at most once.
+// pay the install cost at most once.
 async function ensureTrimesh() {
     if (!trimeshPromise) {
-        trimeshPromise = (async () => {
-            log("Installing trimesh…");
-            await pyodide.runPythonAsync(`
-                import micropip
-                await micropip.install("trimesh")
-            `);
-        })();
+        trimeshPromise = installRuntimeWheel("trimesh");
     }
     return trimeshPromise;
 }
@@ -135,13 +155,7 @@ async function ensureMeshStack() {
 // for the SAT/FEM geometry paths (the CAD-only ada.cad path does not).
 async function ensurePyquaternion() {
     if (!pyquaternionPromise) {
-        pyquaternionPromise = (async () => {
-            log("Installing pyquaternion…");
-            await pyodide.runPythonAsync(`
-                import micropip
-                await micropip.install("pyquaternion")
-            `);
-        })();
+        pyquaternionPromise = installRuntimeWheel("pyquaternion");
     }
     return pyquaternionPromise;
 }
@@ -199,8 +213,8 @@ async function ensureAdacppWheel() {
 
 // Lazy adapy (pure-python) wheel install. deps=False: the wheel declares
 // no deps; each stack provides the wasm-available ones itself
-// (numpy/h5py/pydantic/Pillow via loadPackage; trimesh/pyquaternion via
-// micropip). Replaces the old hand-mounted 2-file source closure.
+// (numpy/h5py/pydantic/Pillow via loadPackage; trimesh/pyquaternion baked or
+// via micropip). Replaces the old hand-mounted 2-file source closure.
 async function ensureAdapyWheel() {
     if (!adapyWheelPromise) {
         adapyWheelPromise = (async () => {

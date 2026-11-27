@@ -72,6 +72,32 @@ describe("parsePluginWheelsManifest", () => {
         assert.equal(warnings.length, 5);
     });
 
+    it("takes baked wheels for the worker's pure-Python stacks, and nothing else, under runtime", () => {
+        const warnings: string[] = [];
+        const m = W.parsePluginWheelsManifest(
+            {
+                plugins: {},
+                runtime: {
+                    trimesh: {file: "trimesh-5.1.0-py3-none-any.whl", sha256: SHA_A},
+                    pyquaternion: "pyquaternion-0.9.9-py3-none-any.whl",
+                    adacpp: {file: "ada_cpp-1.0-cp313-cp313-pyodide_2025_0_wasm32.whl"},
+                    Trimesh_: {file: "../trimesh-5.1.0-py3-none-any.whl"},
+                },
+            },
+            (msg) => warnings.push(msg),
+        );
+        assert.deepEqual(W.bakedRuntimeWheels(m), {
+            trimesh: {file: "trimesh-5.1.0-py3-none-any.whl", sha256: SHA_A},
+            pyquaternion: {file: "pyquaternion-0.9.9-py3-none-any.whl"},
+        });
+        // adacpp is not a pure stack; a path is never a baked file.
+        assert.equal(warnings.length, 2);
+        // A wheel under the wrong name is refused.
+        const wrong = W.parsePluginWheelsManifest({plugins: {}, runtime: {trimesh: "numpy-2.0-py3-none-any.whl"}});
+        assert.equal(wrong.runtime, undefined);
+        assert.deepEqual(W.bakedRuntimeWheels(W.parsePluginWheelsManifest({plugins: {}})), {});
+    });
+
     it("reads nothing from a missing or malformed document", () => {
         assert.deepEqual(W.parsePluginWheelsManifest(null), {plugins: {}});
         assert.deepEqual(W.parsePluginWheelsManifest({plugins: 3}), {plugins: {}});
@@ -106,6 +132,18 @@ describe("planPluginInstall", () => {
         assert.deepEqual(plan.pyodidePackages, ["scipy", "Pillow"]);
         assert.deepEqual(plan.micropip, ["pandas"]);
         assert.deepEqual(plan.bakedWheels, []);
+    });
+
+    it("takes gmsh from the adacpp wheel, never from micropip", () => {
+        const m = W.parsePluginWheelsManifest({
+            plugins: {mesh: {wheel: "mesh-1-py3-none-any.whl", deps: ["adapy", "gmsh", "trimesh"]}},
+        });
+        const [plan] = W.planPluginInstall(m, "mesh");
+        assert.deepEqual(plan.runtime, ["adapy", "adacpp", "trimesh"]);
+        assert.deepEqual(plan.micropip, []);
+        // Named alongside adacpp, the stack is still installed once.
+        const both = W.parsePluginWheelsManifest({plugins: {x: {wheel: "x-1-py3-none-any.whl", deps: ["adacpp", "gmsh"]}}});
+        assert.deepEqual(W.planPluginInstall(both, "x")[0].runtime, ["adacpp"]);
     });
 
     it("installs the plugins a plugin depends on first", () => {

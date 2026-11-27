@@ -20,6 +20,8 @@
 //   }
 // plus, once per manifest, an optional staged Pyodide runtime:
 //   "pyodide": {"version": "0.29.4", "index_url": "/wheels/pyodide/"}
+// and optional baked wheels for the worker's own pure-Python stacks:
+//   "runtime": {"trimesh": {"file": "trimesh-....whl", "sha256": "<hex>"}, "pyquaternion": {...}}
 //
 // `source: "pyodide"` files are Pyodide's own packages (same file, same sha256 as
 // its lock file). The worker loads them BY NAME with the lock pointed at the
@@ -70,6 +72,8 @@ export interface StagedPyodide {
 export interface PluginWheelsManifest {
     plugins: Record<string, PluginWheelEntry>;
     pyodide?: StagedPyodide;
+    /** Baked wheels for the worker's own pure-Python stacks (see BAKEABLE_RUNTIME_DEPS). */
+    runtime?: Partial<Record<BakeableRuntimeDep, BakedPackage>>;
 }
 
 /** Deps the worker installs through its own stacks rather than by name. */
@@ -80,10 +84,22 @@ const RUNTIME_DEPS: Record<string, RuntimeDep> = {
     "ada-py": "adapy",
     adacpp: "adacpp",
     "ada-cpp": "adacpp",
+    // gmsh has no wheel of its own in the browser: the adacpp Pyodide wheel links
+    // gmsh into its extension (one OCCT for both) and ships gmsh's Python API as
+    // the top-level `gmsh` module. A plugin that meshes names `gmsh`, and gets the
+    // adacpp stack; PyPI's gmsh is a native build Pyodide cannot load.
+    gmsh: "adacpp",
     ifcopenshell: "ifcopenshell",
     trimesh: "trimesh",
     pyquaternion: "pyquaternion",
 };
+
+/** The worker's stacks that are a single pure wheel, which a build may bake next
+ * to the plugin wheels (manifest `runtime`: {"trimesh": {"file", "sha256"}}).
+ * Baked, the worker installs that file (deps=False; numpy, their only
+ * dependency, is loaded at boot) instead of asking PyPI at run time. */
+export const BAKEABLE_RUNTIME_DEPS = ["trimesh", "pyquaternion"] as const;
+export type BakeableRuntimeDep = (typeof BAKEABLE_RUNTIME_DEPS)[number];
 
 /** Deps that are loaded from Pyodide's own index by name when nothing bakes them
  * (everything else unbaked goes through micropip, which also knows the index). */
@@ -156,6 +172,35 @@ export function parsePluginWheelsManifest(
     const p = doc.pyodide && typeof doc.pyodide === "object" ? (doc.pyodide as Record<string, unknown>) : null;
     if (p && typeof p.index_url === "string" && p.index_url.trim()) {
         out.pyodide = {index_url: p.index_url.trim(), ...(typeof p.version === "string" ? {version: p.version} : {})};
+    }
+    const rt = doc.runtime && typeof doc.runtime === "object" ? (doc.runtime as Record<string, unknown>) : null;
+    if (rt) {
+        const runtime: Partial<Record<BakeableRuntimeDep, BakedPackage>> = {};
+        for (const [name, item] of Object.entries(rt)) {
+            const dep = BAKEABLE_RUNTIME_DEPS.find((d) => d === normalizeName(name));
+            if (!dep) {
+                warn(`plugin-wheels-manifest: runtime "${name}" is not a stack the worker can take baked; ignored`);
+                continue;
+            }
+            try {
+                const obj = typeof item === "string" ? {file: item} : (item as Record<string, unknown>);
+                const pkg = parseBakedPackage({file: obj?.file, sha256: obj?.sha256, source: "wheel"});
+                if (pkg.name !== dep) throw new Error(`${pkg.file} is not a ${dep} wheel`);
+                runtime[dep] = pkg;
+            } catch (err) {
+                warn(`plugin-wheels-manifest: runtime "${name}": ${err instanceof Error ? err.message : String(err)}; ignored`);
+            }
+        }
+        if (Object.keys(runtime).length > 0) out.runtime = runtime;
+    }
+    return out;
+}
+
+/** The baked runtime wheels the worker boots with: {name: {file, sha256?}}. */
+export function bakedRuntimeWheels(manifest: PluginWheelsManifest): Record<string, {file: string; sha256?: string}> {
+    const out: Record<string, {file: string; sha256?: string}> = {};
+    for (const [name, pkg] of Object.entries(manifest.runtime ?? {})) {
+        if (pkg) out[name] = {file: pkg.file, ...(pkg.sha256 ? {sha256: pkg.sha256} : {})};
     }
     return out;
 }

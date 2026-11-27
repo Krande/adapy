@@ -8,6 +8,7 @@
 import {runtime} from "@/runtime/config";
 import {
     bakedPyodidePackages,
+    bakedRuntimeWheels,
     loadPluginWheelsManifest,
     patchPyodideLock,
     planPluginInstall,
@@ -79,6 +80,8 @@ export interface PyodideBootConfig {
     version: string;
     indexURL: string;
     lockFileContents?: unknown;
+    /** Baked wheels for the worker's pure-Python stacks (trimesh, pyquaternion), by name. */
+    runtimeWheels?: Record<string, {file: string; sha256?: string}>;
 }
 
 // The page's URL, to resolve origin-relative Pyodide and wheel URLs against.
@@ -91,6 +94,8 @@ async function resolveBootConfig(onLog?: (msg: string) => void): Promise<Pyodide
     const manifest = await loadPluginWheelsManifest();
     const source = resolvePyodideSource(runtime.pyodideIndexUrl(), manifest, here, (m) => onLog?.(m));
     const config: PyodideBootConfig = {version: PYODIDE_VERSION, indexURL: source.indexURL};
+    const runtimeWheels = bakedRuntimeWheels(manifest);
+    if (Object.keys(runtimeWheels).length > 0) config.runtimeWheels = runtimeWheels;
     const baked = bakedPyodidePackages(manifest);
     if (baked.length === 0) return config;
     try {
