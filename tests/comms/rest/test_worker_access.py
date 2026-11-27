@@ -19,7 +19,12 @@ from ada.comms.rest import db as db_module  # noqa: E402
 from ada.comms.rest import worker_access as wa  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
 from ada.comms.rest.auth import User, reset_request_user, set_request_user  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 from ada.comms.rest.job_transport import JobRequest, QueueJobTransport  # noqa: E402
 from ada.comms.rest.queue import Job  # noqa: E402
 from ada.comms.rest.scope import Scope  # noqa: E402

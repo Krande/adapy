@@ -253,7 +253,9 @@ def bake_fea(src: str, ext: str) -> bytes:
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
 
     if (ext or "").lower().lstrip(".") == "sqlite":
-        from ada.fem.formats.abaqus.results.sqlite_stream import register as _register_sqlite
+        from ada.fem.formats.abaqus.results.sqlite_stream import (
+            register as _register_sqlite,
+        )
 
         # .sqlite only: the .odb reader shells out to ``abaqus python``, which
         # no browser has — registering it here would only defer the failure.
