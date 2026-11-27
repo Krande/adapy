@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 83e2b76419413681e86c7a1cf98f42e91e3a620b0949c9078fbaad5966d64268
-bundle-sha256 4cf30d5d49064548b8f745bde9a79935896e5c1526e8ef8cedc5855370cac5e9
+inputs-sha256 18291844223ae563c5f1b8ecfd308d180696bf083cd6eff6a6a0080ff50b1522
+bundle-sha256 16259ceebc2a0ddf8b1b87ba5fd25de63e026eaa8a2564f154e5e218f02fda61
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -422,7 +422,7 @@ src/frontend/src/components/storage/browser/useDragAndMenus.ts 8aff975282918736a
 src/frontend/src/components/storage/browser/useFileOps.ts e56095bcacf5c3e2a0c4b677e3a8cc13629e55d6
 src/frontend/src/components/storage/browser/useFolderTree.ts d1adbd4298a6b942c839a45da15de764860ba8ed
 src/frontend/src/components/storage/browser/useListKeyboardNav.ts fd7a56cd92784bb81466e12d938bd0dbf73b95ca
-src/frontend/src/components/storage/browser/useProceduralModels.ts 5c21bebd7005df996a4555fb2d17550e734da279
+src/frontend/src/components/storage/browser/useProceduralModels.ts 3960299a404a3fdc0f343bbb1f08abef3b63727a
 src/frontend/src/components/storage/browser/useRowLoads.ts bbf726d9d7a666234f663e0897c47f29f422d6f7
 src/frontend/src/components/storage/browser/useUploads.ts 5210ca3358f5fdd8a77fdf01cad630f218d32204
 src/frontend/src/components/storage/storageMenuItems.tsx a0796d687ca5875904947bc6741cbfac5f849a51
