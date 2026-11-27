@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 18291844223ae563c5f1b8ecfd308d180696bf083cd6eff6a6a0080ff50b1522
-bundle-sha256 16259ceebc2a0ddf8b1b87ba5fd25de63e026eaa8a2564f154e5e218f02fda61
+inputs-sha256 b7d7df9cc8cf37e17c4314881730803c6f2a0e61d9a7283d6c44096075aea0aa
+bundle-sha256 fa628be837f4eca0beacf3141bcdce85f311937181fa315eea25babefd644752
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -791,7 +791,7 @@ src/frontend/src/services/api/nodeRelations.ts dd4b4d1505f1192b150410e429b1e9ffd
 src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d83c91ee
 src/frontend/src/services/api/plugins.ts 4c51d95b8533376961bd1825dbabbc24bdacd091
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
-src/frontend/src/services/api/procedural.ts 5b69fe5b5e6dbc04c4a0c489aaafa3800b024eb3
+src/frontend/src/services/api/procedural.ts 65f8716b245be48e5f4a172a37dfa7461d44b6d6
 src/frontend/src/services/api/proceduralCatalog.ts 728c7df1b0c66dfb595a960ff7f234e72cd0003a
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
@@ -812,9 +812,9 @@ src/frontend/src/services/assets.ts 5aa618bc75f15a02d86755c542e04920dc6d85bd
 src/frontend/src/services/audit/wasmSweep.ts 0606b25383ef8f32cc03c1bbc1a4ea6b22cfa311
 src/frontend/src/services/auth/oidc.ts f3cbdaaa7aa853d8dda3b9fb28ac962d862f7069
 src/frontend/src/services/capabilities/index.ts 93810f5190aa7b35a9a5d789b286ec0852c5560c
-src/frontend/src/services/capabilities/rest_capabilities.ts 2182e03fa599002a04afc1d85f1e12b02e9e1c41
-src/frontend/src/services/capabilities/types.ts 63a3a7829f237b3f9383d5b267c45a92774e6655
-src/frontend/src/services/capabilities/ws_capabilities.ts adcf10a4eb04793b51e120b44cc87b0f63e0877f
+src/frontend/src/services/capabilities/rest_capabilities.ts d06e1aeaac42c9abe9827eac401a85c3be4c8182
+src/frontend/src/services/capabilities/types.ts 6cf8971901a96cef2ca35dba5db521d01b7c00fa
+src/frontend/src/services/capabilities/ws_capabilities.ts 5c3c83ee82b3faafa8390cb768fcb4c0c1847562
 src/frontend/src/services/clash/browserClashCheck.ts b7f83bf44c716eb7f9e671e7d1778bb896ccd99e
 src/frontend/src/services/clash/contactRuns.ts 8bc196a03170bd08e7dc287a3cb03bda38075e66
 src/frontend/src/services/clashSpecProviders.ts 7b03e19f9fec35fcd8e8b2929969fff72400cb3c
@@ -822,11 +822,12 @@ src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
 src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862fd5d6e8b9882391
 src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
-src/frontend/src/services/compute/executionPolicyModel.ts b8acb218d4a5eded5fb20778563c34dd674d585a
+src/frontend/src/services/compute/executionPolicyModel.ts 72a8e7212f88c2d973119785eb03b6b1d1b3e775
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
 src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
 src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
 src/frontend/src/services/compute/proceduralBrowserEngine.ts 95dfb08f69677266493f87e31cd8bde3ccc7fa1a
+src/frontend/src/services/compute/proceduralIo.ts f7e684809a05baffefe760eb5e4668568549bd72
 src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
 src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
@@ -917,7 +918,7 @@ src/frontend/src/state/cellbuilder/detailingSlice.ts 3ce217e0b5dffbb14f5ffef3092
 src/frontend/src/state/cellbuilder/docCodec.ts aab4dff247e8d1403752d0f84e59bf68f88e3c5d
 src/frontend/src/state/cellbuilder/documentSlice.ts 7c3842e0b8558316ce648b2155df34733b0b4db5
 src/frontend/src/state/cellbuilder/duplicateSlice.ts 2f5bed2a80ccf2e36b33c112b43a3986c03230d9
-src/frontend/src/state/cellbuilder/exportImportSlice.ts 3accaa1c43068d0edeb9631eccb2ac78e6c0be51
+src/frontend/src/state/cellbuilder/exportImportSlice.ts 76e1b3234fd26159415e52372ddc08c76db698c8
 src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a179d4ca185
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
@@ -926,8 +927,9 @@ src/frontend/src/state/cellbuilder/jobsSlice.ts 46ad397ab819214d1dcef4b4265e3be4
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
+src/frontend/src/state/cellbuilder/proceduralIoSupport.ts d256a3955368f2784ffaec22dbd5efcb3d9a942c
 src/frontend/src/state/cellbuilder/refsSlice.ts 9a2c2e70da198beb5f80680e1e08500fb294e6eb
-src/frontend/src/state/cellbuilder/relocationsSlice.ts 462fb3554aeb70320f2ce2f9a8fae7d8f0a734ad
+src/frontend/src/state/cellbuilder/relocationsSlice.ts 30bb20c7e72d15ecf2ac24553e0ef79ac9a79a3c
 src/frontend/src/state/cellbuilder/selectionSlice.ts a668a728457189cd28f602e4960b67ca44dd26ca
 src/frontend/src/state/cellbuilder/shared.ts f11f7979656b1224b892c880f7d64a8cdf3d31b9
 src/frontend/src/state/cellbuilder/state.ts 1183e216f7c8feac9a19fd7cec15774d3e944594
@@ -935,7 +937,7 @@ src/frontend/src/state/cellbuilder/store.ts f0a4d89a07c48898ff9685fc8ee04be93aae
 src/frontend/src/state/cellbuilder/systemsSlice.ts 9ddff2bdc71c10471649b421ef4d3fbaea43d5c2
 src/frontend/src/state/cellbuilder/types.ts 6c959ca671b7740efd788305b0d7242450d79fc7
 src/frontend/src/state/cellbuilder/viewStateSlice.ts 73eb441496c298651d5c75bc55198136c6d41710
-src/frontend/src/state/cellbuilder/xlsxImport.ts 190015a23ce4e46e94a9f9c25f7838c1c432c345
+src/frontend/src/state/cellbuilder/xlsxImport.ts 0f21a0c13afedca332e513b73a99a6a5afd35696
 src/frontend/src/state/clashCheck/derive.ts 5900b7a0ab11226c6001f8cb0512a7c6c418b106
 src/frontend/src/state/clashCheck/detail.ts a82ac0b3e9b41f64cc40b92bc8c93cad74262a91
 src/frontend/src/state/clashCheck/detailContext.ts cde9e051e002275349888169b2e76bf252dad5bc
@@ -1189,8 +1191,8 @@ src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed5518117
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pluginWheels.ts e20e91be59b6dfb08564dc6629972f33ea838c28
-src/frontend/src/utils/pyodide/pyodide_converter.ts 8b303c6586904a5eadfd79fce4cb166c16d39c8c
-src/frontend/src/utils/pyodide/pyodide_worker.js 76d42c4446a18a32d332d327cfa6d380e6d50d80
+src/frontend/src/utils/pyodide/pyodide_converter.ts e4d86ef95aae5cc223fd972038ae737e648e7ac2
+src/frontend/src/utils/pyodide/pyodide_worker.js 3326094ba817727ffbaa8dd00de0c5c280446d56
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
