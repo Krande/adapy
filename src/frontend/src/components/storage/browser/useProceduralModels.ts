@@ -282,9 +282,10 @@ export function useProceduralModels(p: {
 
     // Instantiate a new model from a template: commit the template's document
     // verbatim (so loft members / systems survive untouched — the cellbuilder's
-    // box round-trip would drop them), then kick a compile and open it. The
-    // committed doc's engine is mirrored onto the model, so a worker-backed
-    // template auto-routes its compile to that worker.
+    // box round-trip would drop them), open it, then compile it through the
+    // builder, which routes the build like any other compile (the execution
+    // policy's "procedural_compile" order: in the browser where the template's
+    // engine has a browser path, else on the worker).
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
@@ -298,18 +299,13 @@ export function useProceduralModels(p: {
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
             const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
-            // Compile so the model has a rendered GLB immediately; ignore compile
-            // errors here (the model still opens and can be recompiled).
-            try {
-                await viewerApi.compileProceduralModel(scopeKey, detail.id);
-            } catch {
-                /* compile is best-effort on create */
-            }
             const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
             await refreshProceduralModels();
-            useCellBuilderStore
-                .getState()
-                .open(fresh.id, fresh.name, revision, fresh.doc);
+            const builder = useCellBuilderStore.getState();
+            builder.open(fresh.id, fresh.name, revision, fresh.doc);
+            // Compile so the model is rendered at once. Best-effort: a failed build
+            // shows in the builder, and the model is open to recompile.
+            void builder.compile().catch(() => undefined);
         } catch (e) {
             void alertDialog({title: "Failed to create from template", body: errorText(e), tone: "danger"});
         }

@@ -143,13 +143,21 @@ def is_default_engine(engine: str | None) -> bool:
 def entrypoint_for(engine: str) -> str:
     """The ``module:callable`` entrypoint for an engine selector — a built-in
     slug, or an explicit ``module:callable`` string passed straight through
-    (as a registry manifest carries it). Raises on an unknown slug."""
+    (as a registry manifest carries it), or the slug of an engine that announced
+    itself in this process (``register_procedural_engine_capabilities`` with an
+    ``entrypoint``: a plugin wheel's register hook in the browser, a preloaded
+    module on a local server). Raises on an unknown slug."""
     if ":" in engine:
         return engine
     spec = BUILTIN_ENGINES.get(engine)
-    if spec is None:
-        raise ValueError(f"unknown procedural engine {engine!r} (known built-ins: {sorted(BUILTIN_ENGINES)})")
-    return spec["entrypoint"]
+    if spec is not None:
+        return spec["entrypoint"]
+    from ada.topo_model.engine_catalog import _ENGINE_CAPABILITY_REGISTRY
+
+    announced = (_ENGINE_CAPABILITY_REGISTRY.get(engine) or {}).get("entrypoint")
+    if announced:
+        return announced
+    raise ValueError(f"unknown procedural engine {engine!r} (known built-ins: {sorted(BUILTIN_ENGINES)})")
 
 
 def load_entrypoint(entrypoint: str) -> Callable:

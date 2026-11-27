@@ -2,9 +2,10 @@
 //
 // A real build needs Pyodide, which `node --test` does not run, so this pins the routing at the
 // source (as replaceSource.test.ts does for the loaders):
-//  - Compile (committed) and Compile preview build the simulation LOD in the browser first, and
-//    reach the server worker only when the execution policy's "procedural_compile" order says so (worker first,
-//    or after a failed browser build) or for a server-only engine;
+//  - Compile (committed), Compile preview and a template's first compile build in the browser
+//    first, and reach the server worker only when the execution policy's "procedural_compile"
+//    order says so (worker first, or after a failed browser build) or when the build has no
+//    browser path (services/compute/proceduralBrowserEngine, tested on its own);
 //  - the browser build uploads nothing: no server compile/preview call, no blob write;
 //  - commit still saves the document on the server (commitModel), not a worker job.
 import {test} from "node:test";
@@ -33,14 +34,19 @@ test("compile and compile preview route through the execution policy before the 
   }
 });
 
-test("the policy order decides; detail and server-only engines stay unjudged worker jobs", () => {
+test("the policy order decides; server-only builds stay unjudged worker jobs", () => {
   const start = jobs.indexOf("const routeBuild = async");
   assert.ok(start >= 0);
   const b = jobs.slice(start, jobs.indexOf("  return {", start));
-  assert.match(b, /if \(lod === "detail"\) return \{ runOnWorker: false \};/);
+  // The detail LOD asks browserEngineRoute first; with no browser path it is an unjudged worker job.
+  assert.match(
+    b,
+    /if \(lod === "detail"\) \{[\s\S]*?browserEngineRoute\(\{[\s\S]*?lod,[\s\S]*?if \(route\.kind === "server-only"\) return \{ runOnWorker: false \};/,
+  );
+  assert.ok(b.indexOf("browserEngineRoute(") < b.indexOf("refreshAccessIfStale()"), "detail is judged before the policy");
   assert.match(b, /planExecution\("procedural_compile", get\(\)\.selectedEngine \|\| "\*"/);
   assert.match(b, /if \(engine === "worker"\) return \{ runOnWorker: plan\.browserPath \};/);
-  assert.match(b, /await runBrowserCompile\(label\)/);
+  assert.match(b, /await runBrowserCompile\(label, lod\)/);
   assert.match(b, /if \(outcome === "server-only"\) return \{ runOnWorker: false \};/);
 });
 
@@ -50,7 +56,11 @@ test("the browser build is local only", () => {
   const b = jobs.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.match(b, /compileProceduralViaPyodide\(/);
+  // An engine a baked plugin wheel registers runs through that plugin's install plan.
+  assert.match(b, /route\.kind === "baked"[\s\S]*?runProceduralEngineViaPyodide\(route\.engine, doc, \{ onLog, lod \}\)/);
   assert.match(b, /load_glb_from_bytes\(bytes, sourceName, false, "replaceSource"\)/);
+  // Each LOD loads under its own source, as the server results do (viewResult).
+  assert.match(b, /lod === "detail" \? `procedural-detail:\$\{active\.name\}` : `procedural:\$\{active\.name\}`/);
   for (const server of ["previewModel", "compileModel", "putBlob", "uploadDerived", "fetch("]) {
     assert.ok(!b.includes(server), `the browser build must not reach the server (${server})`);
   }
@@ -65,8 +75,24 @@ test("handing a build to the server removes the browser's toast", () => {
   assert.match(b, /const toServer = \(\): "server-only" => \{[\s\S]*?clearJob\(proceduralToastKey\(label\)\)/);
   const bare = b.replace(/const toServer = [\s\S]*?\n {4}\};/, "").match(/return "server-only"/g) ?? [];
   assert.equal(bare.length, 0, "a server-only return bypasses toServer()");
-  // A worker-advertised engine is handed over without asking the server to resolve it.
-  assert.match(b, /eng\.origin === "worker"\)[\s\S]*?return toServer\(\);/);
+  // An engine with no browser path (browserEngineRoute: a worker-advertised engine no baked
+  // wheel registers, a detail build) is handed over without asking the server to resolve it.
+  assert.match(b, /if \(route\.kind === "server-only"\) return toServer\(\);/);
+  assert.ok(
+    b.indexOf('route.kind === "server-only"') < b.indexOf("resolveEngine("),
+    "server-only is decided before the resolve call",
+  );
+});
+
+test("a template's first compile goes through the builder's routing", () => {
+  const src = read("components/storage/browser/useProceduralModels.ts");
+  const start = src.indexOf("const createProceduralModelFromTemplate = async");
+  assert.ok(start >= 0);
+  const b = src.slice(start, src.indexOf("\n    };", start));
+  assert.ok(!b.includes("compileProceduralModel("), "template create must not post a worker compile itself");
+  const openAt = b.indexOf(".open(fresh.id");
+  const compileAt = b.indexOf("builder.compile()");
+  assert.ok(openAt >= 0 && compileAt > openAt, "the model is opened, then compiled by the builder");
 });
 
 test("committing stores the model on the server", () => {

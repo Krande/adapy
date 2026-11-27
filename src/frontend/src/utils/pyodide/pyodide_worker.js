@@ -554,13 +554,14 @@ json.dumps(_res if isinstance(_res, dict) else {"result": _res})
 
 // Run a procedural engine registered via plugin-wheels-manifest.json.
 // plans: the engine's install plans when the manifest lists it, else null (a
-// built-in engine).
-async function runProceduralEngine(engineId, docJson, plans) {
+// built-in engine). The plugin's register hook announces the engine (slug and
+// entrypoint) in this adapy, so the compile dispatches by slug as on a worker.
+async function runProceduralEngine(engineId, docJson, plans, lod) {
     await ensureProceduralStack();
     if (Array.isArray(plans) && plans.length > 0) {
         await ensurePluginPlans(engineId, plans);
     }
-    return compileProcedural(docJson, engineId, null);
+    return compileProcedural(docJson, engineId, null, lod);
 }
 
 // Every cell dispatches through `import ada.cadit.wasm_convert`, so the adapy
@@ -684,7 +685,7 @@ async function ensureProceduralStack() {
 // (optional {entrypoint, deps, url}) is an EXTERNAL engine: micropip-install its
 // deps + wheel, then dispatch to its module:callable entrypoint — the same
 // ada.topo_model.engines resolution the server uses.
-async function compileProcedural(docJson, engine, wheel) {
+async function compileProcedural(docJson, engine, wheel, lod) {
     await ensureProceduralStack();
     let effectiveEngine = engine || null;
     if (wheel && wheel.url && wheel.entrypoint) {
@@ -708,10 +709,11 @@ await micropip.install(_pc_wheel_url)
     }
     pyodide.globals.set("_pc_doc", docJson);
     pyodide.globals.set("_pc_engine", effectiveEngine);
+    pyodide.globals.set("_pc_lod", lod === "detail" ? "detail" : "sim");
     try {
         const result = await pyodide.runPythonAsync(`
 import ada.topo_model.wasm_compile as _pc
-_pc.compile_doc(_pc_doc, engine=_pc_engine)
+_pc.compile_doc(_pc_doc, engine=_pc_engine, lod=_pc_lod)
 `);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
@@ -719,6 +721,7 @@ _pc.compile_doc(_pc_doc, engine=_pc_engine)
     } finally {
         try { pyodide.globals.delete("_pc_doc"); } catch (_) { /* fine */ }
         try { pyodide.globals.delete("_pc_engine"); } catch (_) { /* fine */ }
+        try { pyodide.globals.delete("_pc_lod"); } catch (_) { /* fine */ }
     }
 }
 
@@ -980,7 +983,7 @@ self.onmessage = async (e) => {
     if (data.type === "run-procedural-engine") {
         const reqId = data.reqId;
         try {
-            const bytes = await runProceduralEngine(data.engineId, data.doc, data.plans);
+            const bytes = await runProceduralEngine(data.engineId, data.doc, data.plans, data.lod);
             let heap = 0;
             try {
                 heap = pyodide._module.HEAP8.length;

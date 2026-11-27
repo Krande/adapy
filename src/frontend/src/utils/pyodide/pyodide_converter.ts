@@ -468,11 +468,12 @@ export async function runPluginJobViaPyodide(opts: {
 }
 
 /** Run a procedural engine registered in /wheels/plugin-wheels-manifest.json
- * (e.g. a baked template/detailing wheel) in the browser Pyodide worker. */
+ * (a baked plugin wheel keyed by the engine's slug, whose register hook announces
+ * the engine) in the browser Pyodide worker. Dispatches by slug, as the worker does. */
 export async function runProceduralEngineViaPyodide(
     engineId: string,
     doc: unknown,
-    opts?: {onLog?: (msg: string) => void},
+    opts?: {onLog?: (msg: string) => void; lod?: "sim" | "detail"},
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
@@ -487,6 +488,7 @@ export async function runProceduralEngineViaPyodide(
         engineId,
         plans,
         doc: JSON.stringify(doc),
+        lod: opts?.lod ?? "sim",
     });
     return result;
 }

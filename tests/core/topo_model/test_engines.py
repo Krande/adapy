@@ -31,6 +31,25 @@ def test_entrypoint_for_unknown_raises():
         engines.entrypoint_for("nope")
 
 
+def test_entrypoint_for_an_engine_announced_in_process(monkeypatch):
+    # A plugin wheel's register hook (the browser) or a preloaded module (a local
+    # server) announces an engine with its entrypoint; the slug then resolves to it,
+    # so a compile dispatches by slug there as it does on a worker.
+    from ada.topo_model import engine_catalog
+
+    monkeypatch.setitem(
+        engine_catalog._ENGINE_CAPABILITY_REGISTRY,
+        "demo-engine",
+        {"slug": "demo-engine", "name": "Demo", "entrypoint": "ada.topo_model.echo_engine:compile_doc"},
+    )
+    assert engines.entrypoint_for("demo-engine") == "ada.topo_model.echo_engine:compile_doc"
+    assert _is_glb(compile_doc(DOC, engine="demo-engine"))
+    # flags-only registrations (no entrypoint) still do not make a slug resolvable
+    monkeypatch.setitem(engine_catalog._ENGINE_CAPABILITY_REGISTRY, "flags-only", {"slug": "flags-only"})
+    with pytest.raises(ValueError, match="unknown procedural engine"):
+        engines.entrypoint_for("flags-only")
+
+
 def test_load_entrypoint_validates_form():
     with pytest.raises(ValueError, match="module:callable"):
         engines.load_entrypoint("no_colon_here")
