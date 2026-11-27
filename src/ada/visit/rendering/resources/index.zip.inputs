@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 74c163c7ddd2833b224967595fd6445a642b9471897aec2abcc883e4401841ad
-bundle-sha256 36690bf6b07851534658ec65a8d96827b66a16ac778b191be010638d9e7c2405
+inputs-sha256 2b7aafbce3bf29d53e554a77b1545311bf710121370d782e22e2b7e491662e94
+bundle-sha256 f9222482de6b7875b7ee5350a36cac7c1f6086c97c62e20e9ac33a357b9eeae5
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -91,9 +91,9 @@ src/frontend/src/components/admin/ProceduralTab.tsx 4cfcf42d9d4bf0ac9f314367e6da
 src/frontend/src/components/admin/ProjectsTab.tsx aabf2905b2052a33e499cf276a3146a62623e444
 src/frontend/src/components/admin/ProviderAccessSection.tsx a10bef5521fa7a188cf82d8862718e7781a4e433
 src/frontend/src/components/admin/ProviderMaxParallel.tsx 05702c465a8f38ecd5f7e2807bde81328f072d40
-src/frontend/src/components/admin/ProviderSchedulesSection.tsx 48a788562843f2d446d84206a46a3b951fefa305
+src/frontend/src/components/admin/ProviderSchedulesSection.tsx 5e1be24dcbbad851d42f80788d1967dad98ccd63
 src/frontend/src/components/admin/ProviderSplitsSection.tsx 5573dcb2981c9f09cdd7d9416f49db0722c77d7a
-src/frontend/src/components/admin/ProviderSweepRuns.tsx 7370c04ef00cb6f1d3a3e31398cab5489bd84309
+src/frontend/src/components/admin/ProviderSweepRuns.tsx feb8dfe91088fd8ab1769da650984d696990b9cd
 src/frontend/src/components/admin/ProvidersTab.tsx b18c9fd3acff57b4f195795ea4c0c31a810e2370
 src/frontend/src/components/admin/ReferenceDataSection.tsx 4d6bb4eb3d9bb2181ea0020350ade23723535a62
 src/frontend/src/components/admin/RobotBundlesTab.tsx d7e521f60ccf968bb85175ee23048bdfdce14192
@@ -114,7 +114,7 @@ src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f
 src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 05d580b214e5b22f148c2057b461575c1e706c9e
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
 src/frontend/src/components/admin/adminTabs.ts 167bfa66cf14522d9f74350a24134ce541c3a787
-src/frontend/src/components/admin/applyChangesItem.ts b6c3e82dd81b95370a71202ccacbd6b39a702510
+src/frontend/src/components/admin/applyChangesItem.ts 7c760b23f82fa277ad51755c726e62341c7ed2c7
 src/frontend/src/components/admin/auditLog/AuditEntryCards.tsx 2988dcdfde10fad495b6e314f7bf7073375316ce
 src/frontend/src/components/admin/auditLog/AuditLogTab.tsx dd8b1a896b12d6217d521e9ba5f5e65bf4966444
 src/frontend/src/components/admin/auditLog/ClientMetricsTab.tsx 53554a5903009fa80b7c35dc9302fa209bdf0fca
@@ -766,7 +766,7 @@ src/frontend/src/services/api/adminDb.ts c6476543d235ec5a067052cd24146d42acc4907
 src/frontend/src/services/api/adminProjects.ts 9b17e65014ad038a75bf4146d78dc1873679dd56
 src/frontend/src/services/api/adminStorage.ts 876bfae91e89de6e2bab9d720f589f92b7c120f8
 src/frontend/src/services/api/adminUsers.ts 027b4c425abf84610a662881be070230f6692f79
-src/frontend/src/services/api/assetSchedules.ts 2032a3651fdf160c0d06be3ae01e10c523c6019f
+src/frontend/src/services/api/assetSchedules.ts 8570cbf18c2d6d4f416980519dc778165d2914a1
 src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts 944ebf224d5754d843e64e44e6f2bd923c380bca
