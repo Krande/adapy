@@ -6,6 +6,7 @@ import {
   hasAnyWorkerAccess,
   hasGlobalWorkerAccess,
   loadWorkerAccess,
+  refreshAccessIfStale,
   serverOnlyNotice,
   useWorkerAccessStore,
 } from "@/services/compute/workerAccess";
@@ -47,6 +48,31 @@ describe("worker access", () => {
       const policy = await loadWorkerAccess(true);
       assert.deepEqual(policy, ABAQUS_ONLY);
       assert.deepEqual(useExecutionPolicyStore.getState().policy, { read: { "*": ["worker"] } });
+    } finally {
+      authApi.me = original;
+    }
+  });
+
+  it("re-reads the policy before routing when the copy in hand is stale, not otherwise", async () => {
+    // An administrator's change must reach a viewer that is already open.
+    const original = authApi.me;
+    let calls = 0;
+    let served: Record<string, Record<string, string[]>> = { read: { "*": ["pyodide"] } };
+    authApi.me = async () => {
+      calls += 1;
+      return { worker_access: NONE, execution_policy: served } as unknown as MeResponse;
+    };
+    try {
+      await loadWorkerAccess(true);
+      assert.equal(calls, 1);
+      // Fresh: no second read.
+      await refreshAccessIfStale(60_000);
+      assert.equal(calls, 1);
+      // The admin changes it; a stale copy (max age 0) is re-read and the new policy routes.
+      served = { read: { ".stp": ["worker"] } };
+      await refreshAccessIfStale(0);
+      assert.equal(calls, 2);
+      assert.deepEqual(useExecutionPolicyStore.getState().policy, { read: { ".stp": ["worker"] } });
     } finally {
       authApi.me = original;
     }

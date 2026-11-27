@@ -41,6 +41,7 @@ export const useWorkerAccessStore = create<WorkerAccessState>()(() => ({
 }));
 
 let inflight: Promise<WorkerAccessPolicy | null> | null = null;
+let loadedAt = 0;
 
 /** Fetch (once) and cache the caller's worker policy. `force` re-reads it, e.g.
  * after an administrator changed it. */
@@ -55,11 +56,29 @@ export function loadWorkerAccess(force = false): Promise<WorkerAccessPolicy | nu
             })
             .catch(() => null)
             .then((policy) => {
+                loadedAt = Date.now();
                 useWorkerAccessStore.setState({policy, loaded: true});
                 return policy;
             });
     }
     return inflight;
+}
+
+/** How old a read of the policy may be when work is about to be routed by it. */
+export const POLICY_MAX_AGE_MS = 5_000;
+
+/**
+ * Before routing work: re-read worker access and the execution policy when the copy in
+ * hand is older than `maxAgeMs`, so an administrator's change (Admin > Users, Admin >
+ * Execution) reaches a viewer that is already open, not only the next page load. At most
+ * one small request per `maxAgeMs`; a failed read keeps routing on what was known.
+ */
+export async function refreshAccessIfStale(maxAgeMs: number = POLICY_MAX_AGE_MS): Promise<void> {
+    if (inflight && Date.now() - loadedAt < maxAgeMs) {
+        await inflight;
+        return;
+    }
+    await loadWorkerAccess(true);
 }
 
 /** The policy if known, without waiting. */

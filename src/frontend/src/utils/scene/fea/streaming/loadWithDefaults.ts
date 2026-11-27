@@ -15,6 +15,7 @@ import {capabilities} from "@/services/capabilities";
 import type {FeaCapability} from "@/services/capabilities/types";
 import {planExecution, runWithFallback} from "@/services/compute/executionPolicy";
 import {sourceQualifier} from "@/services/compute/executionPolicyModel";
+import {refreshAccessIfStale} from "@/services/compute/workerAccess";
 import {isWasmFeaSource} from "@/services/conversion/wasmSupport";
 import type {FeaManifest, ScopeUrl} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
@@ -68,6 +69,8 @@ export async function loadFeaWithDefaults(
         throw new Error("This transport cannot serve streamed FEA results");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
+    // Route the bake by the policy as it is now, not as it was when the page loaded.
+    if (fea.transport === "rest") await refreshAccessIfStale();
 
     // Mirror the FEA bake's queue lifecycle into the global
     // conversion store so the bottom-right ConversionProgress toast

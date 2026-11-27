@@ -17,6 +17,7 @@ import {modelMaxX} from "./bounds";
 import {placedCells} from "@/utils/cellbuilder/include";
 import {makeStartCompileJob} from "./compileJobRunner";
 import {NoAllowedEngineError, planExecution} from "@/services/compute/executionPolicy";
+import {refreshAccessIfStale} from "@/services/compute/workerAccess";
 
 export interface JobsSlice {
   autoCompile: boolean;
@@ -191,6 +192,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
     label: string,
   ): Promise<"done" | { runOnWorker: boolean } | null> => {
     if (lod === "detail") return { runOnWorker: false };
+    await refreshAccessIfStale();
     const plan = planExecution("procedural_compile", get().selectedEngine || "*", (e) => e === "pyodide");
     for (const engine of plan.engines) {
       if (engine === "worker") return { runOnWorker: plan.browserPath };

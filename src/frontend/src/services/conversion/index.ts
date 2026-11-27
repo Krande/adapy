@@ -17,6 +17,7 @@ import {
     type ExecutionPlan,
 } from "@/services/compute/executionPolicy";
 import {sourceQualifier} from "@/services/compute/executionPolicyModel";
+import {refreshAccessIfStale} from "@/services/compute/workerAccess";
 import {convertViaServer} from "./serverPipeline";
 import {wasmSupportsConversion, isWasmFeaSource, nativeSupportsConversion} from "./wasmSupport";
 import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./serializerMatrix";
@@ -99,6 +100,8 @@ export async function ensureConverted(
         operation?: ConversionOperation;
     },
 ): Promise<string> {
+    // Route by the policy as it is now: an administrator may have changed it since the page loaded.
+    await refreshAccessIfStale();
     const operation = opts?.operation ?? "read";
     const plan = conversionPlan(operation, sourceKey, targetFormat, {
         nativeOff: Boolean(opts?.conversionOptions?.step_streamer),
@@ -152,6 +155,7 @@ export async function convertWithSelection(
         reconvert?: boolean;
     },
 ): Promise<string> {
+    await refreshAccessIfStale();
     const ext = extOf(sourceKey);
     const schema = serializerSchemaFor(ext, targetFormat);
     const selection = opts?.selection ?? {};
@@ -284,6 +288,7 @@ export async function ensureBakedFeaManifest(
     scope: ScopeUrl,
     sourceKey: string,
 ): Promise<void> {
+    await refreshAccessIfStale();
     await runWithFallback(
         feaBakePlan(sourceKey),
         {

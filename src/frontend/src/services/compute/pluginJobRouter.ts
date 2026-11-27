@@ -16,7 +16,7 @@ import { runPluginJobViaPyodide } from "@/utils/pyodide/pyodide_converter";
 
 import { engineOrder, type ExecEngine } from "./executionPolicy";
 import { localArtefactStore, type LocalArtefactStore } from "./localArtefactStore";
-import { canUseWorker } from "./workerAccess";
+import { canUseWorker, refreshAccessIfStale } from "./workerAccess";
 
 export interface PluginWheelEntry {
   wheel: string;
@@ -162,6 +162,8 @@ export async function dispatchPluginJob(params: {
   runInBrowser?: typeof runPluginJobViaPyodide;
   submitToWorker?: typeof pluginsApi.pluginJob;
 }): Promise<DispatchPluginJobOutcome> {
+  // Route by the policy as it is now (an injected order is the caller's own).
+  if (!params.order) await refreshAccessIfStale();
   const wasmCapable = await isPluginWasmCapable(params.pluginId);
   const order =
     params.order ??
