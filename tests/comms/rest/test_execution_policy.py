@@ -47,7 +47,7 @@ def test_defaults_are_todays_routing():
         assert d[op]["*"] == ["pyodide", "worker"]
         for ext in (".ifc", ".step", ".stp"):
             assert d[op][ext] == ["native", "pyodide", "worker"]
-    for op in ("fea_bake", "procedural_compile", "plugin_job", "procedural_io"):
+    for op in ("fea_bake", "procedural_compile", "plugin_job", "procedural_io", "asset_build"):
         assert d[op] == {"*": ["pyodide", "worker"]}
     # A copy: mutating it leaves the module default alone.
     d["convert"]["*"].append("native")
@@ -84,6 +84,7 @@ def test_validate_normalises():
         ({"plugin_job": {"bad id": ["worker"]}}, "plugin id"),
         ({"procedural_compile": {"": ["worker"]}}, "engine slug"),
         ({"procedural_io": {"bad slug": ["worker"]}}, "engine slug"),
+        ({"asset_build": {"bad capability": ["worker"]}}, "build capability"),
     ],
 )
 def test_validate_rejects(doc, fragment):
@@ -142,7 +143,12 @@ def test_job_operation_mapping():
         )
         assert ep.job_operation(feature, conversion_options={"engine": None}) == ("procedural_io", "*")
     # Not an operation the policy covers.
-    assert ep.job_operation("asset_build", source_key="x") is None
+    # An asset node build: the capability of its claim is the qualifier.
+    assert ep.job_operation("asset_build", conversion_options={"capability": "Asset-Build-X"}) == (
+        "asset_build",
+        "asset-build-x",
+    )
+    assert ep.job_operation("asset_build", source_key="x") == ("asset_build", "*")
     assert ep.job_operation("utilities", source_key="x.xlsx") is None
 
 

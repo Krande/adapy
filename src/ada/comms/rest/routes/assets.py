@@ -19,6 +19,7 @@ blob route; exposing it as an asset would make a derived thing look restorable.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import gzip
 import json
 import os
@@ -43,6 +44,7 @@ from ada.assets.build import (
     derived_asset_key,
     derived_asset_prefix,
 )
+from ada.assets.build_upload import check_uploaded_build, parse_build_upload
 from ada.assets.index import fold_listing
 from ada.assets.keys import (
     ASSET_PREFIX,
@@ -88,6 +90,7 @@ from ada.config import logger
 
 from .. import auth as auth_module
 from .. import db as db_module
+from .. import execution_policy
 from .. import hierarchy_patches as hp
 from ..auth import User
 from ..job_transport import JobRequest
@@ -902,6 +905,13 @@ async def api_asset_build(
     at the key core just composed; the answer is that key with ``cached: true`` and no job. The
     alternative -- enqueueing and letting the worker's cached-blob short circuit notice -- costs a
     round trip through the queue to learn what the store already knew.
+
+    ``browser: true`` -- the viewer builds it itself (it has a baked wheel registering the
+    capability's builder, and the execution policy's ``asset_build`` order puts the browser
+    first). Nothing is enqueued: the answer is the same identity with ``job_id: null``,
+    ``execution: "browser"`` and the ``build`` block the browser's builder runs from
+    (``ada.assets.wasm_build``). The result comes back through ``POST /assets/build/result``,
+    which composes this identity again and validates the upload against it.
     """
     asked_provider = str(body.get("provider") or PUBLISHED_PROVIDER_ID)
     collection = str(body.get("collection") or "")
@@ -932,6 +942,7 @@ async def api_asset_build(
         force=bool(body.get("force")),
         request=request,
         user=user,
+        browser=bool(body.get("browser")),
     )
     # Where ``derived_key`` lives, for a client that reads it by scope: the store for a granted
     # dataset, else the scope as it was asked for. The scope's own blob route serves either.
@@ -952,6 +963,7 @@ async def submit_node_build(
     request: Request | None = None,
     user: User | None = None,
     pool=None,
+    browser: bool = False,
 ) -> dict:
     """:func:`api_asset_build`'s work, for callers that are not the route (the search export's
     mesh path builds the nodes it writes). Answers ``{derived_key, capability, provider, subject,
@@ -964,10 +976,120 @@ async def submit_node_build(
     asks there and the job runs there, so every granted scope shares one built GLB. A member may
     trigger it -- the key is composed by core from the published claim, never by the caller, so it
     is a derived cache and not a provider job (design section 6). ``pool`` is the database the grant
-    is asked in; ``request``'s app's when absent, and without either the scope reads its own."""
-    ctx.jobs.require("asset_build")
+    is asked in; ``request``'s app's when absent, and without either the scope reads its own.
+
+    ``browser``: plan the build for the viewer to run (see :func:`api_asset_build`) instead of
+    enqueueing it. Needs no worker pool; the execution policy must list the browser for the
+    capability (the same check the upload makes)."""
+    if not browser:
+        ctx.jobs.require("asset_build")
     if pool is None:
         pool = _db_pool(request)
+    plan = await plan_node_build(
+        ctx,
+        scope_obj,
+        asked_provider=asked_provider,
+        collection=collection,
+        node=node,
+        subject=subject,
+        revision=revision,
+        pool=pool,
+    )
+    answer, scope_obj = plan.answer, plan.scope
+    if plan.store_build:
+        # The store's build is every granted scope's: only an admin rebuilds over a cached one.
+        force = force and bool(getattr(user, "is_admin", False))
+    if browser:
+        await execution_policy.require_browser_asset_build(pool, user, plan.capability)
+    if not force and await ctx.storage.exists(scope_obj, plan.derived_key):
+        return {**answer, "job_id": None, "cached": True}
+    if browser:
+        return {**answer, "job_id": None, "cached": False, "execution": "browser", "build": plan.build_block()}
+
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=f"_synthetic/asset_build/{plan.provider}/{collection}/{plan.subject}/{plan.fingerprint}",
+            target_format="asset_build",
+            scope=scope_obj,
+            feature="asset_build",
+            derived_prefix=plan.prefix,
+            derived_key=plan.derived_key,
+            # The provider's options stay opaque and travel whole; everything core will validate
+            # the summary against travels beside them, composed here.
+            conversion_options=plan.conversion_options(),
+            target_capability=plan.capability,
+        ),
+        before_dispatch=lambda submitted: ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "asset_build",
+            key=plan.derived_key,
+            target_format="asset_build",
+            status="queued",
+            job_id=submitted.job_id,
+        ),
+    )
+    return {**answer, "job_id": submitted.job_id, "cached": False}
+
+
+@dataclasses.dataclass(frozen=True)
+class NodeBuildPlan:
+    """Everything core composes for one node's build, before anything runs it: the identity the
+    derived key is made of, the provider's opaque options, and where the build lives."""
+
+    answer: dict
+    scope: Scope
+    store_build: bool
+    provider: str
+    collection: str
+    subject: str
+    revision: str
+    node: str
+    fingerprint: str
+    hierarchy_source: str
+    capability: str
+    options: dict
+    exclude_nodes: list
+    prefix: str
+    derived_key: str
+
+    def conversion_options(self) -> dict:
+        """The worker job's ``conversion_options`` (``formats/asset_build.py`` reads them)."""
+        return {
+            "provider": self.provider,
+            "collection": self.collection,
+            "subject": self.subject,
+            "revision": self.revision,
+            "node": self.node,
+            "fingerprint": self.fingerprint,
+            "hierarchy_source": self.hierarchy_source,
+            "capability": self.capability,
+            "options": dict(self.options),
+            "derived_prefix": self.prefix,
+            # Only when there is something to skip: the worker hands it to the builder then
+            # (``ada.assets.builders.invoke_builder``), and an empty build travels as before.
+            **({"exclude_nodes": self.exclude_nodes} if self.exclude_nodes else {}),
+        }
+
+    def build_block(self) -> dict:
+        """What a browser build runs from (``ada.assets.wasm_build.run``): the same fields."""
+        return {**self.conversion_options(), "exclude_nodes": list(self.exclude_nodes)}
+
+
+async def plan_node_build(
+    ctx: RestContext,
+    scope_obj: Scope,
+    *,
+    asked_provider: str,
+    collection: str,
+    node: str,
+    subject: str,
+    revision: str | None = None,
+    pool=None,
+) -> NodeBuildPlan:
+    """Compose one node's build from its published claim (see :func:`submit_node_build`). Reads the
+    manifest and the exclusions; writes and enqueues nothing. Raises HTTPException as the route."""
     requested_scope = scope_obj
     scope_obj = await _read_scope(ctx, pool, scope_obj, asked_provider, collection)
 
@@ -1061,50 +1183,128 @@ async def submit_node_build(
         # differ from requested_scope by being the (singleton, raise-free)
         # provider store.
         answer["scope"] = wire_of(scope_obj)
-        # The store's build is every granted scope's: only an admin rebuilds over a cached one.
-        force = force and bool(getattr(user, "is_admin", False))
-    if not force and await ctx.storage.exists(scope_obj, derived_key):
-        return {**answer, "job_id": None, "cached": True}
-
-    submitted = await ctx.jobs.submit(
-        JobRequest(
-            source_key=f"_synthetic/asset_build/{manifest.provider}/{collection}/{manifest.subject}/{fingerprint}",
-            target_format="asset_build",
-            scope=scope_obj,
-            feature="asset_build",
-            derived_prefix=prefix,
-            derived_key=derived_key,
-            # The provider's options stay opaque and travel whole; everything core will validate
-            # the summary against travels beside them, composed here.
-            conversion_options={
-                "provider": manifest.provider,
-                "collection": collection,
-                "subject": manifest.subject,
-                "revision": revision,
-                "node": node,
-                "fingerprint": fingerprint,
-                "hierarchy_source": hierarchy_source,
-                "capability": spec.capability,
-                "options": dict(spec.options),
-                "derived_prefix": prefix,
-                # Only when there is something to skip: the worker hands it to the builder then
-                # (``ada.assets.builders.invoke_builder``), and an empty build travels as before.
-                **({"exclude_nodes": exclude_nodes} if exclude_nodes else {}),
-            },
-            target_capability=spec.capability,
-        ),
-        before_dispatch=lambda submitted: ctx.audit(
-            request,
-            user,
-            scope_obj,
-            "asset_build",
-            key=derived_key,
-            target_format="asset_build",
-            status="queued",
-            job_id=submitted.job_id,
-        ),
+    return NodeBuildPlan(
+        answer=answer,
+        scope=scope_obj,
+        store_build=scope_obj != requested_scope,
+        provider=manifest.provider,
+        collection=collection,
+        subject=manifest.subject,
+        revision=revision,
+        node=node,
+        fingerprint=fingerprint,
+        hierarchy_source=hierarchy_source,
+        capability=spec.capability,
+        options=dict(spec.options),
+        exclude_nodes=list(exclude_nodes),
+        prefix=prefix,
+        derived_key=derived_key,
     )
-    return {**answer, "job_id": submitted.job_id, "cached": False}
+
+
+#: Largest browser build upload the server reads into memory (the frame: header and files).
+_BROWSER_BUILD_MAX_BYTES = int(os.environ.get("ADA_ASSET_BROWSER_BUILD_MAX_BYTES", str(512 * 1024 * 1024)))
+
+
+@router.post("/scopes/{scope}/assets/build/result")
+async def api_asset_build_result(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Store a build the BROWSER made (``POST /assets/build`` with ``browser: true``).
+
+    The body is the frame of :mod:`ada.assets.build_upload`: the request (``{provider, collection,
+    node, subject?, revision}``, as the build was asked), the summary, and the files it wrote.
+
+    TRUST. The server takes nothing about WHERE the build belongs from the caller: it composes the
+    identity again, from the node's own manifest and the exclusions in force now -- exactly what a
+    worker job would have been handed -- and refuses (409) an upload whose summary or GLB names
+    anything else, or whose files are not plain ``.glb``/``.json`` names under that prefix
+    (``check_uploaded_build`` lists every rule). What it cannot re-derive is the geometry itself;
+    that part is governed rather than verified:
+
+    * who: anyone who may read the node may build it, as on the worker path; for a granted
+      dataset the build lands in the provider store and serves every granted scope;
+    * whether at all: the effective execution policy must list ``pyodide`` for ``asset_build`` and
+      the capability (403 otherwise) -- an administrator who will not take browser-built geometry
+      sets the capability's row (or ``*``) to the worker;
+    * never over another build: the first summary at the key wins. An upload for a key that is
+      already built is not written (``stored: false``, ``cached: true``); only a worker build with
+      an admin's ``force`` replaces a stored one;
+    * on the record: an audit row (``asset_build``, done) names the user, and the stored summary
+      says ``execution: "browser"``.
+
+    The files are written first and the summary last: readers look for the summary, so a partly
+    stored upload is never read as a build.
+    """
+    length = int(request.headers.get("content-length") or 0)
+    if length > _BROWSER_BUILD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413, detail=f"a browser build upload is at most {_BROWSER_BUILD_MAX_BYTES} bytes"
+        )
+    body = await request.body()
+    if len(body) > _BROWSER_BUILD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413, detail=f"a browser build upload is at most {_BROWSER_BUILD_MAX_BYTES} bytes"
+        )
+    try:
+        upload = parse_build_upload(body)
+    except BuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    req = upload.request
+    collection = str(req.get("collection") or "")
+    node = str(req.get("node") or "")
+    if not collection or not node or not req.get("revision"):
+        raise HTTPException(status_code=400, detail="the upload's request needs 'collection', 'node' and 'revision'")
+    pool = _db_pool(request)
+    plan = await plan_node_build(
+        ctx,
+        scope_obj,
+        asked_provider=str(req.get("provider") or PUBLISHED_PROVIDER_ID),
+        collection=collection,
+        node=node,
+        subject=str(req.get("subject") or node),
+        revision=str(req["revision"]),
+        pool=pool,
+    )
+    await execution_policy.require_browser_asset_build(pool, user, plan.capability)
+    answer = {**plan.answer, "job_id": None}
+    answer.setdefault("scope", scope)
+    if await ctx.storage.exists(plan.scope, plan.derived_key):
+        return JSONResponse({**answer, "cached": True, "stored": False})
+    try:
+        summary = check_uploaded_build(
+            upload,
+            provider=plan.provider,
+            collection=plan.collection,
+            subject=plan.subject,
+            revision=plan.revision,
+            node=plan.node,
+            fingerprint=plan.fingerprint,
+            derived_prefix=plan.prefix,
+        )
+    except BuildError as exc:
+        raise HTTPException(status_code=409, detail=f"browser build refused: {exc}") from exc
+    for f in upload.files:
+        await ctx.storage.put_bytes(plan.scope, f"{plan.prefix}/{f.name}", f.data, content_encoding=f.content_encoding)
+    document = {**summary.to_dict(), "execution": "browser"}
+    await ctx.storage.put_bytes(
+        plan.scope, plan.derived_key, json.dumps(document).encode("utf-8"), content_encoding="gzip"
+    )
+    await ctx.audit(
+        request,
+        user,
+        plan.scope,
+        "asset_build",
+        key=plan.derived_key,
+        target_format="asset_build",
+        status="skipped" if summary.empty else "done",
+        error=summary.error if summary.empty else None,
+    )
+    return JSONResponse({**answer, "cached": False, "stored": True, "glb_key": summary.glb_key or None})
 
 
 # -- build exclusions -------------------------------------------------------------------------

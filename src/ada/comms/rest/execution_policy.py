@@ -19,7 +19,8 @@ Operations (:data:`OPERATIONS`): ``convert`` (an explicit conversion: the conver
 page, a re-convert), ``read`` (loading a source for viewing), ``fea_bake``,
 ``procedural_compile`` (qualifier: engine slug), ``plugin_job`` (qualifier:
 plugin id) and ``procedural_io`` (a procedural model's Excel export / import, its
-relocation proposals and its IFC/Genie export; qualifier: engine slug). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
+relocation proposals and its IFC/Genie export; qualifier: engine slug) and ``asset_build`` (an
+asset node's on-demand build; qualifier: the build capability of the node's claim). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
 source extension including the dot (``".ifc"``). A lookup takes the row for
 ``(operation, qualifier)`` and otherwise ``(operation, "*")``.
 
@@ -33,6 +34,12 @@ is refused when the effective policy for its operation does not list ``worker``
 (:func:`require_execution_policy`). Which browser engine runs is the browser's
 business. Like the worker-access policy this is governance of a client's declared
 choice, not a security boundary.
+
+ONE EXCEPTION, ``asset_build``: a browser build's output is stored in SHARED storage for
+everyone who reads the node (``POST /assets/build/result``), so the server also judges the
+browser part there -- an upload is refused when the effective policy does not list
+``pyodide`` for the capability (:func:`require_browser_asset_build`). An administrator
+who will not take geometry built in browsers sets that capability's row to the worker.
 """
 
 from __future__ import annotations
@@ -50,7 +57,15 @@ from . import db as db_module
 
 logger = logging.getLogger(__name__)
 
-OPERATIONS: tuple[str, ...] = ("convert", "read", "fea_bake", "procedural_compile", "plugin_job", "procedural_io")
+OPERATIONS: tuple[str, ...] = (
+    "convert",
+    "read",
+    "fea_bake",
+    "procedural_compile",
+    "plugin_job",
+    "procedural_io",
+    "asset_build",
+)
 ENGINES: tuple[str, ...] = ("native", "pyodide", "worker")
 WILDCARD = "*"
 #: Operations whose qualifier is a source extension (``".ifc"``).
@@ -60,6 +75,8 @@ ENGINE_OPERATIONS: frozenset[str] = frozenset({"procedural_compile", "procedural
 #: The job features of a procedural model's Excel export / import, relocation proposals and
 #: IFC/Genie export: the ``procedural_io`` operation, which the browser runs first.
 PROCEDURAL_IO_FEATURES: frozenset[str] = frozenset({"procedural_export", "procedural_import", "procedural_relocations"})
+#: Operations whose qualifier is an asset build capability.
+CAPABILITY_OPERATIONS: frozenset[str] = frozenset({"asset_build"})
 
 _EXT_QUALIFIER = re.compile(r"^\.[a-z0-9][a-z0-9_+-]{0,31}$")
 _NAME_QUALIFIER = re.compile(r"^[a-z0-9][a-z0-9_.:@/+-]{0,127}$")
@@ -76,6 +93,7 @@ DEFAULT_POLICY: dict[str, dict[str, list[str]]] = {
     "procedural_compile": {"*": _BROWSER_FIRST},
     "plugin_job": {"*": _BROWSER_FIRST},
     "procedural_io": {"*": _BROWSER_FIRST},
+    "asset_build": {"*": _BROWSER_FIRST},
 }
 
 
@@ -100,7 +118,12 @@ def normalise_qualifier(operation: str, qualifier: str) -> str:
             )
         return q
     if not _NAME_QUALIFIER.match(q):
-        what = "an engine slug" if operation in ENGINE_OPERATIONS else "a plugin id"
+        if operation in ENGINE_OPERATIONS:
+            what = "an engine slug"
+        elif operation in CAPABILITY_OPERATIONS:
+            what = "a build capability"
+        else:
+            what = "a plugin id"
         raise ExecutionPolicyError(f"{operation}: qualifier {qualifier!r} must be '*' or {what}")
     return q
 
@@ -250,11 +273,18 @@ def job_operation(
     if feature == "plugin_jobs":
         pid = str(plugin_id or opts.get("plugin_id") or "").strip().lower()
         return "plugin_job", pid or WILDCARD
+    if feature == "asset_build":
+        capability = str(opts.get("capability") or "").strip().lower()
+        return "asset_build", capability or WILDCARD
     return None
 
 
 def worker_permitted(policy: Mapping, operation: str, qualifier: str | None) -> bool:
     return "worker" in lookup(policy, operation, qualifier)
+
+
+def browser_permitted(policy: Mapping, operation: str, qualifier: str | None) -> bool:
+    return "pyodide" in lookup(policy, operation, qualifier)
 
 
 async def load_effective_policy(pool, user_sub: str | None) -> dict[str, dict[str, list[str]]]:
@@ -313,5 +343,31 @@ async def require_execution_policy(
             f"the execution policy does not allow the server worker pool for {op} ({qualifier}); "
             f"allowed engines: {', '.join(allowed) or 'none'}. "
             "Ask an administrator to change it in the Admin Panel (Execution)."
+        ),
+    )
+
+
+async def require_browser_asset_build(pool, user, capability: str | None) -> None:
+    """Refuse (403) storing a browser-built asset when the effective policy does not list
+    ``pyodide`` for ``asset_build`` and ``capability`` (see the module docstring: a browser
+    build lands in shared storage, so this part of the policy is the server's to judge).
+
+    Like :func:`require_execution_policy`, a policy that cannot be read is the defaults
+    (which list the browser), and a request without a user is judged on the defaults."""
+    try:
+        policy = await load_effective_policy(pool, getattr(user, "sub", None) if user is not None else None)
+    except Exception as exc:  # noqa: BLE001 - see require_execution_policy
+        logger.warning("execution policy unreadable, using the defaults: %s", exc)
+        policy = default_policy()
+    qualifier = str(capability or "").strip().lower() or WILDCARD
+    if browser_permitted(policy, "asset_build", qualifier):
+        return
+    allowed = lookup(policy, "asset_build", qualifier)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"the execution policy does not allow building {qualifier!r} assets in the browser; "
+            f"allowed engines: {', '.join(allowed) or 'none'}. Build it on the worker, or ask an "
+            "administrator to change it in the Admin Panel (Execution)."
         ),
     )
