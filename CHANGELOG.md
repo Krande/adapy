@@ -2,6 +2,15 @@
 
 
 
+## v0.176.1 (2026-11-27)
+
+### Fix
+
+* fix(viewer): skip the auto-compile of an empty doc for every engine (#607)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`7c15cd2`](https://github.com/Krande/adapy/commit/7c15cd2e64ddd34e26d480fc8db1e1cf6e90e347))
+
+
 ## v0.176.0 (2026-11-26)
 
 ### Feature
