@@ -9,6 +9,7 @@
 // (audit/local) so in-browser conversions show up in the audit panel
 // exactly like worker conversions.
 
+import type {ExecutionAuditInfo} from "@/services/compute/executionPolicy";
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {
     convertViaPyodide,
@@ -26,7 +27,7 @@ export async function convertViaPyodideAndUpload(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<string> {
     const detected = detectWasmFormat(sourceKey);
     if (!detected) {
@@ -65,6 +66,7 @@ export async function convertViaPyodideAndUpload(
             target_format: targetFormat,
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */
@@ -190,7 +192,7 @@ function feaExt(sourceKey: string): string {
 export async function convertViaPyodideFeaBake(
     scope: ScopeUrl,
     sourceKey: string,
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<void> {
     if (!isWasmFeaSource(sourceKey)) {
         throw new Error(`pyodide FEA bake does not support source: ${sourceKey}`);
@@ -218,6 +220,7 @@ export async function convertViaPyodideFeaBake(
             target_format: "fea_artefacts",
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */

@@ -3,7 +3,8 @@ import ConversionProgress, {type ToastAnchor} from "../conversion/ConversionProg
 import UploadContextMenu from "../upload/UploadContextMenu";
 import {useRestoreInflightJobs} from "@/hooks/useRestoreInflightJobs";
 import {useCompressionSweepPoll} from "@/hooks/useCompressionSweepPoll";
-import {useConversionEngineStore} from "@/state/conversionEngineStore";
+import {engineOrder} from "@/services/compute/executionPolicy";
+import {useExecutionPolicyStore, useExecutionPreferenceStore} from "@/state/executionPolicyStore";
 import {loadWorkerAccess} from "@/services/compute/workerAccess";
 import {prewarmPyodide} from "@/utils/pyodide/pyodide_converter";
 import {runtime} from "@/runtime/config";
@@ -64,10 +65,15 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
     useEffect(() => {
         void loadWorkerAccess();
     }, []);
-    // Pre-warm the in-browser (WASM) engine in the background while it is the
-    // engine in use (the default), so opening a file converts immediately
-    // instead of cold-loading pyodide + the CAD kernel on first click.
-    const wasmEngineOn = useConversionEngineStore((s) => s.engine === "browser");
+    // Pre-warm the in-browser (Pyodide) engine in the background while opening a
+    // file would use it before the worker (the default execution policy), so a
+    // file converts immediately instead of cold-loading pyodide + the CAD kernel
+    // on first click.
+    const policy = useExecutionPolicyStore((s) => s.policy);
+    const preferredRead = useExecutionPreferenceStore((s) => s.preferred.read);
+    const readOrder = engineOrder("read", "*", {policy, preference: preferredRead ?? null});
+    const wasmEngineOn = readOrder.indexOf("pyodide") >= 0 &&
+        (readOrder.indexOf("worker") < 0 || readOrder.indexOf("pyodide") < readOrder.indexOf("worker"));
     useEffect(() => {
         if (wasmEngineOn) prewarmPyodide();
     }, [wasmEngineOn]);

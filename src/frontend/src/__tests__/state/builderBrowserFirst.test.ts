@@ -3,7 +3,8 @@
 // A real build needs Pyodide, which `node --test` does not run, so this pins the routing at the
 // source (as replaceSource.test.ts does for the loaders):
 //  - Compile (committed) and Compile preview build the simulation LOD in the browser first, and
-//    reach the server worker only on the user's opt-in (workerPreferred) or for a server-only engine;
+//    reach the server worker only when the execution policy's "procedural_compile" order says so (worker first,
+//    or after a failed browser build) or for a server-only engine;
 //  - the browser build uploads nothing: no server compile/preview call, no blob write;
 //  - commit still saves the document on the server (commitModel), not a worker job.
 import {test} from "node:test";
@@ -21,23 +22,31 @@ function body(name: string): string {
   return jobs.slice(start, next);
 }
 
-test("compile and compile preview try the browser before the worker", () => {
+test("compile and compile preview route through the execution policy before the worker", () => {
   for (const name of ["compile", "compilePreview"]) {
     const b = body(name);
-    const browserAt = b.indexOf("runBrowserCompile(");
+    const routeAt = b.indexOf("await routeBuild(lod, ");
     const serverAt = b.indexOf("startCompileJob(");
-    assert.ok(browserAt >= 0 && serverAt > browserAt, `${name}: browser first, worker after`);
-    assert.match(b, /buildsInBrowser\(lod\) && \(await runBrowserCompile\(.*?\)\) !== "server-only"\) return;/);
+    assert.ok(routeAt >= 0 && serverAt > routeAt, `${name}: routed first, worker after`);
+    assert.match(b, /if \(route === "done" \|\| route === null\) return;/);
+    assert.match(b, /runOnWorker: route\.runOnWorker/);
   }
 });
 
-test("only the opt-in moves a simulation build to the worker; detail stays a worker job", () => {
-  assert.match(jobs, /const buildsInBrowser = \(lod: "sim" \| "detail"\) => lod === "sim" && !workerPreferred\(\);/);
+test("the policy order decides; detail and server-only engines stay unjudged worker jobs", () => {
+  const start = jobs.indexOf("const routeBuild = async");
+  assert.ok(start >= 0);
+  const b = jobs.slice(start, jobs.indexOf("  return {", start));
+  assert.match(b, /if \(lod === "detail"\) return \{ runOnWorker: false \};/);
+  assert.match(b, /planExecution\("procedural_compile", get\(\)\.selectedEngine \|\| "\*"/);
+  assert.match(b, /if \(engine === "worker"\) return \{ runOnWorker: plan\.browserPath \};/);
+  assert.match(b, /await runBrowserCompile\(label\)/);
+  assert.match(b, /if \(outcome === "server-only"\) return \{ runOnWorker: false \};/);
 });
 
 test("the browser build is local only", () => {
   const start = jobs.indexOf("const runBrowserCompile = async");
-  const end = jobs.indexOf("const buildsInBrowser", start);
+  const end = jobs.indexOf("const routeBuild", start);
   const b = jobs.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.match(b, /compileProceduralViaPyodide\(/);
@@ -51,7 +60,7 @@ test("handing a build to the server removes the browser's toast", () => {
   // Every "server-only" return goes through toServer(), which clears the toast the
   // browser attempt put up; left "running", it never finishes and the build looks stuck.
   const start = jobs.indexOf("const runBrowserCompile = async");
-  const end = jobs.indexOf("const buildsInBrowser", start);
+  const end = jobs.indexOf("const routeBuild", start);
   const b = jobs.slice(start, end);
   assert.match(b, /const toServer = \(\): "server-only" => \{[\s\S]*?clearJob\(proceduralToastKey\(label\)\)/);
   const bare = b.replace(/const toServer = [\s\S]*?\n {4}\};/, "").match(/return "server-only"/g) ?? [];

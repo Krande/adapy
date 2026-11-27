@@ -16,7 +16,7 @@ import {useConversionStore} from "@/state/conversionStore";
 import {modelMaxX} from "./bounds";
 import {placedCells} from "@/utils/cellbuilder/include";
 import {makeStartCompileJob} from "./compileJobRunner";
-import {workerPreferred} from "@/services/compute/workerAccess";
+import {NoAllowedEngineError, planExecution} from "@/services/compute/executionPolicy";
 
 export interface JobsSlice {
   autoCompile: boolean;
@@ -178,11 +178,35 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
     }
   };
 
-  // The browser is the default engine (see services/compute/workerAccess): a
-  // simulation build runs there unless the user opted into the worker pool and
-  // may use it. The detail LOD runs the server's detailing stack, so it stays a
-  // worker job; with no browser path to choose against, it is never refused.
-  const buildsInBrowser = (lod: "sim" | "detail") => lod === "sim" && !workerPreferred();
+  // Where a build runs: the execution policy's "procedural_compile" order for the
+  // selected engine (services/compute/executionPolicy). Pyodide is runBrowserCompile;
+  // a browser build that fails falls back to the worker when the policy lists it
+  // next. The detail LOD runs the server's detailing stack, and an engine that
+  // cannot run in a browser ("server-only") has no browser path either: those go
+  // to the worker unjudged, for everyone. Returns "done" (built in the browser),
+  // the server build to start (runOnWorker: an explicit worker choice), or null
+  // (nothing the policy allows could build it; the error is shown).
+  const routeBuild = async (
+    lod: "sim" | "detail",
+    label: string,
+  ): Promise<"done" | { runOnWorker: boolean } | null> => {
+    if (lod === "detail") return { runOnWorker: false };
+    const plan = planExecution("procedural_compile", get().selectedEngine || "*", (e) => e === "pyodide");
+    for (const engine of plan.engines) {
+      if (engine === "worker") return { runOnWorker: plan.browserPath };
+      if (engine !== "pyodide") continue;
+      const outcome = await runBrowserCompile(label);
+      if (outcome === "done") return "done";
+      if (outcome === "server-only") return { runOnWorker: false };
+      // "error": the next engine in the order, if any (the failure toast stays).
+    }
+    if (plan.engines.length === 0) {
+      const error = new NoAllowedEngineError(plan).message;
+      set({ compileJob: { jobId: null, derivedKey: "", status: "error", error } });
+      setProceduralToast(label, { status: "error", error, stage: "no execution engine allowed" });
+    }
+    return null;
+  };
 
   return {
     autoCompile: true,
@@ -215,7 +239,8 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       const active = get().active;
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
-      if (buildsInBrowser(lod) && (await runBrowserCompile(`${active.name} (browser)`)) !== "server-only") return;
+      const route = await routeBuild(lod, `${active.name} (browser)`);
+      if (route === "done" || route === null) return;
       await startCompileJob(label, lod, () =>
         capabilities.procedural.compileModel(currentScopePart(), active.modelId, {
           force,
@@ -223,8 +248,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
           engine: get().selectedEngine,
           detailing: get().selectedDetailing,
           detailingOptions: get().detailingOptionsPayload(),
-          // Only a simulation build has a browser path to choose against.
-          runOnWorker: lod === "sim" && workerPreferred(),
+          runOnWorker: route.runOnWorker,
         }),
       );
     },
@@ -237,7 +261,8 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       // visualise-then-commit loop (and the ⇧↵ shortcut / side-by-side driver).
       const active = get().active;
       if (!active) return;
-      if (buildsInBrowser(lod) && (await runBrowserCompile(`${active.name} (browser)`)) !== "server-only") return;
+      const route = await routeBuild(lod, `${active.name} (browser)`);
+      if (route === "done" || route === null) return;
       const doc = get().toDoc();
       const label = `${active.name} (preview)`;
       await startCompileJob(label, lod, () =>
@@ -251,6 +276,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
             force,
             detailing: get().selectedDetailing,
             detailingOptions: get().detailingOptionsPayload(),
+            runOnWorker: route.runOnWorker,
           },
         ),
       );

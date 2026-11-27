@@ -1,71 +1,88 @@
-// Public surface of the conversion subsystem. Routes between the
-// in-browser Pyodide pipeline and the server-side NATS pipeline.
+// Public surface of the conversion subsystem. Routes a conversion or an FEA bake
+// to adacpp's native wasm modules, the in-browser Pyodide pipeline or the server
+// worker pool, in the order the execution policy gives (services/compute/
+// executionPolicy.ts), falling back to the next engine when one fails.
 
 import {useConversionStore} from "@/state/conversionStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
-import {workerPreferred} from "@/services/compute/workerAccess";
+import {
+    allowedEngines,
+    executionAudit,
+    planExecution,
+    runWithFallback,
+    type AttemptContext,
+    type EngineRunners,
+    type ExecEngine,
+    type ExecutionPlan,
+} from "@/services/compute/executionPolicy";
+import {sourceQualifier} from "@/services/compute/executionPolicyModel";
 import {convertViaServer} from "./serverPipeline";
-import {wasmSupportsConversion, isWasmFeaSource} from "./wasmSupport";
+import {wasmSupportsConversion, isWasmFeaSource, nativeSupportsConversion} from "./wasmSupport";
 import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./serializerMatrix";
 
-// NOTE: the Pyodide pipeline is imported lazily (inside ensureConverted), not
-// at module top. It pulls a `new Worker(new URL(...))` that Vite emits as a
-// separate chunk, which must NOT land in the single-file embed bundle that
-// paradoc consumes. Keeping it behind a dynamic import keeps pyodide_converter
-// out of any static graph that never runs an in-browser conversion (the embed).
+// NOTE: the Pyodide and native pipelines are imported lazily (inside the runners),
+// not at module top. The Pyodide one pulls a `new Worker(new URL(...))` that Vite
+// emits as a separate chunk, which must NOT land in the single-file embed bundle
+// that paradoc consumes. Keeping them behind a dynamic import keeps them out of
+// any static graph that never runs an in-browser conversion (the embed).
 
 export type {TargetFormat} from "@/services/viewerApi";
 
-function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
-    // The in-browser engine is the default for every (source, target) it
-    // supports; the support matrix lives in wasmSupport.ts so the pipeline,
-    // this router, and the audit-run sweep agree. The server worker takes a
-    // supported conversion only when the user opted into it AND an
-    // administrator granted them worker access (workerPreferred). Unsupported
-    // combos have no browser path and go to the server worker for everyone.
-    if (!wasmSupportsConversion(sourceKey, targetFormat)) return false;
-    return !workerPreferred();
+type ConversionOperation = "convert" | "read";
+
+/** Which engines can handle (source, target) at all. ``nativeOff``: a forced
+ * streaming-STEP request is a worker-side engine knob, so the native module is
+ * not offered for it. */
+function conversionSupport(sourceKey: string, targetFormat: TargetFormat, nativeOff = false) {
+    return (engine: ExecEngine): boolean =>
+        engine === "native"
+            ? !nativeOff && nativeSupportsConversion(sourceKey, targetFormat)
+            : engine === "pyodide"
+              ? wasmSupportsConversion(sourceKey, targetFormat)
+              : true;
 }
 
-/** STEP/IFC -> GLB in the browser through adacpp's native (embind, no Pyodide) CAD->GLB
- * modules: the same reader and writer the server uses, so the GLB carries the same scene
- * hierarchy, and no Python runtime has to boot. Returns the derived key, or null when no
- * native module covers the pair or it failed -- the caller then uses the Pyodide pipeline. */
-async function convertNativeFirst(
-    scope: ScopeUrl,
+/** The plan for one conversion: the policy's order for (op, source extension). */
+export function conversionPlan(
+    op: ConversionOperation,
     sourceKey: string,
     targetFormat: TargetFormat,
-): Promise<string | null> {
-    const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import("./nativeCadGlbPipeline");
-    if (!nativeCadGlbSupported(sourceKey, targetFormat)) return null;
-    try {
-        return await convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
-    } catch (err) {
-        console.warn(`native ${extOf(sourceKey)} -> ${targetFormat} failed; using the Pyodide pipeline`, err);
-        return null;
+    opts?: {nativeOff?: boolean},
+): ExecutionPlan {
+    return planExecution(op, sourceQualifier(sourceKey), conversionSupport(sourceKey, targetFormat, opts?.nativeOff));
+}
+
+async function runNative(scope: ScopeUrl, sourceKey: string, targetFormat: TargetFormat, ctx: AttemptContext) {
+    const {convertViaWasmNativeAndUpload} = await import("./nativeCadGlbPipeline");
+    return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat, {execution: executionAudit(ctx)});
+}
+
+async function runPyodide(scope: ScopeUrl, sourceKey: string, targetFormat: TargetFormat, ctx: AttemptContext) {
+    const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
+    return convertViaPyodideAndUpload(scope, sourceKey, targetFormat, {execution: executionAudit(ctx)});
+}
+
+function requireServerConversion(): void {
+    if (!runtime.convertEnabled()) {
+        throw new Error("conversion not enabled on this deployment");
     }
 }
 
-/** True when a supported in-browser conversion goes to the worker because the
- * user chose it: the submission the server's worker-access policy judges. */
-function choseWorker(sourceKey: string, targetFormat: TargetFormat): boolean {
-    return wasmSupportsConversion(sourceKey, targetFormat) && workerPreferred();
-}
-
 /**
- * Enqueue a conversion for a source key in a given scope and resolve
- * when the derived blob is ready. Returns the derived storage key.
+ * Convert a source key in a given scope and resolve when the derived blob is
+ * ready. Returns the derived storage key.
  *
- * Routes through the Pyodide in-browser path (the default) whenever the
- * source/target combination is supported there and the user has not opted
- * into the server worker (see workerPreferred); otherwise hits the
- * server-side NATS pipeline, which requires worker access. Throws on API
- * rejection (403 without worker access), job error, or poll-timeout.
+ * The engines come from the execution policy for ``opts.operation`` ("read", the
+ * default: a source opened for viewing; "convert": an explicit conversion) and the
+ * source's extension, skipping the ones that cannot handle the pair and falling
+ * back to the next one on a failure. A conversion no browser engine supports goes
+ * to the server worker for everyone (unjudged); one the browser could run goes
+ * there only when the policy allows it and is sent as an explicit worker choice.
+ * Throws when every allowed engine failed (a 403 from the server included) or the
+ * policy allows none.
  *
- * ``opts.step``/``opts.field`` are forwarded to the server for FEA
- * result picks. The Pyodide path doesn't support FEA results, so they
- * route to the server pipeline regardless of the experimental toggle.
+ * ``opts.step``/``opts.field`` are forwarded to the server for FEA result picks.
  */
 export async function ensureConverted(
     scope: ScopeUrl,
@@ -79,24 +96,32 @@ export async function ensureConverted(
             | "profile_conversions" | "step_streamer",
             boolean | null
         >>;
+        operation?: ConversionOperation;
     },
 ): Promise<string> {
-    if (shouldUsePyodide(sourceKey, targetFormat)) {
-        // A forced streaming-STEP request is a worker-side engine knob; honour it there.
-        if (!opts?.conversionOptions?.step_streamer) {
-            const native = await convertNativeFirst(scope, sourceKey, targetFormat);
-            if (native !== null) return native;
-        }
-        const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
-        return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
-    }
-    if (!runtime.convertEnabled()) {
-        throw new Error("conversion not enabled on this deployment");
-    }
-    return convertViaServer(scope, sourceKey, targetFormat, {
-        ...opts,
-        runOnWorker: choseWorker(sourceKey, targetFormat),
+    const operation = opts?.operation ?? "read";
+    const plan = conversionPlan(operation, sourceKey, targetFormat, {
+        nativeOff: Boolean(opts?.conversionOptions?.step_streamer),
     });
+    const {operation: _op, ...serverOpts} = opts ?? {};
+    void _op;
+    const {value} = await runWithFallback(
+        plan,
+        {
+            native: (ctx) => runNative(scope, sourceKey, targetFormat, ctx),
+            pyodide: (ctx) => runPyodide(scope, sourceKey, targetFormat, ctx),
+            worker: (ctx) => {
+                requireServerConversion();
+                return convertViaServer(scope, sourceKey, targetFormat, {
+                    ...serverOpts,
+                    runOnWorker: ctx.explicitWorker,
+                    operation,
+                });
+            },
+        },
+        {label: `${operation} ${sourceKey} -> ${targetFormat}`},
+    );
+    return value;
 }
 
 function extOf(name: string): string {
@@ -106,12 +131,16 @@ function extOf(name: string): string {
 
 /**
  * Convert routing the serializer/tessellator selection (from the reconvert
- * dropdowns) to the right pipeline: a client serializer (runtime="client",
- * i.e. the in-browser WASM/Pyodide path) goes to the Pyodide pipeline, any
- * server serializer forwards ``{serializer, tessellator}`` as conversion
- * options to the worker where :func:`_apply_glb_serializer` folds them into the
- * engine knobs. Returns the derived storage key. Shared by the gallery
- * reconvert tool and the /convert page so both honour the same matrix.
+ * dropdowns) to the right pipeline. Shared by the gallery reconvert tool and the
+ * /convert page so both honour the same matrix. Returns the derived storage key.
+ *
+ * An UNTOUCHED row (no serializer or tessellator picked) follows the execution
+ * policy for "convert" like every other conversion (native, Pyodide, worker in the
+ * policy's order, falling back on a failure); the worker then gets the row's
+ * server default serializer. A row the user set is that user's per-conversion
+ * choice and runs as picked (a client serializer must be an engine the policy
+ * allows them); a server serializer picked there is a serializer choice, not a
+ * choice of the worker over the browser, so it is not sent as one.
  */
 export async function convertWithSelection(
     scope: ScopeUrl,
@@ -126,75 +155,92 @@ export async function convertWithSelection(
     const ext = extOf(sourceKey);
     const schema = serializerSchemaFor(ext, targetFormat);
     const selection = opts?.selection ?? {};
-    const resolved = schema ? normalizeSelection(schema, selection) : null;
+    const touched = Boolean(selection.serializer || selection.tessellator);
 
-    if (resolved?.isClient) {
-        // In-browser path — no server round-trip. Two client engines, picked by
-        // the tessellator token:
-        //   wasm-native → the OCC-free, no-pyodide adacpp_step_glb embind module
-        //                 (STEP → GLB only, 2.3 MB, no Python runtime).
-        //   pyodide     → the Pyodide pipeline (ifc / step / mesh, wasm wheels).
-        if (resolved.tessellator === "wasm-native") {
-            // CAD→GLB (step/ifc → glb) via the native embind GLB modules. The default for an
-            // untouched row (normalizeSelection): then a native failure falls back to Pyodide;
-            // an explicit "wasm-native" pick reports it.
-            const untouched = !selection.tessellator;
-            if (untouched) {
-                const native = await convertNativeFirst(scope, sourceKey, targetFormat);
-                if (native !== null) return native;
-            }
-            const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import(
-                "./nativeCadGlbPipeline"
+    const serverConvert = (
+        resolved: {serializer: string; tessellator: string} | null,
+        runOnWorker: boolean,
+    ): Promise<string> => {
+        requireServerConversion();
+        const conversionOptions: Record<string, boolean | string | number | null> = {
+            ...(opts?.extraOptions ?? {}),
+        };
+        if (resolved) {
+            conversionOptions.serializer = resolved.serializer;
+            conversionOptions.tessellator = resolved.tessellator;
+        }
+        return convertViaServer(scope, sourceKey, targetFormat, {
+            conversionOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
+            reconvert: opts?.reconvert,
+            runOnWorker,
+            operation: "convert",
+        });
+    };
+
+    if (schema && touched) {
+        const resolved = normalizeSelection(schema, selection, ext);
+        if (!resolved.isClient) return serverConvert(resolved, false);
+        if (!selection.tessellator) {
+            // A client serializer with no tessellator picked: the browser engines in
+            // the policy's order, falling back between them (not to the worker: the
+            // user asked for the browser).
+            const plan = conversionPlan("convert", sourceKey, targetFormat);
+            const browserOnly = {...plan, engines: plan.engines.filter((e) => e !== "worker")};
+            const {value} = await runWithFallback(
+                browserOnly,
+                {
+                    native: (ctx) => runNative(scope, sourceKey, targetFormat, ctx),
+                    pyodide: (ctx) => runPyodide(scope, sourceKey, targetFormat, ctx),
+                },
+                {label: `convert ${sourceKey} -> ${targetFormat}`},
             );
-            if (!untouched && nativeCadGlbSupported(sourceKey, targetFormat)) {
+            return value;
+        }
+        // In-browser path, picked on the row. Two client engines, by tessellator token:
+        //   wasm-native -> adacpp's native embind modules (CAD->GLB, or the B-rep writer)
+        //   pyodide     -> the Pyodide pipeline (ifc / step / mesh, wasm wheels).
+        // The literal is a cross-language contract with adapy's wasm serializer tokens
+        // (test_converter_step_routing.py pins it): keep it spelled out here.
+        const engine: ExecEngine = resolved.tessellator === "wasm-native" ? "native" : "pyodide";
+        const allowed = allowedEngines("convert", sourceQualifier(sourceKey));
+        if (!allowed.includes(engine)) {
+            const list = allowed.join(", ") || "none";
+            throw new Error(
+                `The execution policy does not allow the ${engine} engine for converting ${ext || sourceKey} (allowed: ${list}). Ask an administrator to change it in the Admin Panel (Execution).`,
+            );
+        }
+        if (engine === "native") {
+            const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import("./nativeCadGlbPipeline");
+            if (nativeCadGlbSupported(sourceKey, targetFormat)) {
                 return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
             }
-            // B-rep→B-rep (step→ifc / ifc→step) via the native embind writer module.
-            const {convertViaWasmBrepAndUpload, nativeBrepWriterSupported} = await import(
-                "./nativeBrepWriterPipeline"
-            );
+            // B-rep->B-rep (step->ifc / ifc->step) via the native embind writer module.
+            const {convertViaWasmBrepAndUpload, nativeBrepWriterSupported} = await import("./nativeBrepWriterPipeline");
             if (nativeBrepWriterSupported(sourceKey, targetFormat)) {
                 return convertViaWasmBrepAndUpload(scope, sourceKey, targetFormat);
             }
-            // No native module covers this (source, target) — fall through to Pyodide.
+            // No native module covers this (source, target) -- fall through to Pyodide.
         }
         if (!wasmSupportsConversion(sourceKey, targetFormat)) {
-            throw new Error(
-                `in-browser conversion doesn't support ${ext || sourceKey} → ${targetFormat}`,
-            );
+            throw new Error(`in-browser conversion doesn't support ${ext || sourceKey} → ${targetFormat}`);
         }
         const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
         return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
     }
 
-    // A pair that offers no serializer to choose (an FEA deck to another deck) has nothing on
-    // the row to say where it runs, so the user's global choice decides, exactly as it does for
-    // every other conversion (`ensureConverted`). Without this the converter page sent them to a
-    // worker even with "Convert in-browser" on.
-    if (!schema && shouldUsePyodide(sourceKey, targetFormat)) {
-        const native = await convertNativeFirst(scope, sourceKey, targetFormat);
-        if (native !== null) return native;
-        const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
-        return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
-    }
-
-    if (!runtime.convertEnabled()) {
-        throw new Error("conversion not enabled on this deployment");
-    }
-    const conversionOptions: Record<string, boolean | string | number | null> = {
-        ...(opts?.extraOptions ?? {}),
+    // Untouched (or a pair with no serializer to choose): the policy decides.
+    const plan = conversionPlan("convert", sourceKey, targetFormat);
+    const serverDefault = schema
+        ? normalizeSelection(schema, {serializer: String(schema.serializer.default ?? "")}, ext)
+        : null;
+    const runners: EngineRunners<string> = {
+        native: (ctx) => runNative(scope, sourceKey, targetFormat, ctx),
+        pyodide: (ctx) => runPyodide(scope, sourceKey, targetFormat, ctx),
+        worker: (ctx) =>
+            serverConvert(serverDefault && !serverDefault.isClient ? serverDefault : null, ctx.explicitWorker),
     };
-    if (resolved) {
-        conversionOptions.serializer = resolved.serializer;
-        conversionOptions.tessellator = resolved.tessellator;
-    }
-    return convertViaServer(scope, sourceKey, targetFormat, {
-        conversionOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
-        reconvert: opts?.reconvert,
-        // A server serializer picked from the row is a serializer choice, not a
-        // choice of the worker over the browser; only the global engine setting is.
-        runOnWorker: !resolved && choseWorker(sourceKey, targetFormat),
-    });
+    const {value} = await runWithFallback(plan, runners, {label: `convert ${sourceKey} -> ${targetFormat}`});
+    return value;
 }
 
 // Backwards-compatible wrapper for the GLB-for-viewing flow. ``opts.streamer``
@@ -213,14 +259,22 @@ export async function ensureConvertedGlb(
     );
 }
 
+/** The plan for an FEA bake of ``sourceKey``: Pyodide where the browser can bake
+ * it, the worker as the policy orders. */
+export function feaBakePlan(sourceKey: string): ExecutionPlan {
+    return planExecution("fea_bake", sourceQualifier(sourceKey), (engine) =>
+        engine === "pyodide" ? isWasmFeaSource(sourceKey) : engine === "worker",
+    );
+}
+
 /**
- * Eagerly enqueue the streaming-FEA manifest bake for a source file.
+ * Eagerly bake the streaming-FEA manifest for a source file.
  *
  * Symmetric to ``ensureConvertedGlb`` but targets the /fea/manifest
  * pipeline used by streaming-only formats (.rmed, .odb, ...) — those
- * don't go through the legacy single-GLB path. Wires progress into
- * ``useConversionStore`` so the bottom-right ConversionProgress toast
- * tracks the bake the same way it tracks GLB conversions.
+ * don't go through the legacy single-GLB path. Engines in the execution
+ * policy's "fea_bake" order (in-browser Pyodide for what the browser can
+ * bake, the worker after it; native .odb export is server only).
  *
  * Store key follows the ``${sourceKey}::${target}`` convention from
  * serverPipeline (target ``fea`` here) so a manifest bake and a GLB
@@ -230,15 +284,20 @@ export async function ensureBakedFeaManifest(
     scope: ScopeUrl,
     sourceKey: string,
 ): Promise<void> {
-    // In-browser (WASM) FEA bake by default for every source the browser can
-    // bake (incl. already-converted Abaqus .sqlite); the server worker bakes it
-    // only on the user's opt-in with worker access, or when the browser can't
-    // (native .odb export needs Abaqus — server only, 'abaqus' capability).
-    if (isWasmFeaSource(sourceKey) && !workerPreferred()) {
-        const {convertViaPyodideFeaBake} = await import("./pyodidePipeline");
-        await convertViaPyodideFeaBake(scope, sourceKey);
-        return;
-    }
+    await runWithFallback(
+        feaBakePlan(sourceKey),
+        {
+            pyodide: async (ctx) => {
+                const {convertViaPyodideFeaBake} = await import("./pyodidePipeline");
+                await convertViaPyodideFeaBake(scope, sourceKey, {execution: executionAudit(ctx)});
+            },
+            worker: (ctx) => bakeOnWorker(scope, sourceKey, ctx.explicitWorker),
+        },
+        {label: `fea_bake ${sourceKey}`},
+    );
+}
+
+async function bakeOnWorker(scope: ScopeUrl, sourceKey: string, runOnWorker: boolean): Promise<void> {
     const convStore = useConversionStore.getState();
     const storeKey = `${sourceKey}::fea`;
     const startedAt = Date.now();
@@ -254,8 +313,7 @@ export async function ensureBakedFeaManifest(
     });
     try {
         await viewerApi.feaManifest(scope, sourceKey, {
-            // A browser-bakeable source reaches here only on the user's opt-in.
-            runOnWorker: isWasmFeaSource(sourceKey),
+            runOnWorker,
             onProgress: ({jobId, stage, progress, status}) => {
                 convStore.setJob(storeKey, {
                     sourceKey,

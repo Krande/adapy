@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   canUseWorker,
   decideExecutionTarget,
+  dispatchPluginJob,
   isPluginWasmCapable,
   loadPluginWheelsManifest,
 } from "@/services/compute/pluginJobRouter";
@@ -76,6 +77,85 @@ describe("pluginJobRouter worker access & browser-first routing", () => {
       });
       assert.deepEqual(decision, { target: "worker" });
     }
+  });
+
+  it("follows the execution policy's order", () => {
+    const GLOBAL = { enabled: true, allowed_capabilities: [], effective_all: true };
+    const NONE = { enabled: false, allowed_capabilities: [], effective_all: false };
+    // Worker first in the policy (and allowed): an explicit worker choice.
+    assert.deepEqual(
+      decideExecutionTarget({ wasmCapable: true, workerAccess: GLOBAL, order: ["worker", "pyodide"] }),
+      { target: "worker", explicit: true },
+    );
+    // Worker first but no access: the browser, the next allowed engine.
+    assert.deepEqual(
+      decideExecutionTarget({ wasmCapable: true, workerAccess: NONE, order: ["worker", "pyodide"] }),
+      { target: "browser" },
+    );
+    // "Run on worker" against a policy without the worker is refused, naming the policy.
+    const refused = decideExecutionTarget({
+      wasmCapable: true,
+      workerAccess: GLOBAL,
+      preferWorker: true,
+      order: ["pyodide"],
+    });
+    assert.equal(refused.target, "denied");
+    if (refused.target === "denied") assert.match(refused.reason, /execution policy/);
+    // Nothing allowed that runs a plugin.
+    const none = decideExecutionTarget({ wasmCapable: true, workerAccess: NONE, order: ["native", "worker"] });
+    assert.equal(none.target, "denied");
+    // No browser path: still the worker, unjudged, whatever the order says.
+    assert.deepEqual(decideExecutionTarget({ wasmCapable: false, workerAccess: NONE, order: ["pyodide"] }), {
+      target: "worker",
+    });
+  });
+
+  it("falls back from a failed browser run to the worker when the policy lists it next", async () => {
+    // runtime.apiBase() reads window; a bare node process has none.
+    (globalThis as unknown as { window?: unknown }).window ??= {};
+    const manifestFetch = (async () =>
+      new Response(JSON.stringify({ plugins: { "example-plugin": { wheel: "example_plugin-1.0-py3-none-any.whl" } } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    await loadPluginWheelsManifest(manifestFetch, true);
+    const submitted: Array<{ runOnWorker?: boolean }> = [];
+    const submitToWorker = (async (_id: string, _body: unknown, opts?: { runOnWorker?: boolean }) => {
+      submitted.push({ runOnWorker: opts?.runOnWorker });
+      return { job_id: "job-1", derived_key: "out.json" };
+    }) as never;
+    const failing = (async () => {
+      throw new Error("wheel failed to import");
+    }) as never;
+    const logs: string[] = [];
+    const out = await dispatchPluginJob({
+      pluginId: "example-plugin",
+      scope: "shared" as never,
+      options: {},
+      workerAccess: { enabled: true, allowed_capabilities: [], effective_all: true },
+      order: ["pyodide", "worker"],
+      runInBrowser: failing,
+      submitToWorker,
+      onLog: (m) => logs.push(m),
+    });
+    assert.equal(out.execution, "worker");
+    assert.deepEqual(submitted, [{ runOnWorker: true }]);
+    assert.match(logs.join("\n"), /Pyodide failed \(wheel failed to import\); trying Server worker/);
+
+    // Without the worker in the order (or without access) the browser failure surfaces.
+    await assert.rejects(
+      dispatchPluginJob({
+        pluginId: "example-plugin",
+        scope: "shared" as never,
+        options: {},
+        workerAccess: { enabled: false, allowed_capabilities: [], effective_all: false },
+        order: ["pyodide", "worker"],
+        runInBrowser: failing,
+        submitToWorker,
+      }),
+      /wheel failed to import/,
+    );
+    assert.equal(submitted.length, 1);
   });
 
   it("loads plugin-wheels-manifest.json and reports WASM capability", async () => {

@@ -56,7 +56,7 @@ import { useComponentSpecsStore as g_useComponentSpecsStore } from "./componentS
 import { useCompressionStore as g_useCompressionStore } from "./compressionStore"
 import { useComputeStore as g_useComputeStore } from "./computeStore"
 import { useConnectionGraphStore as g_useConnectionGraphStore } from "./connectionGraphStore"
-import { useConversionEngineStore as g_useConversionEngineStore } from "./conversionEngineStore"
+import { useExecutionPolicyStore as g_useExecutionPolicyStore, useExecutionPreferenceStore as g_useExecutionPreferenceStore } from "./executionPolicyStore"
 import { useConversionStore as g_useConversionStore } from "./conversionStore"
 import { useConvertPageStore as g_useConvertPageStore } from "./convertPageStore"
 import { useEngineCatalogStore as g_useEngineCatalogStore } from "./engineCatalogStore"
@@ -140,7 +140,8 @@ export interface AdaViewerStores {
     useCompressionStore: typeof g_useCompressionStore
     useComputeStore: typeof g_useComputeStore
     useConnectionGraphStore: typeof g_useConnectionGraphStore
-    useConversionEngineStore: typeof g_useConversionEngineStore
+    useExecutionPolicyStore: typeof g_useExecutionPolicyStore
+    useExecutionPreferenceStore: typeof g_useExecutionPreferenceStore
     useConversionStore: typeof g_useConversionStore
     useConvertPageStore: typeof g_useConvertPageStore
     useEngineCatalogStore: typeof g_useEngineCatalogStore
@@ -206,7 +207,8 @@ export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
     useCompressionStore: g_useCompressionStore,
     useComputeStore: g_useComputeStore,
     useConnectionGraphStore: g_useConnectionGraphStore,
-    useConversionEngineStore: g_useConversionEngineStore,
+    useExecutionPolicyStore: g_useExecutionPolicyStore,
+    useExecutionPreferenceStore: g_useExecutionPreferenceStore,
     useConversionStore: g_useConversionStore,
     useConvertPageStore: g_useConvertPageStore,
     useEngineCatalogStore: g_useEngineCatalogStore,

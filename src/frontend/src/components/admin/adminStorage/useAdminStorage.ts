@@ -174,6 +174,8 @@ export function useAdminStorage() {
             const conversionOptions = buildConversionOptions(overrides);
             const derivedKey = await ensureConverted(scope, sourceKey, target, {
                 conversionOptions,
+                // An explicit conversion, not a source opened for viewing.
+                operation: "convert",
             });
             const base = sourceKey.replace(/\.[^./]+$/, "");
             await viewerApi.downloadBlob(scope, derivedKey, `${base}.${target}`);

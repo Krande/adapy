@@ -316,6 +316,8 @@ export const proceduralApi = {
       force?: boolean;
       detailing?: string | null;
       detailingOptions?: DetailingOptionsPayload | null;
+      // The user chose the worker over the in-browser compile (X-Ada-Run-On).
+      runOnWorker?: boolean;
     },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams();
@@ -331,7 +333,7 @@ export const proceduralApi = {
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-preview${qs}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
         body: JSON.stringify({ doc }),
       },
     );

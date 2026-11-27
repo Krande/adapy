@@ -13,7 +13,8 @@
 
 import {capabilities} from "@/services/capabilities";
 import type {FeaCapability} from "@/services/capabilities/types";
-import {workerPreferred} from "@/services/compute/workerAccess";
+import {planExecution, runWithFallback} from "@/services/compute/executionPolicy";
+import {sourceQualifier} from "@/services/compute/executionPolicyModel";
 import {isWasmFeaSource} from "@/services/conversion/wasmSupport";
 import type {FeaManifest, ScopeUrl} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
@@ -23,6 +24,15 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import type {LoadFeaStreaming} from "./types";
 import {feaOpening} from "./meshFirst";
+
+/** The "fea_bake" plan for ``sourceName``: Pyodide where the browser can bake it
+ * (the same rule as conversion/index.ts feaBakePlan, which this module does not
+ * import), the worker as the policy orders. */
+function feaBakePlan(sourceName: string) {
+    return planExecution("fea_bake", sourceQualifier(sourceName), (engine) =>
+        engine === "pyodide" ? isWasmFeaSource(sourceName) : engine === "worker",
+    );
+}
 
 /** Bake ``sourceName`` in the browser unless its manifest is already stored
  * (``_derived/<source>.fea/fea.manifest.json``, where both bakes write it). */
@@ -137,15 +147,32 @@ export async function loadFeaWithDefaults(
 
     let manifest: FeaManifest;
     try {
-        // In-browser by default: a source the browser can bake is baked here (and
-        // its tree uploaded) before the manifest is asked for, so the request finds
-        // it stored instead of queueing a worker bake. The worker bakes it only on
-        // the user's opt-in (workerPreferred).
-        if (fea.transport === "rest" && isWasmFeaSource(sourceName) && !workerPreferred()) {
-            await bakeInBrowserUnlessStored(scope, sourceName);
+        // The execution policy's "fea_bake" order: a source the browser can bake is
+        // baked here first when Pyodide comes before the worker (its tree uploaded
+        // before the manifest is asked for, so the request finds it stored instead
+        // of queueing a worker bake); a failed browser bake falls back to the worker
+        // when the policy lists it next. Without a REST transport (nothing to upload
+        // to) the transport serves the manifest itself.
+        // (An empty plan -- the policy allows nothing that can bake it -- throws.)
+        const plan = fea.transport === "rest" ? feaBakePlan(sourceName) : null;
+        let runOnWorker = false;
+        if (plan) {
+            const {engine} = await runWithFallback(
+                plan,
+                {
+                    pyodide: async () => {
+                        await bakeInBrowserUnlessStored(scope, sourceName);
+                        return null;
+                    },
+                    // The manifest request below runs the worker bake.
+                    worker: async () => null,
+                },
+                {label: `fea_bake ${sourceName}`},
+            );
+            runOnWorker = engine === "worker" && plan.browserPath;
         }
         manifest = await fea.fetchManifest(scope, sourceName, {
-            runOnWorker: isWasmFeaSource(sourceName) && workerPreferred(),
+            runOnWorker,
             signal: controller.signal,
             onPartial: (partial) => loadPartial(partial),
             onProgress: ({jobId, stage, progress, status}) => {

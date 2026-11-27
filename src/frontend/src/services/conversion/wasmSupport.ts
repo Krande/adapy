@@ -108,6 +108,18 @@ export function detectWasmFormat(sourceKey: string): WasmFormat | null {
 }
 
 /**
+ * True if adacpp's NATIVE (embind, no Pyodide) CAD->GLB modules can do this
+ * conversion: STEP/STP/IFC -> GLB. The execution policy's "native" engine; the
+ * same check as nativeCadGlbPipeline.nativeCadGlbSupported, kept here so routing
+ * can ask without loading that pipeline.
+ */
+export function nativeSupportsConversion(sourceKey: string, targetFormat: TargetFormat): boolean {
+    if (targetFormat !== "glb") return false;
+    const ext = extOf(sourceKey);
+    return ext === "ifc" || ext === "step" || ext === "stp";
+}
+
+/**
  * True if the WASM engine can bake this FEA result source into the
  * streaming-viewer artefact tree (the FEA bake path, distinct from the
  * GLB conversion path). Engine-agnostic.

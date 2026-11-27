@@ -4,6 +4,7 @@
 // contract as the server + pyodide paths), and records a metrics-rich audit row so the conversion
 // shows up in the audit panel with a "WASM" badge exactly like the pyodide path.
 
+import type {ExecutionAuditInfo} from "@/services/compute/executionPolicy";
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {
@@ -57,7 +58,7 @@ export async function convertViaWasmNativeAndUpload(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<string> {
     const kind = cadKindFor(sourceKey);
     if (targetFormat !== "glb" || !kind) {
@@ -86,6 +87,7 @@ export async function convertViaWasmNativeAndUpload(
             target_format: targetFormat,
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */

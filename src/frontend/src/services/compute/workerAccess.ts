@@ -9,7 +9,7 @@
 import {create} from "zustand";
 
 import {authApi, type WorkerAccessPolicy} from "@/services/api/auth";
-import {useConversionEngineStore} from "@/state/conversionEngineStore";
+import {useExecutionPolicyStore} from "@/state/executionPolicyStore";
 
 // Kept free of the pyodide worker: conversion/index.ts imports this module
 // statically, and pyodide_converter must stay out of the embed bundle.
@@ -48,7 +48,11 @@ export function loadWorkerAccess(force = false): Promise<WorkerAccessPolicy | nu
     if (!inflight || force) {
         inflight = authApi
             .me()
-            .then((me) => me.worker_access ?? null)
+            .then((me) => {
+                // The execution policy rides on the same answer (executionPolicy.ts).
+                useExecutionPolicyStore.getState().setPolicy(me.execution_policy ?? null);
+                return me.worker_access ?? null;
+            })
             .catch(() => null)
             .then((policy) => {
                 useWorkerAccessStore.setState({policy, loaded: true});
@@ -73,13 +77,6 @@ export function hasGlobalWorkerAccess(policy: WorkerAccessPolicy | null = worker
 /** True when the user has any worker access at all (global or a capability). */
 export function hasAnyWorkerAccess(policy: WorkerAccessPolicy | null = workerAccessSnapshot()): boolean {
     return hasGlobalWorkerAccess(policy) || (policy?.allowed_capabilities?.length ?? 0) > 0;
-}
-
-/** Should a browser-capable workload go to the server worker instead? Only when
- * the user opted in (settings → Conversion engine → server worker) AND holds
- * global worker access. Everything else runs in the browser. */
-export function workerPreferred(policy: WorkerAccessPolicy | null = workerAccessSnapshot()): boolean {
-    return useConversionEngineStore.getState().engine === "worker" && hasGlobalWorkerAccess(policy);
 }
 
 /** The notice shown when a workload has no browser path and the user has no

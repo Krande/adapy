@@ -64,6 +64,8 @@ export const conversionApi = {
       target_format: string;
       audit_run_id?: string | null;
       image_tag?: string;
+      // Which execution engine ran and what it fell back from (executionPolicy.ts).
+      execution?: { engine: string; fallbacks: Array<{ engine: string; reason: string }> };
     },
   ): Promise<string> {
     if (!runtime.hasDatabase()) return "";
@@ -141,6 +143,9 @@ export const conversionApi = {
       reconvert?: boolean;
       // The user chose the worker over an in-browser conversion (X-Ada-Run-On).
       runOnWorker?: boolean;
+      // The execution-policy operation of that choice: "read" when the source is
+      // opened for viewing, "convert" (the server's default) for an explicit one.
+      operation?: "convert" | "read";
     },
   ): Promise<ConvertResponse> {
     const body: Record<string, unknown> = {
@@ -161,7 +166,10 @@ export const conversionApi = {
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
+        headers: {
+          "Content-Type": "application/json",
+          ...runOnWorkerHeaders(opts?.runOnWorker, opts?.operation),
+        },
         body: JSON.stringify(body),
       },
     );
