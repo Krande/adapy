@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 c3652f57f0ef94f13ff50fe500f0e74892f9b184be1cbc01c82f1b05701f18e6
-bundle-sha256 404b0988e28452c09c5860c367b8e7101536818ea78b11026adc123fecbcbe7a
+inputs-sha256 78678cbdbe723e9e75a829d16f1999ea9e653467be8067391f7b7e8b6111b4f6
+bundle-sha256 3be3f98c3829e132466171dbf98e96745d5a16c95fa0fae6380c642cd313e0fe
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -91,9 +91,9 @@ src/frontend/src/components/admin/ProceduralTab.tsx 4cfcf42d9d4bf0ac9f314367e6da
 src/frontend/src/components/admin/ProjectsTab.tsx aabf2905b2052a33e499cf276a3146a62623e444
 src/frontend/src/components/admin/ProviderAccessSection.tsx a10bef5521fa7a188cf82d8862718e7781a4e433
 src/frontend/src/components/admin/ProviderMaxParallel.tsx 05702c465a8f38ecd5f7e2807bde81328f072d40
-src/frontend/src/components/admin/ProviderSchedulesSection.tsx 48a788562843f2d446d84206a46a3b951fefa305
+src/frontend/src/components/admin/ProviderSchedulesSection.tsx 5e1be24dcbbad851d42f80788d1967dad98ccd63
 src/frontend/src/components/admin/ProviderSplitsSection.tsx 5573dcb2981c9f09cdd7d9416f49db0722c77d7a
-src/frontend/src/components/admin/ProviderSweepRuns.tsx 7370c04ef00cb6f1d3a3e31398cab5489bd84309
+src/frontend/src/components/admin/ProviderSweepRuns.tsx feb8dfe91088fd8ab1769da650984d696990b9cd
 src/frontend/src/components/admin/ProvidersTab.tsx b18c9fd3acff57b4f195795ea4c0c31a810e2370
 src/frontend/src/components/admin/ReferenceDataSection.tsx 4d6bb4eb3d9bb2181ea0020350ade23723535a62
 src/frontend/src/components/admin/RobotBundlesTab.tsx d7e521f60ccf968bb85175ee23048bdfdce14192
@@ -114,7 +114,7 @@ src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f
 src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 67b941a1342a3d052482c3a14a2b7432657b99e6
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
 src/frontend/src/components/admin/adminTabs.ts 9309185b5e2d5b6e94530e78b92f96fdf3cda75f
-src/frontend/src/components/admin/applyChangesItem.ts b6c3e82dd81b95370a71202ccacbd6b39a702510
+src/frontend/src/components/admin/applyChangesItem.ts 7c760b23f82fa277ad51755c726e62341c7ed2c7
 src/frontend/src/components/admin/auditLog/AuditEntryCards.tsx 2988dcdfde10fad495b6e314f7bf7073375316ce
 src/frontend/src/components/admin/auditLog/AuditLogTab.tsx dd8b1a896b12d6217d521e9ba5f5e65bf4966444
 src/frontend/src/components/admin/auditLog/ClientMetricsTab.tsx 53554a5903009fa80b7c35dc9302fa209bdf0fca
@@ -374,7 +374,7 @@ src/frontend/src/components/playback/clockText.ts a4e2d1e2a3702e69b88e9f6ca65ba1
 src/frontend/src/components/playback/frameCapture.ts 391838240f4079038b4f7db6bade8ac03ce5b83e
 src/frontend/src/components/playback/playbackKeys.ts d34b21ac3952625e7e7c5296c82e1fe3d0b962e1
 src/frontend/src/components/playback/timelineView.ts d23f1ad42b9a376a0c0e64c368377cf0c21fd020
-src/frontend/src/components/rest_mode/RestModeUI.tsx 9db63b1a2c0a098e99543602cf94f3d21c6a99ee
+src/frontend/src/components/rest_mode/RestModeUI.tsx d7dbf7b5eb83651cbb3d631b269082ec1c58c497
 src/frontend/src/components/server_info/ServerInfoBox.tsx f5eb18aae4fb7811253a60e1847f2c9dd50c3a4f
 src/frontend/src/components/settings/BuildLine.tsx cc849baf8fe693fc6c8e5ea7c7a8e0b96c594a63
 src/frontend/src/components/settings/SettingsPanel.tsx 205875473ae568933cb93c015e7c41c668b1a0ed
@@ -762,7 +762,7 @@ src/frontend/src/plugins/sidecarLoaders.ts 9fb03af55889c64f28a963e2360698a451090
 src/frontend/src/plugins/uiShells.ts 27f5720550c02c8f310f9ab8de08d787c1d76013
 src/frontend/src/plugins/urlParams.ts 6ce1057ed16b5b6197e66321ff5a96ffc875a10f
 src/frontend/src/register.tsx e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-src/frontend/src/runtime/config.ts 7b4f326068ebfc6e87868ed1c34b6798e66e8d09
+src/frontend/src/runtime/config.ts 2c0334f9d602d42f0c63e1413bda8d602d9ef5e6
 src/frontend/src/runtime/embedBuild.ts 758922ca736eb6fd788427d63975a7b8c985458b
 src/frontend/src/services/api/adminAudit.ts 4f331f982edbe16966f51227a0ae9a38d8e1fe9a
 src/frontend/src/services/api/adminCorpus.ts e7cc208203c431713f308f9c7b51b9d7db2cef0a
@@ -770,7 +770,7 @@ src/frontend/src/services/api/adminDb.ts c6476543d235ec5a067052cd24146d42acc4907
 src/frontend/src/services/api/adminProjects.ts 9b17e65014ad038a75bf4146d78dc1873679dd56
 src/frontend/src/services/api/adminStorage.ts 876bfae91e89de6e2bab9d720f589f92b7c120f8
 src/frontend/src/services/api/adminUsers.ts d83f7cea824196aed0f217df739542733266ecbb
-src/frontend/src/services/api/assetSchedules.ts 2032a3651fdf160c0d06be3ae01e10c523c6019f
+src/frontend/src/services/api/assetSchedules.ts 8570cbf18c2d6d4f416980519dc778165d2914a1
 src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts e284808556c4231159e39c8a99f9ed8e136da12b
@@ -824,7 +824,8 @@ src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862
 src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
 src/frontend/src/services/compute/executionPolicyModel.ts b8acb218d4a5eded5fb20778563c34dd674d585a
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
-src/frontend/src/services/compute/pluginJobRouter.ts 316cbc32224fb1e8a62543387c1402223c01d4b8
+src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
+src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
 src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
 src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
@@ -1186,8 +1187,9 @@ src/frontend/src/utils/openedByRunLink.ts 9e7dfbbf17e691b82133abc8bba7c4c3247484
 src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed55181170a9123cbb8db0
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
-src/frontend/src/utils/pyodide/pyodide_converter.ts 53ae5c502808575004341b168653f13ac9367f63
-src/frontend/src/utils/pyodide/pyodide_worker.js 05d3f1cca183babd1bfa4182c4c7e3a43f72125f
+src/frontend/src/utils/pyodide/pluginWheels.ts cce69761fdb6b9c4a16ae7eeafa8f9a89a252f1f
+src/frontend/src/utils/pyodide/pyodide_converter.ts 8fa002426050935f96bb6fcc9071985c95b8a234
+src/frontend/src/utils/pyodide/pyodide_worker.js e21cd124e4b625f170acc3d3025b5673060a7dc1
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
