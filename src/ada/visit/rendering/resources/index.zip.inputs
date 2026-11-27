@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 d6f4aa05ca29f38a1c0d9675b10fba2dd764e08c3fea86625292efa46d96f244
-bundle-sha256 436e22e37853376eadac8c8c910c95ee2be9ed9c883708eaa76bd9e18b0d0ccb
+inputs-sha256 911059e2688a5dd0e540336979fda6946199c6d66eca2fe2d469f9a0313c681e
+bundle-sha256 77b2ebf8feee4b63c44fdd3f47c6ba28adcfd641dff7fa2b9287bf97c63e3295
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -65,7 +65,7 @@ src/frontend/src/assets/types.ts 26c74289bbaa7d40aaee361a33b8fa7c10af1dde
 src/frontend/src/components/OptionsComponent.tsx f6266bc4631a3600fc88d9fd16a427f95c0e5b05
 src/frontend/src/components/ViewerWindow.tsx a9568e397344f73ead0c6606e829783590878ce5
 src/frontend/src/components/WebsocketStatusMenu.tsx a5beec21340fa1f2f16f21cd86a8033cf1ff955b
-src/frontend/src/components/admin/AdminPanel.tsx a77b73e022d5bcda28f282b9732443e50036a27a
+src/frontend/src/components/admin/AdminPanel.tsx e0cb2f51558eff04559b2a3fffca2bacd64b55ac
 src/frontend/src/components/admin/AdminSection.tsx f33526d69cda8bd308854695de165e864c38b734
 src/frontend/src/components/admin/AdminSubTabs.tsx 3a0cbc8e702b3a65fe61c01c2ab3eb0ec16d6ff4
 src/frontend/src/components/admin/AdminTabShell.tsx 820c1119ae88c455b42b5e7ab45234f6c5054db6
@@ -111,9 +111,9 @@ src/frontend/src/components/admin/adminStorage/StorageTab.tsx 9afc9593a355fe00c2
 src/frontend/src/components/admin/adminStorage/StorageToolbar.tsx 9d37b0b163f81c5f6d1f4e7abada6920d8f26063
 src/frontend/src/components/admin/adminStorage/conversionOverrides.ts 5b72c288f718d05e80c0867aa104bfc2b83c6720
 src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f10e5155ef6dfb74a6b
-src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 05d580b214e5b22f148c2057b461575c1e706c9e
+src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 67b941a1342a3d052482c3a14a2b7432657b99e6
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
-src/frontend/src/components/admin/adminTabs.ts 167bfa66cf14522d9f74350a24134ce541c3a787
+src/frontend/src/components/admin/adminTabs.ts 9309185b5e2d5b6e94530e78b92f96fdf3cda75f
 src/frontend/src/components/admin/applyChangesItem.ts b6c3e82dd81b95370a71202ccacbd6b39a702510
 src/frontend/src/components/admin/auditLog/AuditEntryCards.tsx 2988dcdfde10fad495b6e314f7bf7073375316ce
 src/frontend/src/components/admin/auditLog/AuditLogTab.tsx dd8b1a896b12d6217d521e9ba5f5e65bf4966444
@@ -150,6 +150,10 @@ src/frontend/src/components/admin/database/DuplicatesSection.tsx 6d922e7154a8b49
 src/frontend/src/components/admin/database/TableRowsView.tsx cc4055c6403c19540cc0c046e6c0fcd69d9ea9c8
 src/frontend/src/components/admin/database/dbRows.ts 334b074301abcd82cdcb8e1a4451744886c287b4
 src/frontend/src/components/admin/database/dbStorage.ts 31ca7b6405ae02ac7ca90a2ba5a586f8cf321710
+src/frontend/src/components/admin/execution/ExecutionPolicyTab.tsx 106fce4182406f4b07bf15a78109a43e7b0ef589
+src/frontend/src/components/admin/execution/ExecutionPolicyTable.tsx 5612135bd720f46229ab8b5b7d295ef975fe3b3a
+src/frontend/src/components/admin/execution/UserExecutionOverride.tsx 89c01c5eb338dca7cb5c9a39985d08e6c9569c48
+src/frontend/src/components/admin/execution/executionPolicyEditor.ts 9774e7e3370375bdfddbc9c464b670464a5fe1d0
 src/frontend/src/components/admin/geometryCompareView.ts efa3cc7ded22eb73e088d61477f6df23be08a91e
 src/frontend/src/components/admin/pluginAccessModel.ts 45e4d40cc32bebf0b32e68d49d6d3b2cb89c9c5e
 src/frontend/src/components/admin/pluginOptionFields.ts 76934c02d42dd026fbba976595aaf0a744b68886
@@ -158,7 +162,7 @@ src/frontend/src/components/admin/scheduleFormat.ts 5d5d3cd011cb46f2230f9cdefa1e
 src/frontend/src/components/admin/scheduleSettings.ts 2d5556dc0c6dd8fb6af7747cb6039fb086f3cdab
 src/frontend/src/components/admin/tokens/CliTokensTab.tsx d5467bee08f8a6e85c1111428d1da64b158fd0dd
 src/frontend/src/components/admin/tokens/cliTokens.ts 80ca221f946be112bd6d19aa89837212097eefda
-src/frontend/src/components/admin/users/UsersTab.tsx bfd681240ed13cfeac5e1f397447244bb660947b
+src/frontend/src/components/admin/users/UsersTab.tsx 528ab8d0bfd2b65400e867a7081eecef797096b3
 src/frontend/src/components/admin/users/userScopes.ts c180fce1654947bed829de99b169f3da75fb567c
 src/frontend/src/components/admin/workerPackages.ts 2d66e0296c6dd7dd37e9a87b308ee4e49e2e25e6
 src/frontend/src/components/asset_browser/AssetBrowser.tsx c88e578aa7981326b74bfde3ceb299d545903253
@@ -349,8 +353,8 @@ src/frontend/src/components/options/AppearanceOptions.tsx 86d604e710ae2a1c721684
 src/frontend/src/components/options/CameraControlsOptions.tsx 7759f365ea805b9ffa8dab87e1b7ac4b544f61d7
 src/frontend/src/components/options/ComputeOptions.tsx 8d64e8756ea22bca73f1e90aee4b1e9eb639a7e7
 src/frontend/src/components/options/ControlsProfileOptions.tsx 16bedb5bba32620b004ff64a4059898eb7637738
-src/frontend/src/components/options/ConversionEngineOptions.tsx f278e279f0f613b423e955a573fa6a5b216c657e
 src/frontend/src/components/options/DisplayOptions.tsx 0373e5295c469c87e55cd30edbd737d9cc94eb8a
+src/frontend/src/components/options/ExecutionEngineOptions.tsx e6691a097c7d7c257e258bbeacfb73b1c8289a4c
 src/frontend/src/components/options/ExternalControlsOptions.tsx 8053ff8f7f3e8b3036110d56f5199032fd63ea3a
 src/frontend/src/components/options/LayoutOptions.tsx 9a4cc5a361a6dbfa35352755b427eef93436c592
 src/frontend/src/components/options/LocalJobsOptions.tsx 477061414b8bf3e2751b2bf5a32f8d736ba8cc14
@@ -370,11 +374,11 @@ src/frontend/src/components/playback/clockText.ts a4e2d1e2a3702e69b88e9f6ca65ba1
 src/frontend/src/components/playback/frameCapture.ts 391838240f4079038b4f7db6bade8ac03ce5b83e
 src/frontend/src/components/playback/playbackKeys.ts d34b21ac3952625e7e7c5296c82e1fe3d0b962e1
 src/frontend/src/components/playback/timelineView.ts d23f1ad42b9a376a0c0e64c368377cf0c21fd020
-src/frontend/src/components/rest_mode/RestModeUI.tsx 8d09bce3c7e7615417c508c7e0356562c4547908
+src/frontend/src/components/rest_mode/RestModeUI.tsx 9db63b1a2c0a098e99543602cf94f3d21c6a99ee
 src/frontend/src/components/server_info/ServerInfoBox.tsx f5eb18aae4fb7811253a60e1847f2c9dd50c3a4f
 src/frontend/src/components/settings/BuildLine.tsx cc849baf8fe693fc6c8e5ea7c7a8e0b96c594a63
 src/frontend/src/components/settings/SettingsPanel.tsx 205875473ae568933cb93c015e7c41c668b1a0ed
-src/frontend/src/components/settings/settingsSections.tsx 29ac16b824c8fd478c645ca13ff432f42b368d82
+src/frontend/src/components/settings/settingsSections.tsx 32cdfe721aa70050c88880b4257c06fb304ce69a
 src/frontend/src/components/settings/settingsTab.ts 8477229218c37ab00020f6137ffde3ffcb6cf2c9
 src/frontend/src/components/simulation/AnimationExportButton.tsx 00b7395c33f1038ed48c6753ca9f85b6a4b84ca6
 src/frontend/src/components/simulation/FemConceptsPanel.tsx ee3aa47fd51f897fb98fd8c9b6972bce00848aa9
@@ -648,7 +652,7 @@ src/frontend/src/layout/commands.ts 1043309e329d181990ea9f6d97a85d1356716069
 src/frontend/src/layout/connectionsTabActions.ts 275800809774b2f370d8bfc7d1f049830e71c2df
 src/frontend/src/layout/controller.ts da65d4e9659b02307f8d4e40b87b4c2709042861
 src/frontend/src/layout/coreCommandIds.ts 1220ab59b66c01ca5d44e7c3187b0a82b7e63a57
-src/frontend/src/layout/coreCommands.ts 9b277a00bdfa5762f807e100e140f83bc2fcb284
+src/frontend/src/layout/coreCommands.ts 6df2f8405235e508d5927220748cc5535fa9d4af
 src/frontend/src/layout/coreDialogs.ts a16ab64efdd5353bc5063164c5d3c69c3ed59327
 src/frontend/src/layout/corePanelIds.ts 59f244df434543492ef0cfd8722359f7bb50a2f5
 src/frontend/src/layout/corePanels.ts 05833a4b04c7a8db25554f1759e8562fe90293e8
@@ -669,7 +673,7 @@ src/frontend/src/layout/markingMenuState.ts f9b0937230ffe716a196f8aa5b65ebfaed3a
 src/frontend/src/layout/measureActions.ts 54fdd419b53fa4d27e5034110c9aa17a9263c9e2
 src/frontend/src/layout/modeRequirements.ts dd3d65fc3176ae6f1b0e1f38dbd46836b64a7bc4
 src/frontend/src/layout/modes.ts 9902ae1d149c89d97d696fa8d1a5ffda9d4ec864
-src/frontend/src/layout/optionCommands.ts 28fe12da3a6b1607f366017c6eef2846ac8746b6
+src/frontend/src/layout/optionCommands.ts 81674f2860267b11cd2f7bde7df52efa77952119
 src/frontend/src/layout/panel.ts 10d4a5bd410ec4ba26bd275355de9f192717902b
 src/frontend/src/layout/panelActions.ts 2e121b00e28e5c1e5a0061aa8723e2a881e5b40f
 src/frontend/src/layout/panelStates.ts 0784b5edc483e5ff3d5fefb78b43a431a5c1a255
@@ -724,7 +728,7 @@ src/frontend/src/plugins/PluginSlots.tsx 518e0e08ef2be1bf3e387d40729360b91bb16f0
 src/frontend/src/plugins/UiShellHost.tsx bc33fbe2d3454b19f6c6f40ea6d4ef92a105c64d
 src/frontend/src/plugins/UiShellSwitcher.tsx 103f509bdb28b6ce16325b96fef3878f5990a106
 src/frontend/src/plugins/builderRefs.ts a1d15e3edd9b8f46681241723988aa3c275ba85c
-src/frontend/src/plugins/context.ts ce63c6c95e375a7233c73f70301c6502956ea14e
+src/frontend/src/plugins/context.ts b4275e5e8e9da07ea53bbc902ab751d6c0586d25
 src/frontend/src/plugins/coreUiShell.ts 93f37aeabfb9476f55c277813ffdf5dc41337080
 src/frontend/src/plugins/dialogs.ts 48de39f699ddd09595ca8b286976b9f8a7fc8da7
 src/frontend/src/plugins/index.ts 2047c873a62d580c3f4efa0853381aff53a28357
@@ -765,15 +769,15 @@ src/frontend/src/services/api/adminCorpus.ts e7cc208203c431713f308f9c7b51b9d7db2
 src/frontend/src/services/api/adminDb.ts c6476543d235ec5a067052cd24146d42acc4907d
 src/frontend/src/services/api/adminProjects.ts 9b17e65014ad038a75bf4146d78dc1873679dd56
 src/frontend/src/services/api/adminStorage.ts 876bfae91e89de6e2bab9d720f589f92b7c120f8
-src/frontend/src/services/api/adminUsers.ts 027b4c425abf84610a662881be070230f6692f79
+src/frontend/src/services/api/adminUsers.ts d83f7cea824196aed0f217df739542733266ecbb
 src/frontend/src/services/api/assetSchedules.ts 2032a3651fdf160c0d06be3ae01e10c523c6019f
 src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
-src/frontend/src/services/api/auth.ts 944ebf224d5754d843e64e44e6f2bd923c380bca
+src/frontend/src/services/api/auth.ts e284808556c4231159e39c8a99f9ed8e136da12b
 src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
-src/frontend/src/services/api/client.ts 85d634050fcf8fa3eca486d6debd959d74a723d8
+src/frontend/src/services/api/client.ts 302282d6a62b09a0d7a80599ce33c21592ca033b
 src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
-src/frontend/src/services/api/conversion.ts 991e6f6e2c8ca24ba35d3613eef923f327e6d896
+src/frontend/src/services/api/conversion.ts 05c007ea6c7aba587017190bfa1c90c5bc3fa80d
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
 src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
 src/frontend/src/services/api/equipmentTypes.ts 1d043d8b3a1f97853c3ddd95f7195030ae2cd8b4
@@ -787,7 +791,7 @@ src/frontend/src/services/api/nodeRelations.ts dd4b4d1505f1192b150410e429b1e9ffd
 src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d83c91ee
 src/frontend/src/services/api/plugins.ts 4c51d95b8533376961bd1825dbabbc24bdacd091
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
-src/frontend/src/services/api/procedural.ts e0f1ab7699fa689d29f1fe89a7e6393b43390bc0
+src/frontend/src/services/api/procedural.ts 5b69fe5b5e6dbc04c4a0c489aaafa3800b024eb3
 src/frontend/src/services/api/proceduralCatalog.ts 728c7df1b0c66dfb595a960ff7f234e72cd0003a
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
@@ -817,17 +821,19 @@ src/frontend/src/services/clashSpecProviders.ts 7b03e19f9fec35fcd8e8b2929969fff7
 src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239793289
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
 src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862fd5d6e8b9882391
+src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
+src/frontend/src/services/compute/executionPolicyModel.ts b8acb218d4a5eded5fb20778563c34dd674d585a
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
-src/frontend/src/services/compute/pluginJobRouter.ts df8c488e3df9dac07180aca2a0026b4933ad7c4e
-src/frontend/src/services/compute/workerAccess.ts 6f6b3e9dd62a6adf624e8a9daac4010a7f9a0c4c
+src/frontend/src/services/compute/pluginJobRouter.ts 966f2aed514afa9dc9251c65a2736821020a1717
+src/frontend/src/services/compute/workerAccess.ts 928b27f8f339594c9cc36af0c537239e3c1b7977
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
-src/frontend/src/services/conversion/index.ts 24ce61938db4cee948a8308a66c6aa3b37a2e889
-src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts c89e715567363a3b14e6540b2b136c29e4a9e838
-src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 80c400fe75ff7fed98133a31daa788c82e36b9ed
-src/frontend/src/services/conversion/pyodidePipeline.ts be3ba10c30ed0cb2fc4876d36235d4d5f78caf6f
-src/frontend/src/services/conversion/serializerMatrix.ts ea07fd1d2ef786b7d6c87d38cfcb64f0d30f7d7d
-src/frontend/src/services/conversion/serverPipeline.ts 51820f59a6ab959d2cbc2f6da1e21409fce60dd1
-src/frontend/src/services/conversion/wasmSupport.ts 27763766815ead01eb8d94c2ab2f56054696c90e
+src/frontend/src/services/conversion/index.ts 5263043cb64663524905a79252e49a05f3957dc8
+src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts 72333f1b30b2cfd373329156cfe8d290acfbd4a8
+src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 43e73c1fcff2c854533c8e1d64890c10b1f404e9
+src/frontend/src/services/conversion/pyodidePipeline.ts e048b4c1d162cde8d9ebcaccbd32e518814988b7
+src/frontend/src/services/conversion/serializerMatrix.ts 36b7ace58405963d5ed559c9cc852a107a6055a8
+src/frontend/src/services/conversion/serverPipeline.ts 03a443eaa63970724735801de83b29dab46bce57
+src/frontend/src/services/conversion/wasmSupport.ts 485fd1a678804563b678a3f67e61b8a5f01e0470
 src/frontend/src/services/devConnections/connectionBuilderSession.ts 4684e42c7acb8b5bed2153c3a603cd1eb7319e0a
 src/frontend/src/services/devConnections/previewOnShow.ts 8bf4253950e37cb6fe3471f171a88306ec110bb9
 src/frontend/src/services/devConnections/simulateDetail.ts 118edee7138413629ed9853b60c985e325bb0771
@@ -874,7 +880,7 @@ src/frontend/src/services/simulations/schemaForm.ts a6dfb0fbe08e0034e688ed717660
 src/frontend/src/services/sweepTracking.ts a46c50184a2822613bb0e3fa718893de3520adea
 src/frontend/src/services/transport.ts 3073a48c1dc02347859f8a3bccdcb184697e799f
 src/frontend/src/services/treeSets.ts 80efd31f057f07b6b76f00d5fff099da545bc69c
-src/frontend/src/services/viewerApi.ts 98aa5da1a91655da208adf85ea4dad3e0e758a76
+src/frontend/src/services/viewerApi.ts 93ce092de2576df3629bb8ba52f7b74143b24f0f
 src/frontend/src/services/viewerControl/answer.ts cfa797841f7f57a0ab21a9a764b14cc545c9f1b7
 src/frontend/src/services/viewerControl/commands.ts 4c72ce5e05ad9e408ededea2e8a044f2cf09c62d
 src/frontend/src/services/viewerControl/desktop.ts f4157bbbfbae6f699d5df1b6fd8eb79201a82919
@@ -882,8 +888,8 @@ src/frontend/src/services/viewerControl/gate.ts 39ef89b201f43e25624cc69b5db47c97
 src/frontend/src/services/viewerControl/realDeps.ts 32721377a82cf0dc98da8a371fa459170202b6ee
 src/frontend/src/services/viewerControl/socket.ts 6ca54ea3a71eca3244104c447f871bd9e2c9583e
 src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c54639f44
-src/frontend/src/state/AdaViewerContext.tsx 0a0735286079be92f6a2870c8685e387a560e98d
-src/frontend/src/state/adminPanelStore.ts b4b18388e1286b694f85ce92dd97979bf95f6147
+src/frontend/src/state/AdaViewerContext.tsx 6933d335ec5e02770f320d6b88128a2f966168e0
+src/frontend/src/state/adminPanelStore.ts b652d6cbde8f336d35b837f591d6b54e3db57ffc
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
 src/frontend/src/state/appearanceStore.ts 65eb9e4acaa53fca889a765ee8345fde72518770
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
@@ -914,7 +920,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts 0475de8f8b70eedb9eab1e5c2eeead0483e3f9d2
+src/frontend/src/state/cellbuilder/jobsSlice.ts ef5933a0b4084f894c2423284d08966f3a21712d
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -955,12 +961,12 @@ src/frontend/src/state/connectionGraphStore.ts 4a9599063a247c7978285bdf1a00af0ac
 src/frontend/src/state/connectionsOfferStore.ts c7fd8d76c9b988ba1c4d42689ebb4f036c6ce879
 src/frontend/src/state/consoleLogStore.ts 9c1746bc0c2fb3418ace51e05fd06c844f724fdf
 src/frontend/src/state/controlsProfileStore.ts 512eb9252179aaa5ec70bfcd2a8b062dcd951e91
-src/frontend/src/state/conversionEngineStore.ts e467a9ea618a8456d1212f127ab7d75f5ace294d
 src/frontend/src/state/conversionStore.ts 2f593d851a621d7b21661d6880b3e10b41536fa1
 src/frontend/src/state/convertPageStore.ts fc7de655281da8bc57c047b7c9ce248431fd8afb
 src/frontend/src/state/detailModelsStore.ts a0367026f08d07f70add07b00fc7783073c917d3
 src/frontend/src/state/engineCatalogStore.ts eebb54764358a3432bd1f445e8a37905cc3454da
 src/frontend/src/state/equipmentCatalogStore.ts 865ea617381a45f1fab17b8d922e1a895196728b
+src/frontend/src/state/executionPolicyStore.ts 89fe6cdc6781f0b9db0c43ec26079c7dda54a99f
 src/frontend/src/state/exportOptionsStore.ts 5f9b31077f5e21b1d1ced24d12ca117a6e247c44
 src/frontend/src/state/externalControlsStore.ts b343f94240de4268600be52b07d339f1887cf7f7
 src/frontend/src/state/externalModelsStore.ts 2350435a9d9a1cc99be55f413f3df16cc12ae9b0
@@ -1300,7 +1306,7 @@ src/frontend/src/utils/scene/fea/streaming/layerLines.ts 29fd6dca6931f1713be3975
 src/frontend/src/utils/scene/fea/streaming/layerOverlayTarget.ts 1b544b20bdb238f952b2b95f9d5f79978e5b5dbc
 src/frontend/src/utils/scene/fea/streaming/layerSession.ts 02fa25dff5d9ed775d27530eaffd49c057155025
 src/frontend/src/utils/scene/fea/streaming/legendSync.ts 63d46221d1a56c43bd62bc6ae6df3dea66a634c2
-src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts 02b1c77877d6a01a8ddde4eb32a0bba775a439dc
+src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts dbcba17136e62c1d84b8d588d54588bb717b5110
 src/frontend/src/utils/scene/fea/streaming/manifestStores.ts 4e3ed949a0259271fa74ffd7bfb0650875f7b2b0
 src/frontend/src/utils/scene/fea/streaming/meshFirst.ts 47313501ab62e60583d9870d18227490bc221e82
 src/frontend/src/utils/scene/fea/streaming/paintElemField.ts 538445e30b3ae272342f2a4f17082a289996dd02
