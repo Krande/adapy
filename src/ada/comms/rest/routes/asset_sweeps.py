@@ -292,11 +292,18 @@ async def start_sweep(
     schedule_id: str | None = None,
     collections: list[str] | None = None,
     summary: dict | None = None,
+    only_missing_full_export: bool = False,
 ) -> dict:
     """Record a sweep and start driving it. Returns the run. Raises :class:`SweepRefused`.
 
     ``summary`` seeds the run's run-level facts -- the full export an apply-changes run queues
     carries ``apply_changes_run_id``.
+
+    ``only_missing_full_export``: of the collections the run would cover (``collections``, else
+    every one offered), keep only those the provider store holds no full export of by this provider
+    -- the check an apply-changes run leaves a collection out by (``split_by_full_export``). The
+    ones dropped are named in the run's ``summary`` (``only_missing_full_export.exported``).
+    Refused when none is left, and for an apply-changes entry (it needs the full export first).
 
     ``collections``: only these (matched to the provider's spelling, refused when it does not offer
     one), in that order -- and then the provider's default exclusions do not apply: somebody named
@@ -327,6 +334,15 @@ async def start_sweep(
         collections = offered
     if not collections:
         raise SweepRefused(f"provider {provider!r} offers no collections to sweep")
+    if only_missing_full_export:
+        if entry.get("kind") == APPLY_CHANGES:
+            raise SweepRefused("only a full export can be limited to the collections missing one")
+        from .asset_apply_changes import split_by_full_export
+
+        collections, exported = await split_by_full_export(ctx, scope_obj, provider=provider, collections=collections)
+        if not collections:
+            raise SweepRefused(f"every collection already has a full export by provider {provider!r}")
+        summary = {**(summary or {}), "only_missing_full_export": {"exported": exported}}
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
     run = await db_module.insert_asset_sweep_run(
         pool,
@@ -353,7 +369,8 @@ async def start_sweep(
         name=f"asset-sweep-{run['id']}",
     )
     logger.info("asset sweep %s: %s %s over %d collection(s)", run["id"], provider, job, len(collections))
-    return run
+    # The collections it runs, as resolved here (a caller may have been narrowed to fewer).
+    return {**run, "collections": list(collections)}
 
 
 #: Upper bound on a sweep's parallel lanes, whatever a provider declares.
@@ -1149,8 +1166,9 @@ async def admin_asset_sweep_start(
     """Run a provider's sweep -- or its apply-changes entry -- once, now. Body: ``{provider, job,
     settings, collection?}`` -- the same choices a schedule of it is made from, and checked the same
     way. ``collection`` (or a ``collections`` list) runs only those; absent or empty, every
-    collection the provider offers. ``scope`` (from before the provider store) is accepted and
-    ignored: the run is driven in, and recorded under, the store."""
+    collection the provider offers. ``only_missing_full_export: true`` narrows those to the
+    collections without a full export yet (:func:`start_sweep`). ``scope`` (from before the
+    provider store) is accepted and ignored: the run is driven in, and recorded under, the store."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
@@ -1160,6 +1178,10 @@ async def admin_asset_sweep_start(
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
     named = body.get("collections") if isinstance(body.get("collections"), list) else [body.get("collection")]
     chosen = [str(c).strip() for c in named if isinstance(c, str) and c.strip()] or None
+    # "Run full export on the missing" of a finished apply-changes run: the two are linked as the
+    # follow-up `missing_full_export: export` queues is (each run's summary names the other).
+    from_run = body.get("apply_changes_run_id")
+    from_run = from_run.strip() if isinstance(from_run, str) and from_run.strip() else None
     scope_obj = PROVIDER_STORE
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
@@ -1191,9 +1213,17 @@ async def admin_asset_sweep_start(
             user=user,
             via="user",
             collections=chosen,
+            only_missing_full_export=body.get("only_missing_full_export") is True,
+            **({"summary": {"apply_changes_run_id": from_run}} if from_run else {}),
         )
     except SweepRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if from_run:
+        queued = {"run_id": run["id"], "collections": run["collections"]}
+        try:
+            await db_module.merge_asset_sweep_run_summary(pool, from_run, {"queued_full_exports": queued})
+        except Exception:  # noqa: BLE001 - the export runs either way; only the link is lost
+            logger.exception("asset sweep %s: could not link it to apply-changes run %s", run["id"], from_run)
     return JSONResponse(run, status_code=202)
 
 
