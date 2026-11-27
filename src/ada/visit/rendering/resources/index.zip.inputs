@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 ea81579d7632b433513f9f241352b48bed0608dc5889555295967f9284d662b7
-bundle-sha256 36a0de128e74fa3a52e890ceb4a900747e227363104c488c1ea728f2a42c7485
+inputs-sha256 7a9f988f121602f53752288b7c06e2ab8ae6a85ed611181d87c340b1b7c0c001
+bundle-sha256 c804ef82c8d2c2e08e9e0a520bec797939d4575a18bd1ed4b5724ceaf61d9135
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -1413,7 +1413,7 @@ src/frontend/src/utils/tree_view/modelSource.ts f3ced12682f81180b5712694210545ba
 src/frontend/src/utils/tree_view/revealInSourceScope.ts 8ec98fa87816622f9d50c523034051241d8a6d8d
 src/frontend/src/utils/tree_view/revealPick.ts 35899303c8d697ec4c3649b9157ceac4bc0e1062
 src/frontend/src/utils/tree_view/revealSearchHit.ts daf9fc319c392ff32ef251e35ee4213ee259ff11
-src/frontend/src/utils/tree_view/rootLabels.ts ebf6d8d40c135ebf2b26f3da160f26d4e7c16aa4
+src/frontend/src/utils/tree_view/rootLabels.ts 8fdf938d2cbaa8fc5262de3fd57b66257c69c6e0
 src/frontend/src/utils/tree_view/sceneTreeActions.ts e34ee093aa7fed328573cc6fa4abd8dd3ec9ca40
 src/frontend/src/utils/tree_view/treeGraph.ts fa236f907992c139ce27e3266351f92ffd0a8490
 src/frontend/src/utils/tree_view/treeKeyboard.ts 5b5b363fac83273d6a4de078dd535d0817d8b97e
