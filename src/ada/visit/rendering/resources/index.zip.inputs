@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 911059e2688a5dd0e540336979fda6946199c6d66eca2fe2d469f9a0313c681e
-bundle-sha256 77b2ebf8feee4b63c44fdd3f47c6ba28adcfd641dff7fa2b9287bf97c63e3295
+inputs-sha256 c3652f57f0ef94f13ff50fe500f0e74892f9b184be1cbc01c82f1b05701f18e6
+bundle-sha256 404b0988e28452c09c5860c367b8e7101536818ea78b11026adc123fecbcbe7a
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -824,10 +824,10 @@ src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862
 src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
 src/frontend/src/services/compute/executionPolicyModel.ts b8acb218d4a5eded5fb20778563c34dd674d585a
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
-src/frontend/src/services/compute/pluginJobRouter.ts 966f2aed514afa9dc9251c65a2736821020a1717
-src/frontend/src/services/compute/workerAccess.ts 928b27f8f339594c9cc36af0c537239e3c1b7977
+src/frontend/src/services/compute/pluginJobRouter.ts 316cbc32224fb1e8a62543387c1402223c01d4b8
+src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
-src/frontend/src/services/conversion/index.ts 5263043cb64663524905a79252e49a05f3957dc8
+src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
 src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts 72333f1b30b2cfd373329156cfe8d290acfbd4a8
 src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 43e73c1fcff2c854533c8e1d64890c10b1f404e9
 src/frontend/src/services/conversion/pyodidePipeline.ts e048b4c1d162cde8d9ebcaccbd32e518814988b7
@@ -920,7 +920,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts ef5933a0b4084f894c2423284d08966f3a21712d
+src/frontend/src/state/cellbuilder/jobsSlice.ts 3f847164e858ac29d16095073f195097cb3b44c8
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -1306,7 +1306,7 @@ src/frontend/src/utils/scene/fea/streaming/layerLines.ts 29fd6dca6931f1713be3975
 src/frontend/src/utils/scene/fea/streaming/layerOverlayTarget.ts 1b544b20bdb238f952b2b95f9d5f79978e5b5dbc
 src/frontend/src/utils/scene/fea/streaming/layerSession.ts 02fa25dff5d9ed775d27530eaffd49c057155025
 src/frontend/src/utils/scene/fea/streaming/legendSync.ts 63d46221d1a56c43bd62bc6ae6df3dea66a634c2
-src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts dbcba17136e62c1d84b8d588d54588bb717b5110
+src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts 4ee2788d1a25008c3be10f8355c8a06338e4f6e4
 src/frontend/src/utils/scene/fea/streaming/manifestStores.ts 4e3ed949a0259271fa74ffd7bfb0650875f7b2b0
 src/frontend/src/utils/scene/fea/streaming/meshFirst.ts 47313501ab62e60583d9870d18227490bc221e82
 src/frontend/src/utils/scene/fea/streaming/paintElemField.ts 538445e30b3ae272342f2a4f17082a289996dd02
