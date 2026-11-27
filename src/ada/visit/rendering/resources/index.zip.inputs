@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 78678cbdbe723e9e75a829d16f1999ea9e653467be8067391f7b7e8b6111b4f6
-bundle-sha256 3be3f98c3829e132466171dbf98e96745d5a16c95fa0fae6380c642cd313e0fe
+inputs-sha256 0695ace645674c8f3236d8cd631123ecb7b503c379d8f278d37694da7999ecaf
+bundle-sha256 298f7112336f970517e1cac00acd90def6c50c44133ca1d887864dbad99cbd50
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -422,7 +422,7 @@ src/frontend/src/components/storage/browser/useDragAndMenus.ts 8aff975282918736a
 src/frontend/src/components/storage/browser/useFileOps.ts e56095bcacf5c3e2a0c4b677e3a8cc13629e55d6
 src/frontend/src/components/storage/browser/useFolderTree.ts d1adbd4298a6b942c839a45da15de764860ba8ed
 src/frontend/src/components/storage/browser/useListKeyboardNav.ts fd7a56cd92784bb81466e12d938bd0dbf73b95ca
-src/frontend/src/components/storage/browser/useProceduralModels.ts 007491b63fd7d6a61f354f1561035b90f1664d3c
+src/frontend/src/components/storage/browser/useProceduralModels.ts 5c21bebd7005df996a4555fb2d17550e734da279
 src/frontend/src/components/storage/browser/useRowLoads.ts bbf726d9d7a666234f663e0897c47f29f422d6f7
 src/frontend/src/components/storage/browser/useUploads.ts 5210ca3358f5fdd8a77fdf01cad630f218d32204
 src/frontend/src/components/storage/storageMenuItems.tsx a0796d687ca5875904947bc6741cbfac5f849a51
@@ -826,6 +826,7 @@ src/frontend/src/services/compute/executionPolicyModel.ts b8acb218d4a5eded5fb207
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
 src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
 src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
+src/frontend/src/services/compute/proceduralBrowserEngine.ts 95dfb08f69677266493f87e31cd8bde3ccc7fa1a
 src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
 src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
@@ -921,7 +922,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts 3f847164e858ac29d16095073f195097cb3b44c8
+src/frontend/src/state/cellbuilder/jobsSlice.ts 46ad397ab819214d1dcef4b4265e3be430c5dd68
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -1188,8 +1189,8 @@ src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed5518117
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pluginWheels.ts cce69761fdb6b9c4a16ae7eeafa8f9a89a252f1f
-src/frontend/src/utils/pyodide/pyodide_converter.ts 8fa002426050935f96bb6fcc9071985c95b8a234
-src/frontend/src/utils/pyodide/pyodide_worker.js e21cd124e4b625f170acc3d3025b5673060a7dc1
+src/frontend/src/utils/pyodide/pyodide_converter.ts ab3b3fabccfa23cd3047c68700a0d0452451ae02
+src/frontend/src/utils/pyodide/pyodide_worker.js 741397fbb3a84c656fea684cdb405823418e3010
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
