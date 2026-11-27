@@ -339,9 +339,7 @@ async def start_sweep(
             raise SweepRefused("only a full export can be limited to the collections missing one")
         from .asset_apply_changes import split_by_full_export
 
-        collections, exported = await split_by_full_export(
-            ctx, scope_obj, provider=provider, collections=collections
-        )
+        collections, exported = await split_by_full_export(ctx, scope_obj, provider=provider, collections=collections)
         if not collections:
             raise SweepRefused(f"every collection already has a full export by provider {provider!r}")
         summary = {**(summary or {}), "only_missing_full_export": {"exported": exported}}

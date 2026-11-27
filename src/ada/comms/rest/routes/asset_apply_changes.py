@@ -193,9 +193,7 @@ async def has_full_export(ctx, scope_obj, *, provider: str, collection: str, sta
         return found
 
 
-async def split_by_full_export(
-    ctx, scope_obj, *, provider: str, collections: list[str]
-) -> tuple[list[str], list[str]]:
+async def split_by_full_export(ctx, scope_obj, *, provider: str, collections: list[str]) -> tuple[list[str], list[str]]:
     """``(missing, exported)``: ``collections`` in order, split by :func:`has_full_export` -- the
     same check that leaves a collection out of an apply-changes run, so "missing a full export"
     means the same thing on both sides. One store listing for the lot."""
