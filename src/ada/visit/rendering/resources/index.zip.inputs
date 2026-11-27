@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 b7d7df9cc8cf37e17c4314881730803c6f2a0e61d9a7283d6c44096075aea0aa
-bundle-sha256 fa628be837f4eca0beacf3141bcdce85f311937181fa315eea25babefd644752
+inputs-sha256 9aa0954116449b36d4a0ba0b6e738dea57af5efef5bde148ccd5b7e98eeb8bfb
+bundle-sha256 bb1306c25a952d6fddf757c30d2b27c43683950e2596ea96669e47acbffce8cb
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -27,12 +27,13 @@ src/frontend/src/app.tsx fb12000225a79d57e8a5f0e85c228bb9d205fe54
 src/frontend/src/assets/assetIndex.ts bad5bbe1ea58389e1c69f9c8b5f7be536ee60e12
 src/frontend/src/assets/assetView.ts 66e05155d9bd41294c6bff3f9b62be5e194386c1
 src/frontend/src/assets/attributeSearch.ts e9f2b520b7d68587b30e949a3b2c50e4081c0fdc
+src/frontend/src/assets/buildUpload.ts 8c14eab7d5e5461262c352d77629bacb918ac02e
 src/frontend/src/assets/changeRuns.ts 6826bac981f027e59b8f52306b2a57d3b985cc99
 src/frontend/src/assets/changes.ts 51299d39716df3796f26bd1643d6234d65ad705b
 src/frontend/src/assets/collectionChoices.ts 20536f08b4e9f35bba8a854c26d3dc3c1356ace3
 src/frontend/src/assets/collectionRequest.ts a4aea84ea370c9ddd2b541d95ccd00b603e9ce4d
 src/frontend/src/assets/coverage.ts 5bb3e6d2c1b4ed1a59e0b0566d0fb02a7eb4099b
-src/frontend/src/assets/delivery.ts 7920e3673f650327c784a540274c7b618aae42c5
+src/frontend/src/assets/delivery.ts e41044cad775781933d3fbbdea968b4b01227f5c
 src/frontend/src/assets/floatingWindow.ts f196749921aa28f672277ce0a6c392408104fc4c
 src/frontend/src/assets/freshness.ts 88feea8d5c7aabddb2049b9460aa540ee4619ead
 src/frontend/src/assets/geometryMarks.ts d256e52ecce85d3569798ef5418af306eb0ea977
@@ -61,7 +62,7 @@ src/frontend/src/assets/treeKeys.ts 4b8c26b920df3021bad155a825c170c3f7e34278
 src/frontend/src/assets/treeServerSearch.ts ebe4ded69e2c1783df44fe3b938509b8387a3cce
 src/frontend/src/assets/treeSets.ts 21b4a3d0c1444cf6d4f562a0a85b2675d11be3e8
 src/frontend/src/assets/treeView.ts 58a412483eb148bb7186c703a25cec1f023d5f14
-src/frontend/src/assets/types.ts 26c74289bbaa7d40aaee361a33b8fa7c10af1dde
+src/frontend/src/assets/types.ts 537bb863f650f53adb266f5ff9a17f15ae361d0a
 src/frontend/src/components/OptionsComponent.tsx f6266bc4631a3600fc88d9fd16a427f95c0e5b05
 src/frontend/src/components/ViewerWindow.tsx a9568e397344f73ead0c6606e829783590878ce5
 src/frontend/src/components/WebsocketStatusMenu.tsx a5beec21340fa1f2f16f21cd86a8033cf1ff955b
@@ -192,7 +193,7 @@ src/frontend/src/components/asset_browser/assetsTab/Detail.tsx 19f973862c87efea4
 src/frontend/src/components/asset_browser/assetsTab/LoadControls.tsx 50aee6b23c7e7cce7b58d0a05b4af66a624cba56
 src/frontend/src/components/asset_browser/assetsTab/RequestControls.tsx eaf5ca9ff41931179ecdf4c90380c74f9f25424d
 src/frontend/src/components/asset_browser/assetsTab/chrome.tsx be5ac1869a73817b350ce233a291c2b7ecc5cbc4
-src/frontend/src/components/asset_browser/assetsTab/delivery.ts dcbaca98c0be394bb99d260ae9809b3cbf1f97fe
+src/frontend/src/components/asset_browser/assetsTab/delivery.ts aa741e5d6a3995a98df17541e1d50746b68108b9
 src/frontend/src/components/asset_browser/assetsTab/loads.ts 64588fd45700ab581cdf6ad9f1da18c926d70cce
 src/frontend/src/components/asset_browser/assetsTab/useJointsCheck.ts 5fb536648d4455a97c02686898f7a108d46b68e1
 src/frontend/src/components/asset_browser/assetsTab/useNodeRequests.ts 3014a1b6a79d2c6c0b7fa85ded02fb52bd383210
@@ -771,7 +772,7 @@ src/frontend/src/services/api/adminProjects.ts 9b17e65014ad038a75bf4146d78dc1873
 src/frontend/src/services/api/adminStorage.ts 876bfae91e89de6e2bab9d720f589f92b7c120f8
 src/frontend/src/services/api/adminUsers.ts d83f7cea824196aed0f217df739542733266ecbb
 src/frontend/src/services/api/assetSchedules.ts 8570cbf18c2d6d4f416980519dc778165d2914a1
-src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
+src/frontend/src/services/api/assets.ts a5bec4ae2fcbb103ec421565333ea28209105180
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts e284808556c4231159e39c8a99f9ed8e136da12b
 src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
@@ -820,9 +821,10 @@ src/frontend/src/services/clash/contactRuns.ts 8bc196a03170bd08e7dc287a3cb03bda3
 src/frontend/src/services/clashSpecProviders.ts 7b03e19f9fec35fcd8e8b2929969fff72400cb3c
 src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239793289
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
+src/frontend/src/services/compute/assetBuild.ts 809b1a2772ffafbab23cec45e672d58fb88a04e3
 src/frontend/src/services/compute/browserBeamSolids.ts 7c1002ad36deb0e5be941a862fd5d6e8b9882391
 src/frontend/src/services/compute/executionPolicy.ts 63ff4ac1a407271502a10506f3a0d3b40072b22c
-src/frontend/src/services/compute/executionPolicyModel.ts 72a8e7212f88c2d973119785eb03b6b1d1b3e775
+src/frontend/src/services/compute/executionPolicyModel.ts ab987f22b46ef35cc967056b21a3635821b34010
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
 src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
 src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
