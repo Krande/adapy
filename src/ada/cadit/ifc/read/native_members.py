@@ -145,9 +145,34 @@ def _beam_from(member: dict):
         return None
     import numpy as np
 
-    if float(np.linalg.norm(np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float))) < 1e-9:
+    axis = np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float)
+    length = float(np.linalg.norm(axis))
+    if length < 1e-9:
         return None  # a zero-length member is not one; it would divide by zero downstream
-    return Beam(member["name"] or member["guid"], p1, p2, sec, guid=member["guid"] or None)
+    return Beam(
+        member["name"] or member["guid"], p1, p2, sec, up=_beam_up(member, axis / length), guid=member["guid"] or None
+    )
+
+
+def _beam_up(member: dict, xvec: "np.ndarray"):
+    """The beam's ``up``: the swept profile's +y, in world -- or None to keep ``Beam``'s default.
+
+    A section's outline is stated in the profile's own frame, whose +x and +y are a beam's
+    ``yvec`` and ``up``. Without this every beam took ``Beam``'s default ``up`` and so its
+    section came back rotated about the axis -- a wrong answer for anything not symmetric about
+    both axes, and a wrong footprint for every clash. Left at the default only when the file
+    states no swept plane, or one whose profile is not square to the reference line (a profile
+    not normal to the axis is not a section of it)."""
+    import numpy as np
+
+    if any(member.get(k) is None for k in ("placement", "xdir", "normal")):
+        return None
+    m4 = _world(member["placement"])
+    up = np.cross(_to_world_dir(m4, member["normal"]), _to_world_dir(m4, member["xdir"]))
+    n = float(np.linalg.norm(up))
+    if n < 1e-9 or abs(float(np.dot(up / n, xvec))) > 1e-6:
+        return None
+    return up / n
 
 
 def _plate_from(member: dict):
