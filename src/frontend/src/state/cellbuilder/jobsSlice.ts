@@ -109,6 +109,12 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       let wheel: { entrypoint: string; deps: string[]; url: string } | null = null;
       if (engineArg) {
         const eng = get().engines.find((e) => e.slug === engineSlug);
+        if (eng && eng.origin === "worker") {
+          // A worker-advertised engine compiles on that worker; there is nothing
+          // to resolve for the browser.
+          set({ compileJob: null });
+          return "server-only";
+        }
         if (eng && eng.origin !== "builtin") {
           const resolved = await capabilities.procedural.resolveEngine(currentScopePart(), eng.id);
           if (resolved.kind === "wheel") {

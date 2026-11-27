@@ -149,6 +149,14 @@ def test_a_local_engines_blueprints_are_offered(app_client: TestClient, local_en
         blueprint_catalog._BLUEPRINT_REGISTRY.pop(local_engine, None)
 
 
+def test_a_worker_advertised_engine_resolves_as_server_side(app_client: TestClient):
+    """The engine list hands out ``worker:<slug>`` ids for engines a worker advertises;
+    they have no catalog row, and the browser compile must hear "server", not a 404."""
+    resolved = app_client.get("/api/scopes/shared/procedural-engines/worker:some-engine/resolve")
+    assert resolved.status_code == 200
+    assert resolved.json() == {"kind": "server", "entrypoint": None, "ready": False}
+
+
 def test_an_engine_registered_in_process_is_offered_and_compiles(app_client: TestClient, local_engine: str):
     """A local viewer's tool registers its engine at import; the queue-less server lists
     it (origin "local") and compiles with it in-process."""

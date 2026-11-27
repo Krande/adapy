@@ -698,7 +698,8 @@ async function ensureStacks(format, target) {
     if (format === "fea") return ensureFemStack();
     if (format === "fea_glb") return ensureFemStack(); // SIF/SIN result → single GLB
     if (format === "mesh") return ensureMeshStack();
-    if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // ifcopenshell geometry fast path
+    // ifc → glb goes through adapy (from_ifc + to_gltf, tessellated by adacpp) so the
+    // GLB carries the scene hierarchy; it falls through to the SAT + IFC stacks below.
     if (format === "step" && tgt === "glb") return ensureStepStack(); // adacpp fast path
     if (format === "fem") {
         await ensureFemStack();

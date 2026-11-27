@@ -160,7 +160,15 @@ def _ifc_to_glb(src: str) -> bytes:
 def _to_glb(fmt: str, src: str) -> bytes:
     """Produce GLB for a geometry source via its most reliable path."""
     if fmt == "ifc":
-        return _ifc_to_glb(src)
+        # adapy's own path first: it writes the scene-extras hierarchy
+        # (``id_hierarchy`` + draw ranges) the selection tree and picking read, as
+        # the server's IFC conversion does. The bare ifcopenshell iterator writes
+        # none, so it is only the fallback for what adapy cannot load.
+        try:
+            return _export_assembly(_load_assembly("ifc", src), "glb")
+        except Exception as exc:  # noqa: BLE001 -- any adapy failure falls back
+            print(f"wasm_convert: adapy IFC path failed ({exc!r}); using the ifcopenshell fast path")
+            return _ifc_to_glb(src)
     if fmt in ("step", "stp"):
         with open(src, "rb") as fh:
             return _step_to_glb(fh.read())

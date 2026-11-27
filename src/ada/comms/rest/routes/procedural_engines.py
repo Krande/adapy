@@ -310,6 +310,10 @@ async def api_procedural_engines_resolve(
     if local is not None:
         # Compiled by this server, never in the browser.
         return JSONResponse({"kind": "server", "entrypoint": local["doc"]["entrypoint"], "ready": False})
+    if engine_id.startswith("worker:"):
+        # Advertised by a worker (the list hands out ``worker:<slug>`` ids): it has
+        # no catalog row, and compiles on that worker, never in the browser.
+        return JSONResponse({"kind": "server", "entrypoint": None, "ready": False})
     pool = require_catalog_pool(request)
     row = await _get_engine_in_scope(pool, engine_id, scope_obj)
     doc = row.get("doc") or {}
