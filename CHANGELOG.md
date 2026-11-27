@@ -2,6 +2,13 @@
 
 
 
+## v0.177.0 (2026-11-27)
+
+### Feature
+
+* feat: in-browser compute by default, opt-in worker pool access per user (#608) ([`f4c424b`](https://github.com/Krande/adapy/commit/f4c424b55afaed1b83830e2eb81d59f76bae13d0))
+
+
 ## v0.176.1 (2026-11-27)
 
 ### Fix
