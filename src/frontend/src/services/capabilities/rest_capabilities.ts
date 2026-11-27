@@ -322,13 +322,14 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
       return await viewerApi.exportProceduralModelXlsx(scope, modelId, {
         engine: opts?.engine,
         force: opts?.force,
+        runOnWorker: opts?.runOnWorker,
       });
     }
     return await viewerApi.exportProceduralModel(
       scope,
       modelId,
       format,
-      opts ? { force: opts.force, cad: opts.cad } : undefined,
+      opts ? { force: opts.force, cad: opts.cad, runOnWorker: opts.runOnWorker } : undefined,
     );
   }
 
@@ -344,9 +345,21 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
     return await viewerApi.uploadProceduralImportXlsx(scope, data);
   }
 
-  async importXlsx(scope: string, body: ProceduralXlsxImportRequest): Promise<ProceduralXlsxImportResponse> {
+  async importXlsx(
+    scope: string,
+    body: ProceduralXlsxImportRequest,
+    opts?: { runOnWorker?: boolean },
+  ): Promise<ProceduralXlsxImportResponse> {
     const { viewerApi } = await api();
-    return await viewerApi.importProceduralModelXlsx(scope, body);
+    return await viewerApi.importProceduralModelXlsx(scope, body, opts);
+  }
+
+  async createModelWithDoc(scope: string, name: string, doc: unknown): Promise<ProceduralModelDetail> {
+    const { viewerApi } = await api();
+    // The two ordinary calls a template uses: create the row, commit the document.
+    const created = await viewerApi.createProceduralModel(scope, name);
+    await viewerApi.commitProceduralModel(scope, created.id, doc as ProceduralDoc, created.revision);
+    return await viewerApi.getProceduralModel(scope, created.id);
   }
 
   async fetchImportedModel(scope: string, derivedKey: string): Promise<ProceduralModelDetail> {
@@ -358,9 +371,13 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
 
   // ---- Relocations --------------------------------------------------------------------------
 
-  async proposeRelocations(scope: string, modelId: string): Promise<ProceduralRelocationResponse> {
+  async proposeRelocations(
+    scope: string,
+    modelId: string,
+    opts?: { runOnWorker?: boolean },
+  ): Promise<ProceduralRelocationResponse> {
     const { viewerApi } = await api();
-    return await viewerApi.proposeProceduralRelocations(scope, modelId);
+    return await viewerApi.proposeProceduralRelocations(scope, modelId, opts);
   }
 
   async fetchRelocations(scope: string, key: string): Promise<ProceduralRelocationResult> {

@@ -9,8 +9,10 @@
 
 import {capabilities} from "@/services/capabilities";
 import type {ProceduralRelocationResult} from "@/services/viewerApi";
+import {runProceduralIo} from "@/services/compute/proceduralIo";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart, setProceduralToast} from "./shared";
+import {awaitProceduralJob, equipmentFor, proceduralIoTask, runInBrowser} from "./proceduralIoSupport";
 
 export interface RelocationsSlice {
   /** The last relocation proposals (or null). Populated by proposeRelocations;
@@ -50,69 +52,55 @@ export const createRelocationsSlice: CellBuilderSlice<RelocationsSlice> = (set, 
         progress: 0,
         startedAt: Date.now(),
       });
+      const toast = `Relocations: ${label}`;
+      const scope = currentScopePart();
       try {
-        const res = await capabilities.procedural.proposeRelocations(
-          currentScopePart(),
-          active.modelId,
+        // Where the execution policy's "procedural_io" order says: in the browser
+        // (core's relocate on the committed document, with the catalog equipment it
+        // places), else the worker job, whose proposals are a stored blob.
+        const doc = get().toDoc();
+        const { value: data } = await runProceduralIo<ProceduralRelocationResult>(
+          await proceduralIoTask(get, "propose_relocations", { doc }),
+          {
+            browser: async () => {
+              setProceduralToast(toast, { status: "running", stage: "analyzing in browser" });
+              const answer = await runInBrowser("propose_relocations", {
+                doc,
+                equipment: await equipmentFor(get, doc),
+              });
+              return JSON.parse(new TextDecoder().decode(answer)) as ProceduralRelocationResult;
+            },
+            worker: async (explicit) => {
+              const res = await capabilities.procedural.proposeRelocations(scope, active.modelId, {
+                runOnWorker: explicit,
+              });
+              let key = res.derived_key;
+              if (res.job_id) {
+                key =
+                  (await awaitProceduralJob(
+                    res.job_id,
+                    (st) =>
+                      setProceduralToast(toast, {
+                        status: "running",
+                        progress: st.progress ?? 0,
+                        stage: st.stage || "analyzing",
+                      }),
+                    { firstDelayMs: 1500 },
+                  )) || res.derived_key;
+              }
+              return capabilities.procedural.fetchRelocations(scope, key);
+            },
+          },
         );
-        if (!res.job_id) {
-          const data = await capabilities.procedural.fetchRelocations(
-            currentScopePart(),
-            res.derived_key,
-          );
-          set({ relocations: data, relocationBusy: false });
-          setProceduralToast(`Relocations: ${label}`, {
-            status: "done",
-            progress: 1,
-            stage: `${data.proposals.length} proposed`,
-          });
-          return;
-        }
-        const jobId = res.job_id;
-        const poll = async () => {
-          try {
-            const st = await capabilities.procedural.jobStatus(jobId);
-            if (st.status === "done") {
-              const data = await capabilities.procedural.fetchRelocations(
-                currentScopePart(),
-                st.derived_key || res.derived_key,
-              );
-              set({ relocations: data, relocationBusy: false });
-              setProceduralToast(`Relocations: ${label}`, {
-                status: "done",
-                progress: 1,
-                stage: data.proposals.length
-                  ? `${data.proposals.length} proposed`
-                  : "no moves needed",
-              });
-              return;
-            }
-            if (st.status === "error") {
-              set({ relocationBusy: false });
-              setProceduralToast(`Relocations: ${label}`, {
-                status: "error",
-                error: st.error ?? "relocation analysis failed",
-              });
-              return;
-            }
-            setProceduralToast(`Relocations: ${label}`, {
-              status: "running",
-              progress: st.progress ?? 0,
-              stage: st.stage || "analyzing",
-            });
-            setTimeout(poll, 1500);
-          } catch (e) {
-            set({ relocationBusy: false });
-            setProceduralToast(`Relocations: ${label}`, {
-              status: "error",
-              error: e instanceof Error ? e.message : String(e),
-            });
-          }
-        };
-        setTimeout(poll, 1500);
+        set({ relocations: data, relocationBusy: false });
+        setProceduralToast(toast, {
+          status: "done",
+          progress: 1,
+          stage: data.proposals.length ? `${data.proposals.length} proposed` : "no moves needed",
+        });
       } catch (e) {
         set({ relocationBusy: false });
-        setProceduralToast(`Relocations: ${label}`, {
+        setProceduralToast(toast, {
           status: "error",
           error: e instanceof Error ? e.message : String(e),
         });

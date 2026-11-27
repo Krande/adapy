@@ -281,6 +281,10 @@ export interface ProceduralModelCapability {
    * `baseRevision`. Rejects with `ProceduralCommitConflictError` if the model moved on. */
   commitModel(scope: string, modelId: string, doc: ProceduralDoc, baseRevision: number): Promise<ProceduralCommitResult>;
 
+  /** Create a model named `name` and commit `doc` as its first revision (an import the
+   * browser parsed). Resolves to the stored model. */
+  createModelWithDoc(scope: string, name: string, doc: unknown): Promise<ProceduralModelDetail>;
+
   // ---- Build jobs ---------------------------------------------------------------------------
   //
   // Compile, preview and export all answer with a `ProceduralCompileResponse`: either the
@@ -318,7 +322,11 @@ export interface ProceduralModelCapability {
   stageXlsxImport(scope: string, data: Blob | ArrayBuffer): Promise<ProceduralXlsxDetect>;
 
   /** Queue the import of a staged workbook as a new model. Poll with `jobStatus`. */
-  importXlsx(scope: string, body: ProceduralXlsxImportRequest): Promise<ProceduralXlsxImportResponse>;
+  importXlsx(
+    scope: string,
+    body: ProceduralXlsxImportRequest,
+    opts?: ProceduralWorkerChoice,
+  ): Promise<ProceduralXlsxImportResponse>;
 
   /** Resolve the model an import job produced (its result artifact names the model). */
   fetchImportedModel(scope: string, derivedKey: string): Promise<ProceduralModelDetail>;
@@ -327,7 +335,11 @@ export interface ProceduralModelCapability {
 
   /** Ask for equipment relocation proposals for `modelId`. A null `job_id` means the analysis
    * was already cached under `derived_key`; otherwise poll with `jobStatus`. */
-  proposeRelocations(scope: string, modelId: string): Promise<ProceduralRelocationResponse>;
+  proposeRelocations(
+    scope: string,
+    modelId: string,
+    opts?: ProceduralWorkerChoice,
+  ): Promise<ProceduralRelocationResponse>;
 
   /** Read the proposals an analysis stored under `key`. */
   fetchRelocations(scope: string, key: string): Promise<ProceduralRelocationResult>;
@@ -403,6 +415,14 @@ export interface ProceduralExportOptions {
   engine?: string | null;
   /** ifc only: include CAD geometry. */
   cad?: boolean;
+  /** The user chose the worker over the browser (X-Ada-Run-On). */
+  runOnWorker?: boolean;
+}
+
+/** A worker job the browser could also have run: `runOnWorker` says the worker was
+ * chosen over it (X-Ada-Run-On), which the server judges by the execution policy. */
+export interface ProceduralWorkerChoice {
+  runOnWorker?: boolean;
 }
 
 export interface ProceduralXlsxImportRequest {

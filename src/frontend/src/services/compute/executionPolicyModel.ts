@@ -7,7 +7,7 @@
 // Free of stores and React: the resolver (executionPolicy.ts), the admin editor
 // and the tests all build on it.
 
-export const EXEC_OPERATIONS = ["convert", "read", "fea_bake", "procedural_compile", "plugin_job"] as const;
+export const EXEC_OPERATIONS = ["convert", "read", "fea_bake", "procedural_compile", "plugin_job", "procedural_io"] as const;
 export type ExecOperation = (typeof EXEC_OPERATIONS)[number];
 
 export const EXEC_ENGINES = ["native", "pyodide", "worker"] as const;
@@ -21,12 +21,16 @@ export const WILDCARD = "*";
 /** Operations whose qualifier is the lower-case source extension incl. the dot. */
 export const EXTENSION_OPERATIONS: ReadonlySet<ExecOperation> = new Set(["convert", "read", "fea_bake"]);
 
+/** Operations whose qualifier is a procedural engine slug. */
+export const ENGINE_OPERATIONS: ReadonlySet<ExecOperation> = new Set(["procedural_compile", "procedural_io"]);
+
 export const OPERATION_LABELS: Record<ExecOperation, string> = {
     convert: "Convert (converter page, re-convert)",
     read: "Open for viewing",
     fea_bake: "FEA result bake",
     procedural_compile: "Procedural compile",
     plugin_job: "Plugin job",
+    procedural_io: "Procedural Excel, relocations and IFC/Genie export",
 };
 
 export const ENGINE_LABELS: Record<ExecEngine, string> = {
@@ -42,6 +46,7 @@ export const QUALIFIER_HINTS: Record<ExecOperation, string> = {
     fea_bake: ".ext",
     procedural_compile: "engine slug",
     plugin_job: "plugin id",
+    procedural_io: "engine slug",
 };
 
 const BROWSER_FIRST: ExecEngine[] = ["pyodide", "worker"];
@@ -55,6 +60,7 @@ export const DEFAULT_EXECUTION_POLICY: Readonly<Record<ExecOperation, Readonly<R
     fea_bake: {"*": BROWSER_FIRST},
     procedural_compile: {"*": BROWSER_FIRST},
     plugin_job: {"*": BROWSER_FIRST},
+    procedural_io: {"*": BROWSER_FIRST},
 };
 
 /** A deep, mutable copy of the defaults. */
@@ -80,7 +86,7 @@ export function normaliseQualifier(op: ExecOperation, qualifier: string): {value
             : {error: `${op}: qualifier '${qualifier}' must be '*' or a source extension with its dot (e.g. '.ifc')`};
     }
     if (NAME_QUALIFIER.test(q)) return {value: q};
-    const what = op === "procedural_compile" ? "an engine slug" : "a plugin id";
+    const what = ENGINE_OPERATIONS.has(op) ? "an engine slug" : "a plugin id";
     return {error: `${op}: qualifier '${qualifier}' must be '*' or ${what}`};
 }
 

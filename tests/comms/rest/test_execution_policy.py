@@ -47,7 +47,7 @@ def test_defaults_are_todays_routing():
         assert d[op]["*"] == ["pyodide", "worker"]
         for ext in (".ifc", ".step", ".stp"):
             assert d[op][ext] == ["native", "pyodide", "worker"]
-    for op in ("fea_bake", "procedural_compile", "plugin_job"):
+    for op in ("fea_bake", "procedural_compile", "plugin_job", "procedural_io"):
         assert d[op] == {"*": ["pyodide", "worker"]}
     # A copy: mutating it leaves the module default alone.
     d["convert"]["*"].append("native")
@@ -83,6 +83,7 @@ def test_validate_normalises():
         ({"convert": {".ifc": ["worker"], ".IFC": ["native"]}}, "more than once"),
         ({"plugin_job": {"bad id": ["worker"]}}, "plugin id"),
         ({"procedural_compile": {"": ["worker"]}}, "engine slug"),
+        ({"procedural_io": {"bad slug": ["worker"]}}, "engine slug"),
     ],
 )
 def test_validate_rejects(doc, fragment):
@@ -133,6 +134,13 @@ def test_job_operation_mapping():
         "plugin_job",
         "example-plugin",
     )
+    # A procedural model's workbook export / import, relocations and IFC/Genie export.
+    for feature in ("procedural_export", "procedural_import", "procedural_relocations"):
+        assert ep.job_operation(feature, conversion_options={"engine": "Wheel-Engine"}) == (
+            "procedural_io",
+            "wheel-engine",
+        )
+        assert ep.job_operation(feature, conversion_options={"engine": None}) == ("procedural_io", "*")
     # Not an operation the policy covers.
     assert ep.job_operation("asset_build", source_key="x") is None
     assert ep.job_operation("utilities", source_key="x.xlsx") is None
@@ -261,6 +269,41 @@ async def test_bake_compile_and_plugin_jobs_map_to_their_operation(policy_db, ch
     await transport.submit(
         JobRequest(source_key="r.sif", target_format="fea_artefacts", scope=Scope.shared(), feature="bake", user=user)
     )
+
+
+@pytest.mark.asyncio
+async def test_procedural_io_jobs_are_judged_as_procedural_io(policy_db, chose_worker):
+    """An explicit worker choice for an Excel export / import, a relocation proposal or an
+    IFC/Genie export is refused when ``procedural_io`` does not list the worker; the
+    engine slug is the qualifier, the "*" row the rest."""
+    policy_db["global"] = {"procedural_io": {"*": ["pyodide"], "wheel-engine": ["pyodide", "worker"]}}
+    queue = _FakeQueue(enqueued=[])
+    transport = QueueJobTransport(queue, {}, pool=lambda: object())
+    user = _user()
+
+    def _req(feature: str, target: str, engine: str | None) -> JobRequest:
+        return JobRequest(
+            source_key=f"_synthetic/procedural/{target}/m/1",
+            target_format=target,
+            scope=Scope.shared(),
+            feature=feature,
+            conversion_options={"model_id": "m", "revision": 1, "engine": engine},
+            user=user,
+        )
+
+    for feature, target in (
+        ("procedural_export", "procedural_export_xlsx"),
+        ("procedural_export", "procedural_export_model"),
+        ("procedural_import", "procedural_import_xlsx"),
+        ("procedural_relocations", "procedural_relocations"),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await transport.submit(_req(feature, target, None))
+        assert exc.value.status_code == 403
+        assert "procedural_io (*)" in exc.value.detail
+    assert queue.enqueued == []
+    await transport.submit(_req("procedural_export", "procedural_export_xlsx", "wheel-engine"))
+    assert len(queue.enqueued) == 1
 
 
 @pytest.mark.asyncio

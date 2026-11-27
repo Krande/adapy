@@ -498,6 +498,37 @@ export async function runProceduralEngineViaPyodide(
     return result;
 }
 
+/** What `runProceduralIoViaPyodide` runs (ada.topo_model.wasm_io.run's actions). */
+export type ProceduralIoAction = "export_xlsx" | "import_xlsx" | "propose_relocations" | "export_model";
+
+/** A procedural model's Excel export / import, relocation proposals or IFC/Genie
+ * export in the browser Pyodide worker (ada.topo_model.wasm_io.run), the same engine
+ * calls the server's jobs make. `engineId` names an engine a baked plugin wheel
+ * registers (its install plans are installed first, as for a compile); null is a
+ * built-in engine. Resolves to the file bytes (export_xlsx / export_model) or the
+ * UTF-8 JSON answer (import_xlsx: the document; propose_relocations: the proposals). */
+export async function runProceduralIoViaPyodide(
+    action: ProceduralIoAction,
+    payload: Record<string, unknown>,
+    opts?: {onLog?: (msg: string) => void; engineId?: string | null; data?: Uint8Array | null},
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const engineId = opts?.engineId ?? null;
+    const plans = engineId ? await pluginPlans(engineId) : null;
+    if (engineId && !plans) throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${engineId}"`);
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const data = opts?.data ?? null;
+    worker.postMessage(
+        {type: "run-procedural-io", reqId, action, payload: JSON.stringify(payload), engineId, plans, data},
+        data ? [data.buffer] : [],
+    );
+    return result;
+}
+
 /** Backwards-compatible IFC entry point — keeps existing callers working. */
 export async function convertIfcViaPyodide(
     bytes: ArrayBuffer,

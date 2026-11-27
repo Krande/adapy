@@ -578,6 +578,66 @@ async function runProceduralEngine(engineId, docJson, plans, lod) {
     return compileProcedural(docJson, engineId, null, lod);
 }
 
+// openpyxl for the default engine's workbook (a baked plugin's plan brings its own):
+// a baked copy (with et-xmlfile, its one dependency) when the boot config names one,
+// else micropip by name, which resolves et-xmlfile too.
+let openpyxlPromise = null;
+async function ensureOpenpyxl() {
+    if (!openpyxlPromise) {
+        openpyxlPromise = (async () => {
+            try {
+                await pyodide.runPythonAsync("import openpyxl");
+                return;
+            } catch (_) {
+                /* not installed yet */
+            }
+            if (runtimeWheels.openpyxl && runtimeWheels["et-xmlfile"]) await installRuntimeWheel("et-xmlfile");
+            await installRuntimeWheel("openpyxl");
+        })();
+        openpyxlPromise.catch(() => {
+            openpyxlPromise = null;
+        });
+    }
+    return openpyxlPromise;
+}
+
+// A procedural model's Excel export / import, relocation proposals or IFC/Genie
+// export (ada.topo_model.wasm_io.run): the procedural stack, the engine's plugin when
+// a baked wheel registers it (plans), openpyxl for a workbook, ifcopenshell for IFC.
+// Returns bytes: the file, or the UTF-8 JSON answer of import_xlsx / propose_relocations.
+async function runProceduralIo(action, payloadJson, data, engineId, plans) {
+    await ensureProceduralStack();
+    if (Array.isArray(plans) && plans.length > 0) {
+        await ensurePluginPlans(engineId, plans);
+    }
+    if (action === "export_xlsx" || action === "import_xlsx") await ensureOpenpyxl();
+    let format = "";
+    try {
+        format = String(JSON.parse(payloadJson).format || "").toLowerCase();
+    } catch (_) {
+        /* the Python side reports a bad payload */
+    }
+    if (action === "export_model" && format === "ifc") await ensureIfcStack();
+    pyodide.globals.set("_pio_action", action);
+    pyodide.globals.set("_pio_payload", payloadJson);
+    pyodide.globals.set("_pio_data", data ? new Uint8Array(data) : new Uint8Array(0));
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.topo_model.wasm_io as _pio
+_pio_bytes = bytes(_pio_data.to_py())
+_pio_out = _pio.run(_pio_action, _pio_payload, _pio_bytes or None)
+_pio_out.encode("utf-8") if isinstance(_pio_out, str) else _pio_out
+`);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        for (const g of ["_pio_action", "_pio_payload", "_pio_data", "_pio_bytes", "_pio_out"]) {
+            try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
+        }
+    }
+}
+
 // Every cell dispatches through `import ada.cadit.wasm_convert`, so the adapy
 // wheel is a precondition of all of them, not just the CAD formats. ada's
 // __init__ is eager, hence trimesh + pyquaternion first (numpy comes from
@@ -998,6 +1058,23 @@ self.onmessage = async (e) => {
         const reqId = data.reqId;
         try {
             const bytes = await runProceduralEngine(data.engineId, data.doc, data.plans, data.lod);
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
+        }
+        return;
+    }
+
+    if (data.type === "run-procedural-io") {
+        const reqId = data.reqId;
+        try {
+            const bytes = await runProceduralIo(data.action, data.payload, data.data, data.engineId, data.plans);
             let heap = 0;
             try {
                 heap = pyodide._module.HEAP8.length;

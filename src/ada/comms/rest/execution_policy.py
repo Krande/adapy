@@ -17,8 +17,9 @@ The policy DOCUMENT is a JSON object keyed by operation, then by qualifier::
 
 Operations (:data:`OPERATIONS`): ``convert`` (an explicit conversion: the converter
 page, a re-convert), ``read`` (loading a source for viewing), ``fea_bake``,
-``procedural_compile`` (qualifier: engine slug) and ``plugin_job`` (qualifier:
-plugin id). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
+``procedural_compile`` (qualifier: engine slug), ``plugin_job`` (qualifier:
+plugin id) and ``procedural_io`` (a procedural model's Excel export / import, its
+relocation proposals and its IFC/Genie export; qualifier: engine slug). For ``convert``/``read``/``fea_bake`` the qualifier is the lower-case
 source extension including the dot (``".ifc"``). A lookup takes the row for
 ``(operation, qualifier)`` and otherwise ``(operation, "*")``.
 
@@ -49,11 +50,16 @@ from . import db as db_module
 
 logger = logging.getLogger(__name__)
 
-OPERATIONS: tuple[str, ...] = ("convert", "read", "fea_bake", "procedural_compile", "plugin_job")
+OPERATIONS: tuple[str, ...] = ("convert", "read", "fea_bake", "procedural_compile", "plugin_job", "procedural_io")
 ENGINES: tuple[str, ...] = ("native", "pyodide", "worker")
 WILDCARD = "*"
 #: Operations whose qualifier is a source extension (``".ifc"``).
 EXTENSION_OPERATIONS: frozenset[str] = frozenset({"convert", "read", "fea_bake"})
+#: Operations whose qualifier is a procedural engine slug.
+ENGINE_OPERATIONS: frozenset[str] = frozenset({"procedural_compile", "procedural_io"})
+#: The job features of a procedural model's Excel export / import, relocation proposals and
+#: IFC/Genie export: the ``procedural_io`` operation, which the browser runs first.
+PROCEDURAL_IO_FEATURES: frozenset[str] = frozenset({"procedural_export", "procedural_import", "procedural_relocations"})
 
 _EXT_QUALIFIER = re.compile(r"^\.[a-z0-9][a-z0-9_+-]{0,31}$")
 _NAME_QUALIFIER = re.compile(r"^[a-z0-9][a-z0-9_.:@/+-]{0,127}$")
@@ -69,6 +75,7 @@ DEFAULT_POLICY: dict[str, dict[str, list[str]]] = {
     "fea_bake": {"*": _BROWSER_FIRST},
     "procedural_compile": {"*": _BROWSER_FIRST},
     "plugin_job": {"*": _BROWSER_FIRST},
+    "procedural_io": {"*": _BROWSER_FIRST},
 }
 
 
@@ -93,7 +100,7 @@ def normalise_qualifier(operation: str, qualifier: str) -> str:
             )
         return q
     if not _NAME_QUALIFIER.match(q):
-        what = "an engine slug" if operation == "procedural_compile" else "a plugin id"
+        what = "an engine slug" if operation in ENGINE_OPERATIONS else "a plugin id"
         raise ExecutionPolicyError(f"{operation}: qualifier {qualifier!r} must be '*' or {what}")
     return q
 
@@ -237,6 +244,9 @@ def job_operation(
     if feature == "procedural_build":
         engine = str(opts.get("engine") or "").strip().lower()
         return "procedural_compile", engine or WILDCARD
+    if feature in PROCEDURAL_IO_FEATURES:
+        engine = str(opts.get("engine") or "").strip().lower()
+        return "procedural_io", engine or WILDCARD
     if feature == "plugin_jobs":
         pid = str(plugin_id or opts.get("plugin_id") or "").strip().lower()
         return "plugin_job", pid or WILDCARD
