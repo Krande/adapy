@@ -45,9 +45,22 @@ from ..catalog import merge_catalog_specs
 from ..job_transport import JobRequest
 from ..queue import capability_token
 from ..scope import Scope
+from ..worker.provider_reads import ProviderDataNotGranted, ProviderReads
 from .deps import RestContext, optional_pool, rest_context, scope_from_path
 
 router = APIRouter()
+
+
+def _reads(ctx: RestContext, scope: Scope, request: Request | None) -> ProviderReads:
+    """Where this request's reads of members go: a provider dataset the scope was GRANTED is read
+    from the provider store (``routes/provider_store.py``), the way the viewer's asset routes read
+    it and the job will. Reading the scope alone refuses, as "no manifest", a member the viewer just
+    loaded. One per request, so a group asks the grant table once per collection."""
+    return ProviderReads(ctx.storage, scope, optional_pool(request))
+
+
+def _not_found(key: str, exc: Exception) -> str:
+    return str(exc) if isinstance(exc, ProviderDataNotGranted) else f"no manifest at {key}"
 
 
 def _options_from_body(raw: object) -> ClashOptions:
@@ -68,14 +81,14 @@ def _group_from_body(raw: object) -> dict:
         raise HTTPException(status_code=400, detail=f"bad group: {exc}") from exc
 
 
-async def _source_content_token(ctx: RestContext, scope: Scope, source_key: str) -> str:
+async def _source_content_token(reads: ProviderReads, source_key: str) -> str:
     """A cheap token that changes when the source's bytes change, used ONLY to shape the derived
     key -- never stored as the result's ``source_sha256`` (the worker computes a real one from
     the downloaded bytes; see ``formats/clash_check.py``). ``head()``'s ``e_tag`` is a real
     content discriminator when the backend reports one (S3/Garage always do); falling back to the
     key itself means a same-content re-upload under a NEW key is a cache MISS, which is the safe
     direction -- never serving a stale check silently."""
-    head = await ctx.storage.head(scope, source_key)
+    head = await reads.head(source_key)
     token = (head or {}).get("e_tag") or source_key
     return hashlib.sha256(str(token).encode("utf-8")).hexdigest()[:16]
 
@@ -88,7 +101,7 @@ def _options_token(options: ClashOptions) -> str:
 _GEOMETRY_STATE_SALT = "ada.clash/geometry-state@1"
 
 
-async def _geometry_options_token(ctx: RestContext, scope: Scope, options: ClashOptions, collections) -> str:
+async def _geometry_options_token(reads: ProviderReads, options: ClashOptions, collections) -> str:
     """The options token, with -- when the check reads through a geometry provider -- what is
     published in every collection its members are matched in.
 
@@ -114,7 +127,7 @@ async def _geometry_options_token(ctx: RestContext, scope: Scope, options: Clash
 
     parts = [token, f"match={MATCH_RULES}"]
     for collection in sorted(set(collections)):
-        entries = await ctx.storage.list_prefix(scope, f"{ASSET_PREFIX}/{collection}/")
+        entries = await reads.list_prefix(f"{ASSET_PREFIX}/{collection}/")
         parts.append(f"{collection}={listing_token(entries, salt=_GEOMETRY_STATE_SALT)}")
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
@@ -130,9 +143,8 @@ class _ScopeStorageBridge:
     costs a few round trips' worth of time rather than one per manifest.
     """
 
-    def __init__(self, ctx: RestContext, scope: Scope, loop: asyncio.AbstractEventLoop, *, concurrency: int = 16):
-        self._ctx = ctx
-        self._scope = scope
+    def __init__(self, reads: ProviderReads, loop: asyncio.AbstractEventLoop, *, concurrency: int = 16):
+        self._reads = reads
         self._loop = loop
         self._concurrency = concurrency
 
@@ -140,10 +152,10 @@ class _ScopeStorageBridge:
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
     def list_keys(self, prefix: str = "") -> list[str]:
-        return [e.key for e in self._run(self._ctx.storage.list_prefix(self._scope, prefix))]
+        return [e.key for e in self._run(self._reads.list_prefix(prefix))]
 
     def get_bytes(self, key: str) -> bytes:
-        return self._run(self._ctx.storage.get_bytes(self._scope, key))
+        return self._run(self._reads.get_bytes(key))
 
     def get_many(self, keys) -> dict[str, bytes | None]:
         return self._run(self._gather(list(keys)))
@@ -154,7 +166,7 @@ class _ScopeStorageBridge:
         async def one(key: str) -> tuple[str, bytes | None]:
             async with gate:
                 try:
-                    return key, await self._ctx.storage.get_bytes(self._scope, key)
+                    return key, await self._reads.get_bytes(key)
                 except (FileNotFoundError, KeyError):
                     return key, None
 
@@ -386,7 +398,7 @@ async def api_clash_check(
         # A file has one reader and no provider, so the choice cannot change what is checked; it is
         # dropped rather than let it split one check into two cache entries.
         options = replace(options, geometry_provider=None)
-    key_token = await _source_content_token(ctx, scope_obj, source_key)
+    key_token = await _source_content_token(_reads(ctx, scope_obj, request), source_key)
     options_token = _options_token(options)
     prefix = f"_derived/clash/{key_token}/{options_token}"
     derived_key = f"{prefix}/result.json"
@@ -419,7 +431,7 @@ async def api_clash_check(
     return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
 
 
-async def _asset_manifest(ctx: RestContext, scope: Scope, collection: str, subject: str, revision):
+async def _asset_manifest(reads: ProviderReads, collection: str, subject: str, revision):
     """A published subject's manifest at ``revision`` (latest complete when None) -- WITHOUT asking
     for a source artefact.
 
@@ -433,7 +445,7 @@ async def _asset_manifest(ctx: RestContext, scope: Scope, collection: str, subje
     from ada.assets.keys import asset_key
     from ada.assets.manifest import MANIFEST_FILENAME, ManifestError, parse_manifest
 
-    revision = revision or await _latest_asset_revision(ctx, scope, collection, subject)
+    revision = revision or await _latest_asset_revision(reads, collection, subject)
     if revision is None:
         raise HTTPException(
             status_code=404,
@@ -441,16 +453,16 @@ async def _asset_manifest(ctx: RestContext, scope: Scope, collection: str, subje
         )
     key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
     try:
-        raw = await ctx.storage.get_bytes(scope, key)
+        raw = await reads.get_bytes(key)
     except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=f"no manifest at {key}") from exc
+        raise HTTPException(status_code=404, detail=_not_found(key, exc)) from exc
     try:
         return parse_manifest(raw)
     except ManifestError as exc:
         raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
 
 
-async def _asset_source_key(ctx: RestContext, scope: Scope, collection: str, subject: str, revision):
+async def _asset_source_key(reads: ProviderReads, collection: str, subject: str, revision):
     """The blob a published subject's check will run against, and the revision it resolved to.
 
     Read from the manifest rather than taken from the caller: the source may be one upload shared
@@ -461,7 +473,7 @@ async def _asset_source_key(ctx: RestContext, scope: Scope, collection: str, sub
     from ada.assets.keys import asset_key
     from ada.assets.manifest import MANIFEST_FILENAME, ManifestError, parse_manifest
 
-    revision = revision or await _latest_asset_revision(ctx, scope, collection, subject)
+    revision = revision or await _latest_asset_revision(reads, collection, subject)
     if revision is None:
         raise HTTPException(
             status_code=404,
@@ -469,9 +481,9 @@ async def _asset_source_key(ctx: RestContext, scope: Scope, collection: str, sub
         )
     key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
     try:
-        raw = await ctx.storage.get_bytes(scope, key)
+        raw = await reads.get_bytes(key)
     except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=f"no manifest at {key}") from exc
+        raise HTTPException(status_code=404, detail=_not_found(key, exc)) from exc
     try:
         manifest = parse_manifest(raw)
     except ManifestError as exc:
@@ -490,13 +502,13 @@ async def _asset_source_key(ctx: RestContext, scope: Scope, collection: str, sub
     return (entry.key or asset_key(collection, subject, revision, entry.file)), manifest
 
 
-async def _latest_asset_revision(ctx: RestContext, scope: Scope, collection: str, subject: str):
+async def _latest_asset_revision(reads: ProviderReads, collection: str, subject: str):
     """Newest revision that HAS a manifest -- written last, so a manifest-less newer one is a
     half-written publish and must not shadow the last good revision."""
     from ada.assets.index import fold_listing
     from ada.assets.keys import ASSET_PREFIX
 
-    entries = await ctx.storage.list_prefix(scope, f"{ASSET_PREFIX}/{collection}/{subject}/")
+    entries = await reads.list_prefix(f"{ASSET_PREFIX}/{collection}/{subject}/")
     entry = fold_listing([e.key for e in entries]).subject(collection, subject)
     if entry is None:
         return None
@@ -518,7 +530,8 @@ async def _submit_asset_node_check(
 ) -> JSONResponse:
     """Enqueue a check over a published node. Same derived-key shape as the file path."""
     asked_revision = body.get("revision") or None
-    manifest = await _asset_manifest(ctx, scope_obj, collection, subject, asked_revision)
+    reads = _reads(ctx, scope_obj, request)
+    manifest = await _asset_manifest(reads, collection, subject, asked_revision)
 
     if options.geometry_provider == manifest.provider:
         # Its own provider IS the geometry provider: the same check as asking for none, and the same
@@ -533,7 +546,7 @@ async def _submit_asset_node_check(
 
         source_key = asset_key(collection, subject, manifest.revision, MANIFEST_FILENAME)
     else:
-        source_key, manifest = await _asset_source_key(ctx, scope_obj, collection, subject, manifest.revision)
+        source_key, manifest = await _asset_source_key(reads, collection, subject, manifest.revision)
     asked_provider = str(body.get("provider") or "")
     if asked_provider and asked_provider != manifest.provider:
         # The caller is acting on a view that has moved. Refused rather than checked against the
@@ -549,12 +562,12 @@ async def _submit_asset_node_check(
     capability = await _route_with_reader(
         ctx, capability, options.geometry_provider, needs=f"clash checker {options.checker or BUILTIN_CHECKER!r}"
     )
-    key_token = await _source_content_token(ctx, scope_obj, source_key)
+    key_token = await _source_content_token(reads, source_key)
     # The SUBJECT rides the token as well as the blob: one export is commonly shared by many
     # subjects, so a token over the bytes alone would serve one storey's joints for another's.
     node = str(body.get("node") or subject)
     scope_token = hashlib.sha256(f"{collection}/{subject}/{manifest.revision}/{node}".encode()).hexdigest()[:16]
-    options_token = await _geometry_options_token(ctx, scope_obj, options, [collection])
+    options_token = await _geometry_options_token(reads, options, [collection])
     prefix = f"_derived/clash/{key_token}/{scope_token}/{options_token}"
     derived_key = f"{prefix}/result.json"
 
@@ -595,7 +608,7 @@ async def _submit_asset_node_check(
     return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
 
 
-async def _resolve_group(ctx: RestContext, scope: Scope, group: dict) -> tuple[dict, dict[str, str]]:
+async def _resolve_group(reads: ProviderReads, group: dict) -> tuple[dict, dict[str, str]]:
     """The group with every node's revision (and provider) resolved, and a content token per source.
 
     Resolved HERE rather than on the worker for the same reason the node form resolves its
@@ -612,14 +625,14 @@ async def _resolve_group(ctx: RestContext, scope: Scope, group: dict) -> tuple[d
         if target["kind"] == "file":
             key = f"file:{target['source_key']}"
             if key not in content:
-                content[key] = await _source_content_token(ctx, scope, target["source_key"])
+                content[key] = await _source_content_token(reads, target["source_key"])
             members.append(member)
             continue
         asked = (target["collection"], target["subject"], target["revision"])
         if asked not in manifests:
             # The manifest only: revision and provider. See `_asset_manifest` for why a member
             # with no source artefact is not refused here.
-            manifests[asked] = await _asset_manifest(ctx, scope, *asked)
+            manifests[asked] = await _asset_manifest(reads, *asked)
         manifest = manifests[asked]
         if target["provider"] and target["provider"] != manifest.provider:
             # Same rule as the node form: the caller is acting on a view that has moved.
@@ -653,7 +666,8 @@ async def _submit_group_check(
     No source to pre-download (the members are read by ``ada.clash.group_model``), so the kind is
     synthetic, like the node form's; ``source_key`` is the ``group:<token>`` the result will carry.
     """
-    resolved, content = await _resolve_group(ctx, scope_obj, group)
+    reads = _reads(ctx, scope_obj, request)
+    resolved, content = await _resolve_group(reads, group)
     gp = options.geometry_provider
     if gp is not None and all(
         m["target"]["kind"] == "file" or m["target"].get("provider") == gp for m in resolved["members"]
@@ -666,7 +680,7 @@ async def _submit_group_check(
     )
     token = group_token(resolved["members"], content)
     collections = [m["target"]["collection"] for m in resolved["members"] if m["target"]["kind"] == "node"]
-    prefix = group_derived_prefix(token, await _geometry_options_token(ctx, scope_obj, options, collections))
+    prefix = group_derived_prefix(token, await _geometry_options_token(reads, options, collections))
     derived_key = f"{prefix}/result.json"
 
     if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
@@ -1123,6 +1137,7 @@ async def api_clash_geometry_providers(
 @router.post("/scopes/{scope}/clash-check/geometry-plan")
 async def api_clash_geometry_plan(
     body: dict,
+    request: Request,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
@@ -1150,10 +1165,11 @@ async def api_clash_geometry_plan(
     group_raw = body.get("group")
     if group_raw is not None and (collection or subject):
         raise HTTPException(status_code=400, detail="name the members ONE way: 'group', or 'collection' + 'subject'")
+    reads = _reads(ctx, scope_obj, request)
     if group_raw is not None:
-        group, _ = await _resolve_group(ctx, scope_obj, _group_from_body(group_raw))
+        group, _ = await _resolve_group(reads, _group_from_body(group_raw))
     elif collection and subject:
-        manifest = await _asset_manifest(ctx, scope_obj, collection, subject, body.get("revision") or None)
+        manifest = await _asset_manifest(reads, collection, subject, body.get("revision") or None)
         group = node_group(
             provider=manifest.provider,
             collection=collection,
@@ -1164,7 +1180,7 @@ async def api_clash_geometry_plan(
     else:
         raise HTTPException(status_code=400, detail="'group', or 'collection' and 'subject' together, is required")
 
-    storage = _ScopeStorageBridge(ctx, scope_obj, asyncio.get_running_loop())
+    storage = _ScopeStorageBridge(reads, asyncio.get_running_loop())
     plan = await asyncio.to_thread(plan_geometry, group, provider, storage=storage)
     return JSONResponse(plan)
 

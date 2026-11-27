@@ -101,6 +101,20 @@ class ProviderReads:
             return [e.key for e in await self._storage.list_prefix(where, prefix) if e.key.startswith(prefix)]
         return [e.key for e in await self._storage.list(self._scope) if e.key.startswith(prefix)]
 
+    async def list_prefix(self, prefix: str) -> list:
+        """The listing entries (key, size, e_tag, ...) under ``prefix``, from where it is read."""
+        return await self._storage.list_prefix(await self.scope_for(prefix), prefix)
+
+    async def head(self, key: str) -> Optional[dict]:
+        """``key``'s head from where it is read: the store's copy when the grant answers for it,
+        else the scope's (``_read``'s rule)."""
+        where = await self.scope_for(key)
+        if where != self._scope:
+            head = await self._storage.head(where, key)
+            if head is not None:
+                return head
+        return await self._storage.head(self._scope, key)
+
     async def _read(self, key: str, read):
         where = await self.scope_for(key)
         if where != self._scope:
