@@ -282,10 +282,13 @@ export function useProceduralModels(p: {
 
     // Instantiate a new model from a template: commit the template's document
     // verbatim (so loft members / systems survive untouched — the cellbuilder's
-    // box round-trip would drop them), open it, then compile it through the
-    // builder, which routes the build like any other compile (the execution
-    // policy's "procedural_compile" order: in the browser where the template's
-    // engine has a browser path, else on the worker).
+    // box round-trip would drop them), then open it. Nothing is compiled here:
+    // the model opens like any stored model and builds when the user asks
+    // (Compile, or opening a result view, which previews it). A build started here
+    // would be one the user did not ask for, landing whenever it finishes (a first
+    // browser build installs the engine first, so many seconds later) in the middle
+    // of whatever the user is doing with the model by then. The server compile this
+    // used to post only stored a GLB it never showed; a browser build stores nothing.
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
@@ -301,11 +304,7 @@ export function useProceduralModels(p: {
             const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
             const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
             await refreshProceduralModels();
-            const builder = useCellBuilderStore.getState();
-            builder.open(fresh.id, fresh.name, revision, fresh.doc);
-            // Compile so the model is rendered at once. Best-effort: a failed build
-            // shows in the builder, and the model is open to recompile.
-            void builder.compile().catch(() => undefined);
+            useCellBuilderStore.getState().open(fresh.id, fresh.name, revision, fresh.doc);
         } catch (e) {
             void alertDialog({title: "Failed to create from template", body: errorText(e), tone: "danger"});
         }

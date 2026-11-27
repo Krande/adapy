@@ -2,8 +2,8 @@
 //
 // A real build needs Pyodide, which `node --test` does not run, so this pins the routing at the
 // source (as replaceSource.test.ts does for the loaders):
-//  - Compile (committed), Compile preview and a template's first compile build in the browser
-//    first, and reach the server worker only when the execution policy's "procedural_compile"
+//  - Compile (committed) and Compile preview build in the browser first (creating a model from
+//    a template builds nothing until asked), and reach the server worker only when the execution policy's "procedural_compile"
 //    order says so (worker first, or after a failed browser build) or when the build has no
 //    browser path (services/compute/proceduralBrowserEngine, tested on its own);
 //  - the browser build uploads nothing: no server compile/preview call, no blob write;
@@ -84,15 +84,19 @@ test("handing a build to the server removes the browser's toast", () => {
   );
 });
 
-test("a template's first compile goes through the builder's routing", () => {
+test("creating a model from a template opens it and starts no build", () => {
+  // A build the user did not ask for lands whenever it finishes (a first browser build installs
+  // the engine first), in the middle of whatever the user does with the model by then, and it
+  // stores nothing. The model builds when asked: Compile, or opening a result view.
   const src = read("components/storage/browser/useProceduralModels.ts");
   const start = src.indexOf("const createProceduralModelFromTemplate = async");
   assert.ok(start >= 0);
   const b = src.slice(start, src.indexOf("\n    };", start));
-  assert.ok(!b.includes("compileProceduralModel("), "template create must not post a worker compile itself");
-  const openAt = b.indexOf(".open(fresh.id");
-  const compileAt = b.indexOf("builder.compile()");
-  assert.ok(openAt >= 0 && compileAt > openAt, "the model is opened, then compiled by the builder");
+  assert.match(b, /commitProceduralModel\(scopeKey, detail\.id, tpl\.doc, detail\.revision\)/);
+  assert.match(b, /\.open\(fresh\.id, fresh\.name, revision, fresh\.doc\)/);
+  for (const build of ["compileProceduralModel(", "previewProceduralModel(", ".compile(", ".compilePreview(", "compileInBrowser("]) {
+    assert.ok(!b.includes(build), `template create must not start a build (${build})`);
+  }
 });
 
 test("committing stores the model on the server", () => {
