@@ -3,9 +3,9 @@
 // Interactive compute workloads default to browser Pyodide/WASM when the plugin
 // has a baked wheel in `/wheels/plugin-wheels-manifest.json`. Users granted
 // worker-pool access (globally or for the requested capability via GET /api/me)
-// can opt into "Run on Worker" for long-duration jobs. Server-only formats
-// (e.g. native `.odb` conversion) route to the worker pool when permitted and
-// surface a clear capability notice when denied.
+// can opt into "Run on Worker" for long-duration jobs; only that explicit choice
+// is judged by the server's policy. A plugin with no browser path runs on the
+// worker pool for everyone.
 
 import { runtime } from "@/runtime/config";
 import type { WorkerAccessPolicy } from "@/services/api/auth";
@@ -30,7 +30,8 @@ export interface PluginWheelsManifest {
 
 export type ExecutionDecision =
   | { target: "browser" }
-  | { target: "worker" }
+  // explicit: the user chose the worker over the browser (sent as X-Ada-Run-On).
+  | { target: "worker"; explicit?: boolean }
   | { target: "denied"; reason: string; capability?: string };
 
 export interface BrowserPluginJobOutcome {
@@ -65,8 +66,9 @@ export function decideExecutionTarget(params: {
   const { wasmCapable, workerAccess, capability, preferWorker } = params;
   const workerAllowed = canUseWorker(workerAccess, capability);
 
-  if (preferWorker) {
-    if (workerAllowed) return { target: "worker" };
+  // Choosing the worker is only a choice when the browser could run it.
+  if (preferWorker && wasmCapable) {
+    if (workerAllowed) return { target: "worker", explicit: true };
     return {
       target: "denied",
       capability: capability ?? undefined,
@@ -80,17 +82,9 @@ export function decideExecutionTarget(params: {
     return { target: "browser" };
   }
 
-  if (workerAllowed) {
-    return { target: "worker" };
-  }
-
-  return {
-    target: "denied",
-    capability: capability ?? undefined,
-    reason: capability
-      ? `This workload requires server worker pool access ('${capability}'). Ask an administrator to enable it in the Admin Panel.`
-      : "This workload requires server worker pool access. Ask an administrator to enable it in the Admin Panel.",
-  };
+  // No browser path: nothing to choose between, so the worker runs it for
+  // everyone (the server's access policy judges only an explicit worker choice).
+  return { target: "worker" };
 }
 
 /** Fetch and cache `/wheels/plugin-wheels-manifest.json`. Returns `{ plugins: {} }`
@@ -160,7 +154,7 @@ export async function dispatchPluginJob(params: {
         derived_prefix: params.derivedPrefix,
         capability: params.capability,
       },
-      { scope: params.scope },
+      { scope: params.scope, runOnWorker: decision.explicit === true },
     );
     return { execution: "worker", ...queued };
   }

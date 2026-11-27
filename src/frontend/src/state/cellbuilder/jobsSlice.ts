@@ -168,7 +168,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
   // The browser is the default engine (see services/compute/workerAccess): a
   // simulation build runs there unless the user opted into the worker pool and
   // may use it. The detail LOD runs the server's detailing stack, so it stays a
-  // worker job (refused with a clear message without worker access).
+  // worker job; with no browser path to choose against, it is never refused.
   const buildsInBrowser = (lod: "sim" | "detail") => lod === "sim" && !workerPreferred();
 
   return {
@@ -210,6 +210,8 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
           engine: get().selectedEngine,
           detailing: get().selectedDetailing,
           detailingOptions: get().detailingOptionsPayload(),
+          // Only a simulation build has a browser path to choose against.
+          runOnWorker: lod === "sim" && workerPreferred(),
         }),
       );
     },

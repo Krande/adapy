@@ -320,10 +320,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def _reset_request_user_middleware(request, call_next):
+        from .worker_access import (
+            requests_worker,
+            reset_explicit_worker_choice,
+            set_explicit_worker_choice,
+        )
+
         token = auth_module.set_request_user(None)
+        choice = set_explicit_worker_choice(requests_worker(request.headers))
         try:
             return await call_next(request)
         finally:
+            reset_explicit_worker_choice(choice)
             auth_module.reset_request_user(token)
 
     # A connection library served live (`ada dev connections`), when ADA_DEV_CONNECTIONS names one.

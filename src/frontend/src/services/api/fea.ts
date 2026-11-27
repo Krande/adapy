@@ -6,7 +6,7 @@ import { runtime } from "@/runtime/config";
 
 import type { FemConcepts } from "@/extensions/design_and_analysis_extension";
 import { fetchFeaCase, fetchFeaManifest, fetchResultMeta } from "@/services/feaManifestPoll";
-import { authedFetch, authHeader, jsonOrThrow, type ScopeUrl } from "./client";
+import { authedFetch, authHeader, jsonOrThrow, withRunOnWorker, type ScopeUrl } from "./client";
 import { conversionApi } from "./conversion";
 
 export interface ResultMetaField {
@@ -667,10 +667,12 @@ export const feaApi = {
       signal?: AbortSignal;
       /** Mesh first: each preliminary manifest of a running bake. */
       onPartial?: (manifest: FeaManifest, info: { jobId: string }) => void | Promise<void>;
+      /** The user chose the worker over an in-browser bake (X-Ada-Run-On). */
+      runOnWorker?: boolean;
     },
   ): Promise<FeaManifest> {
     return fetchFeaManifest({
-      fetcher: authedFetch,
+      fetcher: opts?.runOnWorker ? withRunOnWorker(authedFetch) : authedFetch,
       convertStatus: (jobId) => conversionApi.convertStatus(jobId),
       apiBase: runtime.apiBase(),
       scope,

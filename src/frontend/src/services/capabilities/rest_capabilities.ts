@@ -273,6 +273,7 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
       opts.engine,
       opts.detailing,
       opts.detailingOptions,
+      opts.runOnWorker,
     );
   }
 

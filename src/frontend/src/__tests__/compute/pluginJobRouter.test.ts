@@ -60,27 +60,22 @@ describe("pluginJobRouter worker access & browser-first routing", () => {
       capability: "batch",
       preferWorker: true,
     });
-    assert.deepEqual(allowed, { target: "worker" });
+    // Marked explicit: the request carries X-Ada-Run-On and the server judges it.
+    assert.deepEqual(allowed, { target: "worker", explicit: true });
   });
 
-  it("handles server-only workloads (.odb / abaqus) with clear denial vs capability override", () => {
-    const denied = decideExecutionTarget({
-      wasmCapable: false,
-      workerAccess: { enabled: false, allowed_capabilities: [], effective_all: false },
-      capability: "abaqus",
-    });
-    assert.equal(denied.target, "denied");
-    if (denied.target === "denied") {
-      assert.equal(denied.capability, "abaqus");
-      assert.match(denied.reason, /abaqus/);
+  it("runs a workload with no browser path on the worker for everyone, unjudged", () => {
+    // Nothing to choose between, so no access is needed and nothing is marked
+    // explicit -- with or without preferWorker.
+    for (const preferWorker of [false, true]) {
+      const decision = decideExecutionTarget({
+        wasmCapable: false,
+        workerAccess: { enabled: false, allowed_capabilities: [], effective_all: false },
+        capability: "abaqus",
+        preferWorker,
+      });
+      assert.deepEqual(decision, { target: "worker" });
     }
-
-    const allowed = decideExecutionTarget({
-      wasmCapable: false,
-      workerAccess: { enabled: false, allowed_capabilities: ["abaqus"], effective_all: false },
-      capability: "abaqus",
-    });
-    assert.deepEqual(allowed, { target: "worker" });
   });
 
   it("loads plugin-wheels-manifest.json and reports WASM capability", async () => {

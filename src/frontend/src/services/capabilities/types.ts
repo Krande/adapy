@@ -386,6 +386,8 @@ export interface ProceduralBuildOptions {
   /** Fabrication-detail engine slug applied after the structural build; "none" = structural only. */
   detailing?: string | null;
   detailingOptions?: DetailingOptionsPayload | null;
+  /** The user chose the worker over the in-browser compile (X-Ada-Run-On). */
+  runOnWorker?: boolean;
 }
 
 export interface ProceduralCompileLog {
@@ -540,6 +542,8 @@ export interface FeaManifestOptions {
    *  fields as they land), before the call resolves with the final one. A
    *  transport without partial results never calls it. */
   onPartial?: (manifest: FeaManifest, info: {jobId: string}) => void | Promise<void>;
+  /** The user chose the worker over an in-browser bake (X-Ada-Run-On). */
+  runOnWorker?: boolean;
 }
 
 export interface FeaCapability {

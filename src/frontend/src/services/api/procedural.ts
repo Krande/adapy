@@ -10,6 +10,7 @@ import {
   authedFetch,
   jsonOrThrow,
   readDetail,
+  runOnWorkerHeaders,
   toQueryString,
   type ScopeUrl,
 } from "./client";
@@ -264,6 +265,8 @@ export const proceduralApi = {
     engine?: string | null,
     detailing?: string | null,
     detailingOptions?: DetailingOptionsPayload | null,
+    // The user chose the worker over the in-browser compile (X-Ada-Run-On).
+    runOnWorker?: boolean,
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
@@ -290,7 +293,7 @@ export const proceduralApi = {
     const qs = toQueryString(params);
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
-      { method: "POST" },
+      { method: "POST", headers: runOnWorkerHeaders(runOnWorker) },
     );
     return jsonOrThrow<ProceduralCompileResponse>(
       r,

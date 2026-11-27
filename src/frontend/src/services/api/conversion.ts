@@ -8,6 +8,7 @@ import {
   authedFetch,
   jsonOrThrow,
   readDetail,
+  runOnWorkerHeaders,
   type ConvertStatus,
   type ScopeUrl,
   type TargetFormat,
@@ -138,6 +139,8 @@ export const conversionApi = {
       // Re-convert: always re-run and write to the separate ``_reconvert/`` namespace so
       // a corpus scope's ``_derived/`` audit product is never overwritten.
       reconvert?: boolean;
+      // The user chose the worker over an in-browser conversion (X-Ada-Run-On).
+      runOnWorker?: boolean;
     },
   ): Promise<ConvertResponse> {
     const body: Record<string, unknown> = {
@@ -158,7 +161,7 @@ export const conversionApi = {
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
         body: JSON.stringify(body),
       },
     );

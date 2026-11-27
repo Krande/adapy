@@ -4,12 +4,7 @@
 import {useConversionStore} from "@/state/conversionStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
-import {
-    hasAnyWorkerAccess,
-    loadWorkerAccess,
-    serverOnlyNotice,
-    workerPreferred,
-} from "@/services/compute/workerAccess";
+import {workerPreferred} from "@/services/compute/workerAccess";
 import {convertViaServer} from "./serverPipeline";
 import {wasmSupportsConversion, isWasmFeaSource} from "./wasmSupport";
 import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./serializerMatrix";
@@ -28,22 +23,15 @@ function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolea
     // this router, and the audit-run sweep agree. The server worker takes a
     // supported conversion only when the user opted into it AND an
     // administrator granted them worker access (workerPreferred). Unsupported
-    // combos fall through to the server worker, which enforces access itself.
+    // combos have no browser path and go to the server worker for everyone.
     if (!wasmSupportsConversion(sourceKey, targetFormat)) return false;
     return !workerPreferred();
 }
 
-/** Fail fast, with a notice that says what to do, when a workload has no
- * browser path and the user has no worker access at all. The server enforces
- * the same rule (403); this spares the round trip and names the file type. A
- * per-capability grant is checked by the server, which knows the pool. */
-async function assertServerReachable(sourceKey: string, what?: string): Promise<void> {
-    if (!runtime.authEnabled()) return; // no users, no per-user policy
-    const policy = await loadWorkerAccess();
-    // Unknown policy (/api/me failed): let the server answer rather than guess.
-    if (policy === null || hasAnyWorkerAccess(policy)) return;
-    const ext = extOf(sourceKey) || sourceKey;
-    throw new Error(serverOnlyNotice(what ?? `Opening ${ext} files`));
+/** True when a supported in-browser conversion goes to the worker because the
+ * user chose it: the submission the server's worker-access policy judges. */
+function choseWorker(sourceKey: string, targetFormat: TargetFormat): boolean {
+    return wasmSupportsConversion(sourceKey, targetFormat) && workerPreferred();
 }
 
 /**
@@ -81,8 +69,10 @@ export async function ensureConverted(
     if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }
-    if (!wasmSupportsConversion(sourceKey, targetFormat)) await assertServerReachable(sourceKey);
-    return convertViaServer(scope, sourceKey, targetFormat, opts);
+    return convertViaServer(scope, sourceKey, targetFormat, {
+        ...opts,
+        runOnWorker: choseWorker(sourceKey, targetFormat),
+    });
 }
 
 function extOf(name: string): string {
@@ -165,13 +155,12 @@ export async function convertWithSelection(
         conversionOptions.serializer = resolved.serializer;
         conversionOptions.tessellator = resolved.tessellator;
     }
-    await assertServerReachable(
-        sourceKey,
-        resolved ? "The selected serializer" : `Converting ${ext || sourceKey} to .${targetFormat}`,
-    );
     return convertViaServer(scope, sourceKey, targetFormat, {
         conversionOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
         reconvert: opts?.reconvert,
+        // A server serializer picked from the row is a serializer choice, not a
+        // choice of the worker over the browser; only the global engine setting is.
+        runOnWorker: !resolved && choseWorker(sourceKey, targetFormat),
     });
 }
 
@@ -220,24 +209,6 @@ export async function ensureBakedFeaManifest(
     const convStore = useConversionStore.getState();
     const storeKey = `${sourceKey}::fea`;
     const startedAt = Date.now();
-    if (!isWasmFeaSource(sourceKey)) {
-        try {
-            await assertServerReachable(sourceKey);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            convStore.setJob(storeKey, {
-                sourceKey,
-                jobId: "",
-                derivedKey: "",
-                status: "error",
-                progress: 0,
-                stage: "error",
-                error: msg,
-                startedAt,
-            });
-            throw err;
-        }
-    }
     convStore.setJob(storeKey, {
         sourceKey,
         jobId: "",
@@ -250,6 +221,8 @@ export async function ensureBakedFeaManifest(
     });
     try {
         await viewerApi.feaManifest(scope, sourceKey, {
+            // A browser-bakeable source reaches here only on the user's opt-in.
+            runOnWorker: isWasmFeaSource(sourceKey),
             onProgress: ({jobId, stage, progress, status}) => {
                 convStore.setJob(storeKey, {
                     sourceKey,

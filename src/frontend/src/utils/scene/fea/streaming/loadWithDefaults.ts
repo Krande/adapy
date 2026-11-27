@@ -13,7 +13,9 @@
 
 import {capabilities} from "@/services/capabilities";
 import type {FeaCapability} from "@/services/capabilities/types";
-import type {FeaManifest} from "@/services/viewerApi";
+import {workerPreferred} from "@/services/compute/workerAccess";
+import {isWasmFeaSource} from "@/services/conversion/wasmSupport";
+import type {FeaManifest, ScopeUrl} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import {useConversionStore} from "@/state/conversionStore";
@@ -21,6 +23,20 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import type {LoadFeaStreaming} from "./types";
 import {feaOpening} from "./meshFirst";
+
+/** Bake ``sourceName`` in the browser unless its manifest is already stored
+ * (``_derived/<source>.fea/fea.manifest.json``, where both bakes write it). */
+async function bakeInBrowserUnlessStored(scope: ScopeUrl, sourceName: string): Promise<void> {
+    const clean = sourceName.replace(/^\/+|\/+$/g, "");
+    try {
+        await capabilities.files.fetchBlob(scope, `_derived/${clean}.fea/fea.manifest.json`);
+        return;
+    } catch {
+        // Not stored yet: bake it.
+    }
+    const {convertViaPyodideFeaBake} = await import("@/services/conversion/pyodidePipeline");
+    await convertViaPyodideFeaBake(scope, sourceName);
+}
 
 /** Toggle entry point: fetch the manifest, pick sensible defaults
  * (first field, default reduction, step 0, factor 1), and run
@@ -121,7 +137,15 @@ export async function loadFeaWithDefaults(
 
     let manifest: FeaManifest;
     try {
+        // In-browser by default: a source the browser can bake is baked here (and
+        // its tree uploaded) before the manifest is asked for, so the request finds
+        // it stored instead of queueing a worker bake. The worker bakes it only on
+        // the user's opt-in (workerPreferred).
+        if (fea.transport === "rest" && isWasmFeaSource(sourceName) && !workerPreferred()) {
+            await bakeInBrowserUnlessStored(scope, sourceName);
+        }
         manifest = await fea.fetchManifest(scope, sourceName, {
+            runOnWorker: isWasmFeaSource(sourceName) && workerPreferred(),
             signal: controller.signal,
             onPartial: (partial) => loadPartial(partial),
             onProgress: ({jobId, stage, progress, status}) => {
