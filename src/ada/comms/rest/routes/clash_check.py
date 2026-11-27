@@ -43,9 +43,9 @@ from .. import clash_details
 from ..auth import User
 from ..catalog import merge_catalog_specs
 from ..job_transport import JobRequest
+from ..provider_reads import ProviderDataNotGranted, ProviderReads
 from ..queue import capability_token
 from ..scope import Scope
-from ..worker.provider_reads import ProviderDataNotGranted, ProviderReads
 from .deps import RestContext, optional_pool, rest_context, scope_from_path
 
 router = APIRouter()
