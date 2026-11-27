@@ -2161,6 +2161,11 @@ def select_backend(prefer: str | None = None) -> CadBackend:
         return AdacppBackend()
     if choice in ("occ", "pythonocc-core", "pyocc"):
         return OccBackend()
+    if choice in ("solidcore",):
+        # EXPERIMENTAL, opt-in only: deliberately absent from the auto-detect loop below.
+        from ada.cad.solidcore_backend import SolidcoreBackend
+
+        return SolidcoreBackend()
     if choice is not None:
         raise ValueError(f"Unknown ADAPY_CAD_BACKEND: {choice!r}")
 
