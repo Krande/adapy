@@ -13,6 +13,12 @@ falls back to the ifcopenshell writer for full coverage). Best paired with ``fro
 
 Emits through ``stream_ngeom_to_ifc`` (records pulled lazily, bounded memory) when the adacpp build
 has it, else the older parallel-list ``blobs_to_ifc``.
+
+Members: where the adacpp writer reads member descriptions (``ifc_member_records_version``), a
+straight beam and a flat plate are not written from their solid but as the MEMBER the ifcopenshell
+writer writes -- IfcBeam / IfcPlate with axis, profile (arcs and section parameters kept),
+half-space cuts, material and property sets (``native_member_records``) -- so either IFC reader
+rebuilds the same Beam / Plate from the file.
 """
 
 from __future__ import annotations
@@ -32,20 +38,41 @@ def native_ifc_writer_available() -> bool:
         return False
 
 
+def native_ifc_member_records() -> int:
+    """The member-description version the installed adacpp writer reads (0: it writes every object
+    from its solid, as an IfcBuildingElementProxy)."""
+    try:
+        import adacpp
+
+        fn = getattr(adacpp.cad, "ifc_member_records_version", None)
+        return int(fn()) if fn is not None else 0
+    except Exception:
+        return 0
+
+
 def _shape_records(assembly):
-    """(name, blob, rgba|None, transforms|None, paths|None) per emittable shape + a skip count."""
+    """(name, blob, rgba|None, transforms|None, paths|None[, member]) per emittable shape + a skip
+    count. A straight beam or a flat plate carries a MEMBER description (``native_member_records``)
+    when the adacpp writer reads one: it is then written as the IfcBeam / IfcPlate a model reader
+    rebuilds it from, and no blob is encoded for it."""
     import numpy as np
 
     from ada.api.mass import MassPoint
     from ada.api.shapes import ShapeProxy
+    from ada.cadit.ifc.write.native_member_records import member_record
     from ada.cadit.ngeom.serialize import _Encoder, _Unsupported
 
+    with_members = native_ifc_member_records() >= 1
     records: list[tuple] = []
     skipped = 0
     for shp in assembly.get_all_physical_objects(pipe_to_segments=True):
         if isinstance(shp, MassPoint):
             continue  # no geometry
         name = str(shp.name)
+        member = member_record(shp) if with_members and not isinstance(shp, ShapeProxy) else None
+        if member is not None:
+            records.append((name, b"", member.get("color"), None, None, member))
+            continue
         if isinstance(shp, ShapeProxy):
             blob = shp.ngeom_blob()
             if blob is not None:
