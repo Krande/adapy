@@ -11,7 +11,8 @@
 import {capabilities} from "@/services/capabilities";
 import type {CompileJobState} from "./types";
 import type {CellBuilderSlice} from "./state";
-import {currentScopePart, setProceduralToast} from "./shared";
+import {currentScopePart, proceduralToastKey, setProceduralToast} from "./shared";
+import {useConversionStore} from "@/state/conversionStore";
 import {modelMaxX} from "./bounds";
 import {placedCells} from "@/utils/cellbuilder/include";
 import {makeStartCompileJob} from "./compileJobRunner";
@@ -98,6 +99,14 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       progress: 0,
       startedAt: Date.now(),
     });
+    // Handing the build to the server: the server job shows its own toast, so
+    // the browser's must go -- left "running", it never finishes and the build
+    // looks stuck forever.
+    const toServer = (): "server-only" => {
+      set({ compileJob: null });
+      useConversionStore.getState().clearJob(proceduralToastKey(label));
+      return "server-only";
+    };
     try {
       // Resolve the engine for the browser: a built-in slug (e.g. echo)
       // dispatches directly; a kind:wheel engine is micropip-installed from its
@@ -112,8 +121,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
         if (eng && eng.origin === "worker") {
           // A worker-advertised engine compiles on that worker; there is nothing
           // to resolve for the browser.
-          set({ compileJob: null });
-          return "server-only";
+          return toServer();
         }
         if (eng && eng.origin !== "builtin") {
           const resolved = await capabilities.procedural.resolveEngine(currentScopePart(), eng.id);
@@ -127,8 +135,7 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
             };
             engineArg = null; // dispatch happens via the wheel entrypoint
           } else if (resolved.kind === "server") {
-            set({ compileJob: null });
-            return "server-only";
+            return toServer();
           } else if (resolved.entrypoint) {
             engineArg = resolved.entrypoint;
           }

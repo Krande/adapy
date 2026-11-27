@@ -47,6 +47,19 @@ test("the browser build is local only", () => {
   }
 });
 
+test("handing a build to the server removes the browser's toast", () => {
+  // Every "server-only" return goes through toServer(), which clears the toast the
+  // browser attempt put up; left "running", it never finishes and the build looks stuck.
+  const start = jobs.indexOf("const runBrowserCompile = async");
+  const end = jobs.indexOf("const buildsInBrowser", start);
+  const b = jobs.slice(start, end);
+  assert.match(b, /const toServer = \(\): "server-only" => \{[\s\S]*?clearJob\(proceduralToastKey\(label\)\)/);
+  const bare = b.replace(/const toServer = [\s\S]*?\n {4}\};/, "").match(/return "server-only"/g) ?? [];
+  assert.equal(bare.length, 0, "a server-only return bypasses toServer()");
+  // A worker-advertised engine is handed over without asking the server to resolve it.
+  assert.match(b, /eng\.origin === "worker"\)[\s\S]*?return toServer\(\);/);
+});
+
 test("committing stores the model on the server", () => {
   const doc = read("state/cellbuilder/documentSlice.ts");
   const commit = doc.slice(doc.indexOf("commit: async () => {"));
