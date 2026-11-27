@@ -49,6 +49,7 @@ from .clash_check import (
     _asset_source_key,
     _geometry_options_token,
     _group_from_body,
+    _reads,
     _resolve_group,
     _route_with_reader,
     _source_content_token,
@@ -146,6 +147,7 @@ async def api_export_selection(
     element, path = _selection_from_body(body)
 
     ctx.jobs.require("export_selection")
+    reads = _reads(ctx, scope_obj, request)
 
     if source_key:
         ext = pathlib.PurePosixPath(source_key).suffix.lower()
@@ -164,7 +166,7 @@ async def api_export_selection(
         target_format = "export_selection"
         options: dict = {"source_key": source_key}
     else:
-        token_key, manifest = await _asset_source_key(ctx, scope_obj, collection, subject, body.get("revision") or None)
+        token_key, manifest = await _asset_source_key(reads, collection, subject, body.get("revision") or None)
         asked_provider = str(body.get("provider") or "")
         if asked_provider and asked_provider != manifest.provider:
             raise HTTPException(
@@ -191,7 +193,7 @@ async def api_export_selection(
         options = dict(target)
 
     filename = export_filename(element or str(body.get("label") or "") or None, fmt)
-    content_token = await _source_content_token(ctx, scope_obj, token_key)
+    content_token = await _source_content_token(reads, token_key)
     derived_key = selection_derived_key(
         content_token,
         target,
@@ -266,7 +268,8 @@ async def _submit_group_export(
 
     ctx.jobs.require("export_selection")
 
-    resolved, content = await _resolve_group(ctx, scope_obj, group)
+    reads = _reads(ctx, scope_obj, request)
+    resolved, content = await _resolve_group(reads, group)
     provider = (raw_provider or "").strip() or None
     if provider and all(
         m["target"]["kind"] == "file" or m["target"].get("provider") == provider for m in resolved["members"]
@@ -277,9 +280,7 @@ async def _submit_group_export(
 
     token = group_token(resolved["members"], content)
     collections = [m["target"]["collection"] for m in resolved["members"] if m["target"]["kind"] == "node"]
-    geometry_token = await _geometry_options_token(
-        ctx, scope_obj, ClashOptions(geometry_provider=provider), collections
-    )
+    geometry_token = await _geometry_options_token(reads, ClashOptions(geometry_provider=provider), collections)
     filename = export_filename(str(body.get("label") or "") or resolved["name"], fmt)
     derived_key = group_export_derived_key(
         token,

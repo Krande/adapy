@@ -1,5 +1,4 @@
 import ada
-from ada.geom.solids import ExtrudedAreaSolid
 from ada.geom.surfaces import AdvancedFace, OpenShell, ShellBasedSurfaceModel
 
 
@@ -75,17 +74,34 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
 
 def test_import_half_space_beam(example_files, monkeypatch):
     # An I-beam (IfcExtrudedAreaSolid w/ IfcIShapeProfileDef) clipped by two
-    # IfcHalfSpaceSolids via nested IfcBooleanClippingResults -- read natively, not via
-    # the IfcOpenShell kernel fallback.
+    # IfcHalfSpaceSolids via nested IfcBooleanClippingResults -- read as the Beam it is, with the
+    # two clips as its BoolHalfSpace cuts (read_beams.get_beam_body), natively, not via the
+    # IfcOpenShell kernel fallback. Its solid is the file's: the kernel's volume of the product.
+    import ifcopenshell
+    import ifcopenshell.geom
+    import numpy as np
+    import pytest
+
+    from ada.cad import active_backend
+
     monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
     ada.config.Config().reload_config()
-    a = ada.from_ifc(example_files / "ifc_files/half_space_beam.ifc")
+    path = example_files / "ifc_files/half_space_beam.ifc"
+    a = ada.from_ifc(path)
     objects = list(a.get_all_physical_objects())
     assert len(objects) == 1
-    shape = objects[0]
+    beam = objects[0]
 
-    assert shape._occ_cache is None  # native parametric path, no kernel body
-    assert isinstance(shape.geom.geometry, ExtrudedAreaSolid)
-    assert len(shape.geom.bool_operations) == 2  # the two half-space cuts
+    assert isinstance(beam, ada.Beam)
+    assert len(beam.booleans) == 2  # the two half-space cuts
+    assert all(isinstance(b.primitive, ada.BoolHalfSpace) for b in beam.booleans)
 
-    _assert_renders(shape)
+    f = ifcopenshell.open(str(path))
+    kernel = ifcopenshell.geom.create_shape(ifcopenshell.geom.settings(), f.by_type("IfcBeam")[0]).geometry
+    v = np.asarray(kernel.verts, float).reshape(-1, 3)
+    tris = np.asarray(kernel.faces, int).reshape(-1, 3)
+    kernel_volume = sum(float(np.dot(v[i], np.cross(v[j], v[k]))) for i, j, k in tris) / 6.0
+    # Within the kernel's own tessellation of the profile's root fillets.
+    assert active_backend().volume(beam.solid_occ()) == pytest.approx(kernel_volume, rel=1e-3)
+
+    _assert_renders(beam)

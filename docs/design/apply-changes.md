@@ -80,6 +80,13 @@ A core that does not know the kind drops the entry with a log line (as for `swee
   (its collection request, driven as a sweep, `requested_via: apply-changes`) for exactly those
   collections once the run has finished; the two runs link through their `summary`
   (`queued_full_exports` / `apply_changes_run_id`).
+- **By hand, after the run.** A finished run that left collections out (and queued nothing) offers
+  "Run full export on the N missing" in the Providers tab: the provider's `sweep` entry (every
+  target, its defaults) over exactly those collections, linked the same way. The same filter is a
+  checkbox on that sweep's "Run once now" ("Only projects missing a full export"): `POST
+  /admin/asset-sweeps` with `only_missing_full_export: true` narrows the collections -- named, or
+  every one offered -- to those the check above finds no full export of, names the ones dropped in
+  the run's `summary.only_missing_full_export.exported`, and is refused (409) when none is left.
 
 ## 3. The job's answer (provider -> core)
 

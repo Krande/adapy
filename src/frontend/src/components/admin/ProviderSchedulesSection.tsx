@@ -240,6 +240,8 @@ const AddSchedule: React.FC<{
     const [collection, setCollection] = useState(allOrOne(provider.jobs[0]?.kind) ? "" : (collections[0] ?? ""));
     const [frequency, setFrequency] = useState("daily");
     const [settings, setSettings] = useState<Record<string, unknown>>({});
+    // A sweep's "Run once now" over only the collections the store holds no full export of yet.
+    const [onlyMissing, setOnlyMissing] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const job = provider.jobs.find((j) => j.id === jobId);
@@ -267,6 +269,7 @@ const AddSchedule: React.FC<{
                 job: jobId,
                 settings: withMultiDefaults(job?.settings ?? [], settings),
                 ...(apply && collection ? {collection} : {}),
+                ...(sweep && onlyMissing ? {only_missing_full_export: true} : {}),
             });
             onSwept();
         } catch (e) {
@@ -310,7 +313,21 @@ const AddSchedule: React.FC<{
                     ))}
                 </select>
                 {sweep ? (
-                    <span className="text-gray-400 py-0.5">every collection ({provider.collections.length})</span>
+                    <span className="inline-flex items-center gap-2 text-gray-400 py-0.5">
+                        {onlyMissing ? "collections missing a full export" : `every collection (${provider.collections.length})`}
+                        <label
+                            className="inline-flex items-center gap-1 text-[11px]"
+                            title="Run once now: only the collections the provider store holds no full export of yet (the ones an apply-changes run leaves out). Not saved on a schedule."
+                        >
+                            <input
+                                type="checkbox"
+                                checked={onlyMissing}
+                                onChange={(e) => setOnlyMissing(e.target.checked)}
+                                data-testid="sweep-only-missing-full-export"
+                            />
+                            Only projects missing a full export
+                        </label>
+                    </span>
                 ) : (
                     <select
                         className={select}
@@ -341,7 +358,10 @@ const AddSchedule: React.FC<{
                 <button
                     type="button"
                     className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
-                    disabled={busy || !jobId || (!sweep && !apply && !!provider.collections.length && !collection)}
+                    disabled={
+                        busy || !jobId || (sweep && onlyMissing) || (!sweep && !apply && !!provider.collections.length && !collection)
+                    }
+                    title={sweep && onlyMissing ? "\"Only projects missing a full export\" is for Run once now; a schedule is not saved with it" : undefined}
                     onClick={() => void add()}
                 >
                     {busy ? "…" : "Add schedule"}
@@ -354,7 +374,9 @@ const AddSchedule: React.FC<{
                         onClick={() => void runOnce()}
                         title={
                             sweep
-                                ? "Sweep every collection once, now, with these settings; no schedule is saved"
+                                ? onlyMissing
+                                    ? "Export, once, now, only the collections without a full export yet; no schedule is saved"
+                                    : "Sweep every collection once, now, with these settings; no schedule is saved"
                                 : "Apply the changes once, now, with these settings; no schedule is saved"
                         }
                     >
@@ -729,6 +751,7 @@ const ProviderSchedulesSection: React.FC = () => {
                             <ProviderSweepRuns
                                 provider={p.provider}
                                 refreshKey={refreshKey}
+                                fullExportJob={p.jobs.find((j) => j.kind === "sweep")}
                                 choiceDecls={parseCollectionChoiceDecls(p.collection_choices)}
                             />
                         </>

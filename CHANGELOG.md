@@ -2,6 +2,29 @@
 
 
 
+## v0.178.1 (2026-11-27)
+
+### Fix
+
+* fix(ifc): read a half-space-cut beam and a rounded hollow POLY section back as they were written (#612) ([`d5458e2`](https://github.com/Krande/adapy/commit/d5458e2847c73311844ea7a61143f4fd5dffeb50))
+
+
+## v0.178.0 (2026-11-27)
+
+### Feature
+
+* feat(sweeps): full export of only the collections missing one (#611)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`64f33c6`](https://github.com/Krande/adapy/commit/64f33c6f7527beb37a2fc624870f2bb84b2c87fa))
+
+
+## v0.177.1 (2026-11-27)
+
+### Fix
+
+* fix(clash): clash and selection-export routes read group members through provider grants (#610) ([`5506ed7`](https://github.com/Krande/adapy/commit/5506ed758da627bf65a338134a5e86eb73a8b3ac))
+
+
 ## v0.177.0 (2026-11-27)
 
 ### Feature

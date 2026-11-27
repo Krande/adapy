@@ -12,6 +12,11 @@ manifest is in the store, the job looked in the scope.
 collection for the job's life, so a group of a hundred members asks the grant table once per
 collection. Only READS resolve: a job's outputs are written to its own scope, as before. A job of
 the provider store itself reads the store and is unchanged.
+
+The clash and selection-export routes read a group's members through one per request too
+(``routes/clash_check._reads``), so what they resolve before enqueueing is what the job reads.
+It lives here, not under ``worker/``, because the slim API image imports it: the ``worker``
+package pulls the readers in.
 """
 
 from __future__ import annotations
@@ -49,14 +54,14 @@ class ProviderReads:
 
     @staticmethod
     def _collection_of(key: str) -> Optional[str]:
-        from ..routes.provider_store import dataset_collection_of_key
+        from .routes.provider_store import dataset_collection_of_key
 
         return dataset_collection_of_key(key)
 
     async def _collection_scope(self, collection: str):
         name = collection.lower()
         if name not in self._resolved:
-            from ..routes.provider_store import resolve_collection
+            from .routes.provider_store import resolve_collection
 
             try:
                 where = await resolve_collection(self._ctx, self._pool, self._scope, collection, "geometry")
@@ -83,7 +88,7 @@ class ProviderReads:
         collection = self._collection_of(key)
         if collection is None or await self._collection_scope(collection) != self._scope:
             return None
-        from ..routes.provider_store import store_holds_geometry
+        from .routes.provider_store import store_holds_geometry
 
         if not await store_holds_geometry(self._ctx, collection):
             return None
@@ -100,6 +105,20 @@ class ProviderReads:
             # The store holds every provider's data: list the prefix, never the whole store.
             return [e.key for e in await self._storage.list_prefix(where, prefix) if e.key.startswith(prefix)]
         return [e.key for e in await self._storage.list(self._scope) if e.key.startswith(prefix)]
+
+    async def list_prefix(self, prefix: str) -> list:
+        """The listing entries (key, size, e_tag, ...) under ``prefix``, from where it is read."""
+        return await self._storage.list_prefix(await self.scope_for(prefix), prefix)
+
+    async def head(self, key: str) -> Optional[dict]:
+        """``key``'s head from where it is read: the store's copy when the grant answers for it,
+        else the scope's (``_read``'s rule)."""
+        where = await self.scope_for(key)
+        if where != self._scope:
+            head = await self._storage.head(where, key)
+            if head is not None:
+                return head
+        return await self._storage.head(self._scope, key)
 
     async def _read(self, key: str, read):
         where = await self.scope_for(key)

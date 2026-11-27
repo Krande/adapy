@@ -11,16 +11,16 @@ from ada.api.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
 
-from .geom.geom_reader import get_product_definitions
+from .geom.geom_reader import import_geometry_from_ifc_geom
 from .geom.placement import placement_from_ifc_4x4
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
     get_associated_material,
+    get_beam_body,
     get_ifc_body,
     get_placement,
     get_point,
-    get_swept_area,
 )
 
 if TYPE_CHECKING:
@@ -37,8 +37,10 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
     if mat is None:
         mat = read_material(mat_ref, ifc_store)
 
-    swept_area = get_swept_area(ifc_elem)
-    sec = import_section_from_ifc(swept_area, units=ifc_store.assembly.units)
+    # A cut beam's body is its swept solid inside one half-space clip per cut (the writer's
+    # `create_ifc_openings`): the member is read from the solid, and the cuts are put back on it.
+    body_solid, clips = get_beam_body(ifc_elem)
+    sec = import_section_from_ifc(body_solid.SweptArea, units=ifc_store.assembly.units)
 
     axes = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Axis"]
 
@@ -51,22 +53,40 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
 
     # Dispatch on the body solid type — the authoritative discriminator. (The axis curve type
     # is unreliable: a swept beam's axis is an IfcIndexedPolyCurve, not an IfcPolyline.)
-    body_solid = get_ifc_body(ifc_elem)
     body_type = body_solid.is_a()
     if body_type == "IfcRevolvedAreaSolid":
-        return import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store)
+        beam = import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     elif body_type == "IfcFixedReferenceSweptAreaSolid":
-        return import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store)
+        beam = import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     else:
         # IfcExtrudedAreaSolid (straight) or IfcExtrudedAreaSolidTapered (→ BeamTapered)
-        return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store)
+        beam = import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store, body_solid)
+
+    for i, clip in enumerate(clips):
+        beam.add_boolean(half_space_from_ifc(clip, f"{name}_cut{i}"))
+    return beam
 
 
-def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    bodies = get_product_definitions(ifc_elem)
-    if len(bodies) != 1:
-        raise ValueError("Number of body objects attached to element is not 1")
-    body = bodies[0]
+def half_space_from_ifc(half_space, name: str):
+    """An ``IfcHalfSpaceSolid`` over a plane as the ``BoolHalfSpace`` the writer made it from: its
+    plane's location and axis, and the agreement flag that is the cutter's ``flip``. In the frame
+    of the element's own placement, which is the frame the clipped body is in."""
+    from ada import BoolHalfSpace
+
+    position = half_space.BaseSurface.Position
+    normal = position.Axis.DirectionRatios if position.Axis is not None else (0.0, 0.0, 1.0)
+    return BoolHalfSpace(
+        origin=[float(c) for c in position.Location.Coordinates],
+        normal=[float(c) for c in normal],
+        flip=bool(half_space.AgreementFlag),
+        name=name,
+    )
+
+
+def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore, body_solid=None) -> Beam:
+    if body_solid is None:
+        body_solid = get_ifc_body(ifc_elem)
+    body = import_geometry_from_ifc_geom(body_solid)
 
     extra_opts = {}
     obj_placement = ifc_elem.ObjectPlacement
@@ -109,7 +129,6 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
     # A tapered extrusion (IfcExtrudedAreaSolidTapered) carries an EndSweptArea — reconstruct
     # the BeamTapered subtype with its end section rather than collapsing to a prismatic Beam.
-    body_solid = get_ifc_body(ifc_elem)
     if body_solid.is_a("IfcExtrudedAreaSolidTapered"):
         from ada import BeamTapered
 
