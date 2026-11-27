@@ -293,6 +293,46 @@ def get_ifc_body(product, allow_multiple=False) -> ifcopenshell.entity_instance:
     return bodies[0]
 
 
+def split_half_space_clips(
+    body: ifcopenshell.entity_instance,
+) -> tuple[ifcopenshell.entity_instance, list[ifcopenshell.entity_instance]] | None:
+    """A body as the writer emits a member cut by half-spaces (``write_ifc.create_ifc_openings``):
+    the swept solid, and the half-space solids clipped off it in the order they were applied.
+
+    The writer wraps the body once per cut, ``IfcBooleanClippingResult(DIFFERENCE, <body so far>,
+    IfcHalfSpaceSolid)``, so the innermost clip is the first cut. Anything else -- a union, a
+    bounded half-space, a solid operand -- is not that shape and answers None, so the caller can
+    refuse it as before rather than read part of a boolean as the member.
+    """
+    clips = []
+    while body.is_a("IfcBooleanResult"):
+        second = body.SecondOperand
+        if (
+            not body.is_a("IfcBooleanClippingResult")
+            or body.Operator != "DIFFERENCE"
+            or second.is_a() != "IfcHalfSpaceSolid"
+            or not second.BaseSurface.is_a("IfcPlane")
+        ):
+            return None
+        clips.append(second)
+        body = body.FirstOperand
+    clips.reverse()
+    return body, clips
+
+
+def get_beam_body(
+    product: ifcopenshell.entity_instance,
+) -> tuple[ifcopenshell.entity_instance, list[ifcopenshell.entity_instance]]:
+    """The swept solid a beam is read from, and the half-space clips cut off it (none for an uncut
+    body). A boolean body that is not a chain of half-space clips cannot be a beam."""
+    from .exceptions import UnableToConvertBoolResToBeamException
+
+    split = split_half_space_clips(get_ifc_body(product))
+    if split is None:
+        raise UnableToConvertBoolResToBeamException(f"Unable to convert {product} to beam")
+    return split
+
+
 def get_swept_area(product: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
     from .exceptions import UnableToConvertBoolResToBeamException
 

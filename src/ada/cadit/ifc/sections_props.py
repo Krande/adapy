@@ -75,17 +75,22 @@ _PARAM_TYPES = (
 def section_param_props(section: Section) -> dict | None:
     """Parameter dict for ``section``, or ``None`` if it carries no parameters.
 
-    GENERAL sections (no explicit geometry) serialize their GeneralProperties;
-    POLY sections carry their definition in the geometry and return ``None``.
+    GENERAL sections (no explicit geometry) serialize their GeneralProperties.
+    POLY sections carry their SHAPE in the geometry, but may also state scalars the
+    curves cannot (a rounded hollow section's wall thickness, ``t_w``): those, and
+    only when there are any, are written so the import keeps them (and keeps the
+    section POLY rather than re-recognising it from its curves).
     """
     if section.type == BaseTypes.GENERAL:
         props = _general_param_props(section)
-    elif section.type in _PARAM_TYPES:
+    elif section.type in _PARAM_TYPES or section.type == BaseTypes.POLY:
         props = {"sec_type": section.type.value}
         for key in SECTION_PARAM_KEYS:
             value = getattr(section, key)
             if value is not None:
                 props[key] = float(value)
+        if section.type == BaseTypes.POLY and len(props) == 1:
+            return None
     else:
         return None
 
