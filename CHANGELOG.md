@@ -2,6 +2,13 @@
 
 
 
+## v0.178.1 (2026-11-27)
+
+### Fix
+
+* fix(ifc): read a half-space-cut beam and a rounded hollow POLY section back as they were written (#612) ([`d5458e2`](https://github.com/Krande/adapy/commit/d5458e2847c73311844ea7a61143f4fd5dffeb50))
+
+
 ## v0.178.0 (2026-11-27)
 
 ### Feature
