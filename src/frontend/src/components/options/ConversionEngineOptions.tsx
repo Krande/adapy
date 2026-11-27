@@ -6,6 +6,10 @@ import {useConversionEngineStore} from "@/state/conversionEngineStore";
 // Where conversions, FEA bakes and plugin compute run. The browser (WASM) is
 // the default and needs nothing; the server worker is opt-in, and only offered
 // to a user an administrator granted worker pool access.
+// One literal: the bundle-provenance check matches bundle strings verbatim
+// against src/frontend, and the minifier folds concatenated literals.
+const NO_ACCESS_NOTICE =
+    "Your account has no worker pool access. Ask an administrator to enable it in the Admin Panel (Users).";
 const ConversionEngineOptions: React.FC = () => {
     const {engine, setEngine} = useConversionEngineStore();
     const policy = useWorkerAccessStore((s) => s.policy);
@@ -52,10 +56,8 @@ const ConversionEngineOptions: React.FC = () => {
                             : !loaded
                               ? "Checking your worker pool access…"
                               : grantedCaps.length > 0
-                                ? `Your account may use the worker pool only for: ${grantedCaps.join(", ")}. ` +
-                                  "Everything else runs in the browser."
-                                : "Your account has no worker pool access. Ask an administrator " +
-                                  "to enable it in the Admin Panel (Users)."}
+                                ? `Your account may use the worker pool only for: ${grantedCaps.join(", ")}. Everything else runs in the browser.`
+                                : NO_ACCESS_NOTICE}
                     </span>
                 </span>
             </label>

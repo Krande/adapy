@@ -325,6 +325,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await call_next(request)
         finally:
             auth_module.reset_request_user(token)
+
     # A connection library served live (`ada dev connections`), when ADA_DEV_CONNECTIONS names one.
     # Built here, so a bad ada_connections.toml fails the start with its own message.
     from .dev_connections import DevConnections
