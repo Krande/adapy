@@ -139,6 +139,18 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
+        # The IFC file a native read came from. The native reader needs no IfcStore, so the path is
+        # kept here and handed to the store only when something asks for one (see ``ifc_store``).
+        self._ifc_source_path: pathlib.Path | None = None
+
+    @property
+    def ifc_source_path(self) -> pathlib.Path | None:
+        """The IFC file this assembly was read from, or None. Set by every reader, without opening
+        an IfcStore (so a native read stays free of ifcopenshell)."""
+        store = self.__dict__.get("_ifc_store")
+        if store is not None and getattr(store, "ifc_file_path", None) is not None:
+            return pathlib.Path(store.ifc_file_path)
+        return self.__dict__.get("_ifc_source_path")
 
     @property
     def cad_config(self):
@@ -197,7 +209,11 @@ class Assembly(Part):
                 raise RuntimeError("reader='native' requires adacpp with IfcNgeomStream")
             native_read_ifc_into(self, ifc_file)
             if isinstance(ifc_file, (str, os.PathLike)):
-                self.ifc_store.ifc_file_path = pathlib.Path(ifc_file)
+                # No IfcStore here: it imports ifcopenshell, which the native path must not need.
+                # ``ifc_store`` builds one on first use and hands it this path.
+                self._ifc_source_path = pathlib.Path(ifc_file)
+                if self._ifc_store is not None:
+                    self._ifc_store.ifc_file_path = self._ifc_source_path
             return
         self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)
 
@@ -690,6 +706,10 @@ class Assembly(Part):
 
             self._ifc_file = f
             self._ifc_store = IfcStore(assembly=self)
+            source = self.__dict__.get("_ifc_source_path")
+            if source is not None and self._ifc_store.ifc_file_path is None:
+                # Only the path: the store keeps the assembly's own file (as after any read).
+                self._ifc_store.ifc_file_path = source
 
         return self._ifc_store
 
