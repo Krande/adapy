@@ -23,18 +23,40 @@ def native_adacpp_ifc_available() -> bool:
         return False
 
 
-def _native_ifc_products(ifc_path: str | pathlib.Path) -> Iterator[tuple]:
+def _native_ifc_products(ifc_path: str | pathlib.Path, as_read: bool = True) -> Iterator[tuple]:
     """Yield ``(ngeom_blob, name, guid, color, world_matrices, instance_paths)`` per IFC product.
 
     ``name`` is the product's own ``IfcRoot.Name`` (the deepest instance-path level, as the STEP
     reader names a solid after its owning product), falling back to the stream's id; ``guid`` is
-    its ``GlobalId`` (empty when the file states none)."""
+    its ``GlobalId`` (empty when the file states none).
+
+    The stream's geometry is in the file's length unit. With ``as_read`` (the default), as the
+    reader uses it: a file not in metres gets its unit scale folded into each world matrix, so the
+    product sits in metres as the ifcopenshell reader puts it (the blob itself is not touched), and
+    the spatial path is kept for every product, placed or not, since it is the product's place in
+    the IFC spatial structure. ``as_read=False`` yields the stream as it comes."""
     import adacpp
+    import numpy as np
 
     from ada.cadit.step.read.native_reader import decode_step_root_meta
 
-    for nbytes, meta in adacpp.cad.IfcNgeomStream(str(ifc_path)):
+    stream = adacpp.cad.IfcNgeomStream(str(ifc_path))
+    scale = float(getattr(stream, "unit_scale", 1.0) or 1.0) if as_read else 1.0
+    s = np.diag([scale, scale, scale, 1.0]) if abs(scale - 1.0) > 1e-12 else None
+    for nbytes, meta in stream:
         name, color, mats, paths = decode_step_root_meta(meta)
+        if not as_read:
+            yield nbytes, name, (meta.guid or ""), color, mats, paths
+            continue
+        raw_paths = [tuple(p) for p in meta.instance_paths]
+        if s is not None:
+            mats = [s @ m for m in mats] if mats else [s.copy()]
+            paths = raw_paths
+        elif not paths and raw_paths and len(raw_paths) == 1:
+            # Unplaced, but inside the spatial structure: keep the path (the transform stays
+            # identity) so the tree survives a read and a native write.
+            paths = raw_paths
+            mats = [np.eye(4)]
         yield nbytes, name, (meta.guid or ""), color, mats, paths
 
 
@@ -43,7 +65,7 @@ def native_stream_read_ifc_blobs(ifc_path: str | pathlib.Path) -> Iterator[tuple
     hydrating the geometry — the foundation of the lazy ShapeStore native IFC import. The C++
     ``StepRootMeta`` is shared with the STEP path, so ``decode_step_root_meta`` decodes it; the IFC
     GlobalId (``meta.guid``) is preferred as the shape id when present."""
-    for nbytes, name, guid, color, mats, paths in _native_ifc_products(ifc_path):
+    for nbytes, name, guid, color, mats, paths in _native_ifc_products(ifc_path, as_read=False):
         yield nbytes, (guid or name), color, mats, paths
 
 

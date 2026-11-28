@@ -1,0 +1,11 @@
+building-architecture.ifc and building-structural.ifc (IFC2X3)
+
+Source: buildingSMART International, Sample-Test-Files
+        https://github.com/buildingSMART/Sample-Test-Files
+        "IFC 2.3.0.1 (IFC 2x3 TC1)/Simple-Scene/Building-Architecture.ifc" and
+        ".../Building-Structural.ifc" at commit 5030f652e85d3e679b392fcb38bfa3328d6d9f79,
+        renamed to lower case, otherwise unchanged.
+
+Licence: (C) buildingSMART International Ltd. Licensed under the Creative Commons
+         Attribution 4.0 International License (CC BY 4.0),
+         https://creativecommons.org/licenses/by/4.0/
