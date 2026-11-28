@@ -119,8 +119,8 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
       return "server-only";
     };
     try {
-      // Resolve the engine for the browser: the default and built-in slugs (e.g.
-      // echo) dispatch directly; an engine a baked plugin wheel registers (a
+      // Resolve the engine for the browser: the default and built-in slugs
+      // dispatch directly; an engine a baked plugin wheel registers (a
       // worker-advertised one too) installs that plugin and dispatches by slug; a
       // database engine asks the server, which answers with a wheel the browser
       // micropip-installs from its presigned URL, or server-only.

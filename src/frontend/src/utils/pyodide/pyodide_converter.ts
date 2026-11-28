@@ -352,7 +352,7 @@ export async function compileProceduralViaPyodide(
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
-    // engine = a built-in slug (echo) dispatched directly; wheel = an external
+    // engine = a non-default slug dispatched directly; wheel = an external
     // engine the worker micropip-installs, then dispatches via its entrypoint.
     const engine = opts?.engine && opts.engine !== "adapy-default" ? opts.engine : null;
     const wheel = opts?.wheel ?? null;

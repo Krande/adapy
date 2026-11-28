@@ -240,7 +240,7 @@ async def _run_procedural_build(
         # A non-default engine gets the raw document through the uniform
         # ``compile(doc, **options)`` contract — catalog/CAD resolution is a
         # default-engine feature (it needs the DB), so it's skipped for others.
-        # Built-in slugs (echo) dispatch by slug; a registered engine dispatches
+        # A built-in slug dispatches by slug; a registered engine dispatches
         # via its manifest entrypoint (module:callable, resolved above).
         if not is_default_engine(engine):
             selector = engine if engine in BUILTIN_ENGINES else external_entrypoint

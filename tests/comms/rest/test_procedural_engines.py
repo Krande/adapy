@@ -111,25 +111,18 @@ def app_client(tmp_path: pathlib.Path):
 
 
 def test_engines_without_a_db(app_client: TestClient):
-    """No database: the built-ins are listed (nothing can be registered as a row)."""
+    """No database: the built-in is listed (nothing can be registered as a row). It is
+    the only one: adapy ships no diagnostic engine for a user to pick."""
     engines = app_client.get("/api/scopes/shared/procedural-engines").json()["procedural_engines"]
-    assert [e["slug"] for e in engines[:2]] == ["adapy-default", "echo"]
+    assert [e["slug"] for e in engines if e["origin"] == "builtin"] == ["adapy-default"]
+    assert app_client.get("/api/scopes/shared/procedural-engines/builtin:echo").status_code != 200
     assert app_client.post("/api/scopes/shared/procedural-engines", json={"name": "e"}).status_code == 503
 
 
 @pytest.fixture
-def local_engine():
+def local_engine(raw_box_engine: str) -> str:
     """An engine a tool registers in this process (as a preloaded package does)."""
-    from ada.topo_model import engine_catalog
-
-    engine_catalog.register_procedural_engine_capabilities(
-        "test-local-engine",
-        name="Test local engine",
-        description="echo, registered in-process",
-        entrypoint="ada.topo_model.echo_engine:compile_doc",
-    )
-    yield "test-local-engine"
-    engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-local-engine", None)
+    return raw_box_engine
 
 
 def test_a_local_engines_blueprints_are_offered(app_client: TestClient, local_engine: str):
@@ -143,7 +136,7 @@ def test_a_local_engines_blueprints_are_offered(app_client: TestClient, local_en
         r = app_client.get("/api/scopes/shared/procedural-models/blueprints", params={"engine": local_engine})
         assert [b["slug"] for b in r.json()["blueprints"]] == ["frame", "deck"]
         # Another engine's dropdown is not given them.
-        r = app_client.get("/api/scopes/shared/procedural-models/blueprints", params={"engine": "echo"})
+        r = app_client.get("/api/scopes/shared/procedural-models/blueprints", params={"engine": "adapy-default"})
         assert "frame" not in {b["slug"] for b in r.json()["blueprints"]}
     finally:
         blueprint_catalog._BLUEPRINT_REGISTRY.pop(local_engine, None)
@@ -166,7 +159,7 @@ def test_an_engine_registered_in_process_is_offered_and_compiles(app_client: Tes
     mine = [e for e in engines if e["slug"] == local_engine]
     assert len(mine) == 1 and mine[0]["origin"] == "local" and mine[0]["id"] == f"local:{local_engine}"
     got = app_client.get(f"/api/scopes/shared/procedural-engines/local:{local_engine}").json()
-    assert got["doc"] == {"kind": "server", "entrypoint": "ada.topo_model.echo_engine:compile_doc"}
+    assert got["doc"] == {"kind": "server", "entrypoint": "tests.procedural_engine_fixture:compile_doc"}
     resolved = app_client.get(f"/api/scopes/shared/procedural-engines/local:{local_engine}/resolve").json()
     assert resolved["ready"] is False and resolved["kind"] == "server"
 
@@ -191,12 +184,12 @@ def test_engines_carry_field_help_adapy_under_the_engines_own(app_client: TestCl
     engine_catalog.register_procedural_engine_capabilities(
         "test-help-engine",
         name="Help engine",
-        entrypoint="ada.topo_model.echo_engine:compile_doc",
+        entrypoint="tests.procedural_engine_fixture:compile_doc",
         field_help={"spaces": {"NAME": "The space's own name.\nUnique per structure.", "GRID_X": ""}, "supports": "no"},
     )
     # A tool may write it onto the spec itself (an older adapy without the keyword).
     engine_catalog.register_procedural_engine_capabilities(
-        "test-help-engine-2", name="Help engine 2", entrypoint="ada.topo_model.echo_engine:compile_doc"
+        "test-help-engine-2", name="Help engine 2", entrypoint="tests.procedural_engine_fixture:compile_doc"
     )
     engine_catalog._ENGINE_CAPABILITY_REGISTRY["test-help-engine-2"]["field_help"] = {"supports": {"NODE": "The node."}}
     try:

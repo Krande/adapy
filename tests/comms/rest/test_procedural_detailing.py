@@ -201,7 +201,10 @@ def test_detailing_key_gets_det_suffix():
     assert (
         procedural_detailing_glb_key("m", 3, None, "adapy-default", "detail") == "_procedural/m/r3_detail.det-adapy.glb"
     )
-    assert procedural_detailing_glb_key("m", 3, "echo", "adapy-default", "sim") == "_procedural/m/r3.echo.det-adapy.glb"
+    assert (
+        procedural_detailing_glb_key("m", 3, "raw-box", "adapy-default", "sim")
+        == "_procedural/m/r3.raw-box.det-adapy.glb"
+    )
     # The .log sibling rule follows the key automatically.
     assert procedural_log_key(key) == "_procedural/m/r3.det-adapy.log"
 

@@ -47,23 +47,10 @@ _BUILTIN_ENGINE = {
     "supports_grouping": True,
     "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc", "supports_excel": True},
 }
-# A second built-in: the diagnostic ``echo`` engine (renders the document's
-# cells as raw boxes). It exercises the full engine-selection path — resolve a
-# ``module:callable`` entrypoint and dispatch to it — on both the server and
-# WASM compile, without needing an external wheel. Kept ada-free here (slim API).
-_ECHO_ENGINE = {
-    "id": "builtin:echo",
-    "slug": "echo",
-    "name": "echo (raw cells)",
-    "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
-    "revision": 0,
-    "origin": "builtin",
-    "supports_grouping": False,
-    # No Excel format: the export/import routes read this off the manifest, as they
-    # read a registered engine's ``supports_excel``.
-    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc", "supports_excel": False},
-}
-_BUILTIN_ENGINES = [_BUILTIN_ENGINE, _ECHO_ENGINE]
+# Kept ada-free here (slim API): the built-ins as the viewer lists them. Every
+# other engine is a registered row, a worker's advertisement, or one this process
+# registered.
+_BUILTIN_ENGINES = [_BUILTIN_ENGINE]
 _BUILTIN_ENGINE_IDS = {e["id"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}

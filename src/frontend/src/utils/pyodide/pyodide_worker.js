@@ -887,7 +887,7 @@ async function ensureProceduralStack() {
 }
 
 // Compile a procedural doc (JSON string) to GLB bytes entirely in the browser.
-// engine (optional slug) selects a built-in non-default engine (e.g. echo). wheel
+// engine (optional slug) selects a non-default engine the browser's adapy knows. wheel
 // (optional {entrypoint, deps, url}) is an EXTERNAL engine: micropip-install its
 // deps + wheel, then dispatch to its module:callable entrypoint — the same
 // ada.topo_model.engines resolution the server uses.

@@ -651,8 +651,8 @@ async def api_procedural_compile(
 
     # A registered (DB) engine may name a worker_capability — the tag of the
     # worker pool that has that engine + its deps pre-installed. Route the
-    # compile there. Built-in engines (adapy-default/echo, in the base image)
-    # have no DB row and run on the default pool.
+    # compile there. The built-in engine (adapy-default, in the base image) has
+    # no DB row and runs on the default pool.
     target_capability = None
     if engine and engine != "adapy-default":
         eng = (
@@ -1082,7 +1082,7 @@ async def api_procedural_propose_relocations(
 # is a two-step: upload+detect (dependency-free _ADA_META peek), then enqueue.
 
 # Whether an engine HAS an Excel format is the engine's own say, read off its
-# manifest (``supports_excel``): a built-in's static doc (echo says no), a scope's
+# manifest (``supports_excel``): a built-in's static doc, a scope's
 # database row, or the spec its registration advertises
 # (``register_procedural_engine_capabilities(supports_excel=...)``). Core keeps no
 # list of slugs. Kept ada-free (slim API).

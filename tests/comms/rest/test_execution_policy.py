@@ -129,9 +129,9 @@ def test_job_operation_mapping():
     # A result file's inventory comes from its bake: choosing the worker for it is the bake's choice.
     assert ep.job_operation("result_meta", source_key="r/deck.SIF") == ("fea_bake", ".sif")
     assert ep.job_operation("engine_build", source_key="_synthetic/engine-build/e/r1") is None
-    assert ep.job_operation("procedural_build", conversion_options={"engine": "Echo"}) == (
+    assert ep.job_operation("procedural_build", conversion_options={"engine": "Raw-Box"}) == (
         "procedural_compile",
-        "echo",
+        "raw-box",
     )
     assert ep.job_operation("procedural_build", conversion_options={}) == ("procedural_compile", "*")
     assert ep.job_operation("plugin_jobs", plugin_id="example-plugin") == ("plugin_job", "example-plugin")
@@ -258,7 +258,7 @@ async def test_read_and_convert_are_judged_separately(policy_db, chose_worker):
 async def test_bake_compile_and_plugin_jobs_map_to_their_operation(policy_db, chose_worker):
     policy_db["global"] = {
         "fea_bake": {".rmed": ["pyodide"]},
-        "procedural_compile": {"echo": ["pyodide"]},
+        "procedural_compile": {"raw-box": ["pyodide"]},
         "plugin_job": {"example-plugin": ["pyodide"]},
     }
     transport = QueueJobTransport(_FakeQueue(enqueued=[]), {}, pool=lambda: object())
@@ -270,7 +270,7 @@ async def test_bake_compile_and_plugin_jobs_map_to_their_operation(policy_db, ch
             target_format="procedural_build",
             scope=Scope.shared(),
             feature="procedural_build",
-            conversion_options={"engine": "echo"},
+            conversion_options={"engine": "raw-box"},
             user=user,
         ),
         JobRequest(

@@ -144,7 +144,7 @@ def _model(client: TestClient, name: str) -> str:
     return model_id
 
 
-def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path, raw_box_engine):
     """A local viewer (no database, no queue) exports a file-stored model to its
     engine's workbook in this process (local_jobs.start_procedural_model_job)."""
     from openpyxl import load_workbook
@@ -165,7 +165,7 @@ def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_pa
     # Exported once: the same revision is the cached workbook.
     again = app_client.post(f"{BASE}/{model_id}/export-xlsx").json()
     assert again == {"job_id": None, "derived_key": started["derived_key"], "cached": True}
-    assert app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": "echo"}).status_code == 400
+    assert app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": raw_box_engine}).status_code == 400
     assert app_client.post(f"{BASE}/not-a-model/export-xlsx").status_code == 404
 
 
@@ -467,18 +467,18 @@ def test_export_and_import_use_the_handlers_a_registration_names(
 def test_an_engine_registered_without_an_excel_format_is_refused_by_both_routes(
     app_client: TestClient, isolated_engine_registry
 ):
-    """``supports_excel=False`` makes export and import refuse the engine as echo is
-    refused: the same 400, read off the engine's own registration."""
+    """``supports_excel=False`` makes export and import refuse the engine: a 400, read
+    off the engine's own registration."""
     isolated_engine_registry.register_procedural_engine_capabilities(
         "no-excel", name="No Excel", entrypoint="named_handler_engine:compile", supports_excel=False
     )
     model_id = _model(app_client, "no-excel")
-    for engine in ("no-excel", "echo"):
-        r = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": engine})
-        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
-        body = {"source_key": "_procedural/_import/tok/source.xlsx", "engine": engine, "name": "m"}
-        r = app_client.post(f"{BASE}/import-xlsx", json=body)
-        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+    engine = "no-excel"
+    r = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": engine})
+    assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+    body = {"source_key": "_procedural/_import/tok/source.xlsx", "engine": engine, "name": "m"}
+    r = app_client.post(f"{BASE}/import-xlsx", json=body)
+    assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
 
 
 def test_a_queued_server_without_a_db_keeps_export_and_import_503(app_client: TestClient, monkeypatch):

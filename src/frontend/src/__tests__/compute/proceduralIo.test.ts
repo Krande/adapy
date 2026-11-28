@@ -41,7 +41,7 @@ const manifest: PluginWheelsManifest = {
 };
 const engines: ListedEngine[] = [
   { id: "builtin:adapy-default", slug: "adapy-default", origin: "builtin" },
-  { id: "builtin:echo", slug: "echo", origin: "builtin" },
+  { id: "builtin:demo-builtin", slug: "demo-builtin", origin: "builtin" },
   { id: "worker:wheel-engine", slug: "wheel-engine", origin: "worker" },
   { id: "worker:other-engine", slug: "other-engine", origin: "worker" },
   { id: "db-1", slug: "db-engine", origin: "db" },
@@ -92,9 +92,9 @@ describe("proceduralIoRoute", () => {
     for (const slug of [null, "", "adapy-default"]) {
       assert.deepEqual(io.proceduralIoRoute(task("export_xlsx", { slug })), { kind: "browser", engine: null, engineId: null });
     }
-    assert.deepEqual(io.proceduralIoRoute(task("import_xlsx", { slug: "echo" })), {
+    assert.deepEqual(io.proceduralIoRoute(task("import_xlsx", { slug: "demo-builtin" })), {
       kind: "browser",
-      engine: "echo",
+      engine: "demo-builtin",
       engineId: null,
     });
   });

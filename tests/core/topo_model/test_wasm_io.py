@@ -89,11 +89,11 @@ def test_a_registered_engine_exports_and_imports_through_its_sibling_handlers(re
     assert [s["NAME"] for s in doc["spaces"]] == ["Space_01", "Space_02"]
 
 
-def test_an_engine_with_no_excel_format_is_refused():
+def test_an_engine_with_no_excel_format_is_refused(raw_box_engine):
     from ada.topo_model.engines import EngineHasNoExcelFormat
 
     with pytest.raises(EngineHasNoExcelFormat):
-        wasm_io.export_xlsx(_doc(), engine="echo")
+        wasm_io.export_xlsx(_doc(), engine=raw_box_engine)
 
 
 def test_relocations_answer_the_proposals_document():
