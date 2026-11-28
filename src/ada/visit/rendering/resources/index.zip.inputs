@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 620af9d40507061847a583aa3a3a60546c5e65b4b46ef3356f35af35a303c7e1
-bundle-sha256 039c24828c168b7b30a4d50636dacf8c40fbde659b5dc1239560e48c80b22828
+inputs-sha256 4e7b30a15aca96c375c667ba6dd86d0e0f9f6f214e588bc337c83f33925e312e
+bundle-sha256 d0ab7913f4d4ef19e525b3e1833020602bb9dd216b4d7cf517f446902f178dbd
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -112,7 +112,7 @@ src/frontend/src/components/admin/adminStorage/StorageTab.tsx 9afc9593a355fe00c2
 src/frontend/src/components/admin/adminStorage/StorageToolbar.tsx 9d37b0b163f81c5f6d1f4e7abada6920d8f26063
 src/frontend/src/components/admin/adminStorage/conversionOverrides.ts 5b72c288f718d05e80c0867aa104bfc2b83c6720
 src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f10e5155ef6dfb74a6b
-src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 67b941a1342a3d052482c3a14a2b7432657b99e6
+src/frontend/src/components/admin/adminStorage/useAdminStorage.ts b6885f3e76ffb32b6c93c80607dedd161c64d19d
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
 src/frontend/src/components/admin/adminTabs.ts 9309185b5e2d5b6e94530e78b92f96fdf3cda75f
 src/frontend/src/components/admin/applyChangesItem.ts 7c760b23f82fa277ad51755c726e62341c7ed2c7
@@ -401,7 +401,7 @@ src/frontend/src/components/simulations/RunConsole.tsx 9398d0654d142f9d63a7bdd21
 src/frontend/src/components/simulations/SchemaForm.tsx ef720cb46d1226d2a281efaf340b56f6c8b870bd
 src/frontend/src/components/simulations/SimulationsFrame.tsx 1e58fc53e96bfe379c343f01e3ca0631ae6c685c
 src/frontend/src/components/simulations/SimulationsPanel.tsx 49f4bee53e2f6023c174ad6763a274d7d671a3ab
-src/frontend/src/components/storage/FieldPickerModal.tsx 06b690cb446b535a55395cd1130bf6aecb5d3a6e
+src/frontend/src/components/storage/FieldPickerModal.tsx cc5f8723119c49a5a7b4a78a106fc4bf7da7bb5e
 src/frontend/src/components/storage/GitHistoryPanel.tsx 5dd173dd9870939b23b2707d41c40c873857979a
 src/frontend/src/components/storage/StorageBrowser.tsx b1bb022105c5361e766a175648cd2a6f16ce506c
 src/frontend/src/components/storage/browser/AssetTypeSections.tsx c3e4d89a9f60c1674d7b848b97efb2c5875c38ae
@@ -782,7 +782,7 @@ src/frontend/src/services/api/conversion.ts 416a396f994f329882980502feb531a05944
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
 src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
 src/frontend/src/services/api/equipmentTypes.ts fae2a1072c784acdc6e62bfdc946b6373d24f844
-src/frontend/src/services/api/fea.ts 6b4358750cfe5d65578963d924db1201b9bebdbe
+src/frontend/src/services/api/fea.ts 46c7d3450d77830a9b790dfb25508f8c0badfac0
 src/frontend/src/services/api/files.ts 62a4cb9b0d83bfe4bd74a44f0b6d4a44ea52c5a4
 src/frontend/src/services/api/geometryCompare.ts 130336a08b2439cafc55e46b70e1c7e4fba24f84
 src/frontend/src/services/api/localJobs.ts 380c7c76c7dc160ce2b7abdb9ac4d64285e7d052
@@ -833,10 +833,10 @@ src/frontend/src/services/compute/proceduralBrowserEngine.ts 95dfb08f69677266493
 src/frontend/src/services/compute/proceduralIo.ts f7e684809a05baffefe760eb5e4668568549bd72
 src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
-src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
+src/frontend/src/services/conversion/index.ts 58b426d7a90a3bbf81cc21438c52d6a29e353342
 src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts 72333f1b30b2cfd373329156cfe8d290acfbd4a8
 src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 43e73c1fcff2c854533c8e1d64890c10b1f404e9
-src/frontend/src/services/conversion/pyodidePipeline.ts 3c41bd7b8f428cf9a17252ab6267a5f169c4df3e
+src/frontend/src/services/conversion/pyodidePipeline.ts 5f602cd8a83206a9bf8d5562380732f30622dedb
 src/frontend/src/services/conversion/serializerMatrix.ts 36b7ace58405963d5ed559c9cc852a107a6055a8
 src/frontend/src/services/conversion/serverPipeline.ts 03a443eaa63970724735801de83b29dab46bce57
 src/frontend/src/services/conversion/wasmSupport.ts 7c76d55217c55859426b512f81c0607ad6075862
@@ -863,7 +863,7 @@ src/frontend/src/services/feaBeamSolidsWarp.ts 625fdafe7eaf6d2f4b51340ae7aae11ed
 src/frontend/src/services/feaElemFieldBlob.ts ee311f149eb83035451da81bc62b023596a7e770
 src/frontend/src/services/feaElementProps.ts 124a03c6b1de09dbb78c8216a3e1e59672e651c6
 src/frontend/src/services/feaFieldBlob.ts 88d1d31ec462c2fab71ed2ed18647c1a223b6141
-src/frontend/src/services/feaManifestPoll.ts d52ab5f8a23e70e41dc0c8741edd7f34c1eae3ec
+src/frontend/src/services/feaManifestPoll.ts 80d9cee2e6de76ce7319295a88f6e20911caabec
 src/frontend/src/services/feaMeshEdges.ts 5c9226219e7fa49ca8b272291221cf893e77e709
 src/frontend/src/services/feaMeshElements.ts 9448e622c0e3ee7f34fc5d54d8450223d5030c2c
 src/frontend/src/services/fuzzy.ts 1ec9acd7b377eddd7a2e17359f012f8acd778752
@@ -1194,8 +1194,8 @@ src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed5518117
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pluginWheels.ts a25b947c8cd930834846067c22a73b2b4c40716b
-src/frontend/src/utils/pyodide/pyodide_converter.ts f0bba731d35258577987866aebd676100d9631ec
-src/frontend/src/utils/pyodide/pyodide_worker.js cfdece8a755fd16a5664b1b1b6ebbcb81d44c1fa
+src/frontend/src/utils/pyodide/pyodide_converter.ts f21a2dd2d86a99d835f31d291e69e7e15fcadde7
+src/frontend/src/utils/pyodide/pyodide_worker.js e285bf5a890c55c9d93f7c72fbbd6d25a3715527
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
