@@ -31,7 +31,7 @@ export async function ensurePyodideWorker(): Promise<never> {
     throw new Error(UNAVAILABLE);
 }
 
-export function prewarmPyodide(): void {
+export function prewarmPyodide(_onLog?: (msg: string) => void, _opts?: {plugins?: readonly string[]}): void {
     /* no worker in the embed */
 }
 
@@ -52,6 +52,11 @@ export async function convertViaPyodideFeaBakeStream(): Promise<never> {
 }
 
 export async function convertIfcViaPyodide(): Promise<never> {
+    throw new Error(UNAVAILABLE);
+}
+
+/** A core job never runs in the embed: the caller hands it to the worker (coreJobs.ts). */
+export async function runCoreJobViaPyodide(): Promise<never> {
     throw new Error(UNAVAILABLE);
 }
 

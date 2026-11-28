@@ -2,6 +2,16 @@
 
 
 
+## v0.179.0 (2026-11-28)
+
+### Feature
+
+* feat: browser-first compute, admin execution policy, opt-in worker access (#609)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt;
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`3b0588d`](https://github.com/Krande/adapy/commit/3b0588d1a287da738825f7d4a87be0dbdc4f4a90))
+
+
 ## v0.178.2 (2026-11-27)
 
 ### Fix

@@ -282,9 +282,13 @@ export function useProceduralModels(p: {
 
     // Instantiate a new model from a template: commit the template's document
     // verbatim (so loft members / systems survive untouched — the cellbuilder's
-    // box round-trip would drop them), then kick a compile and open it. The
-    // committed doc's engine is mirrored onto the model, so a worker-backed
-    // template auto-routes its compile to that worker.
+    // box round-trip would drop them), then open it. Nothing is compiled here:
+    // the model opens like any stored model and builds when the user asks
+    // (Compile, or opening a result view, which previews it). A build started here
+    // would be one the user did not ask for, landing whenever it finishes (a first
+    // browser build installs the engine first, so many seconds later) in the middle
+    // of whatever the user is doing with the model by then. The server compile this
+    // used to post only stored a GLB it never showed; a browser build stores nothing.
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
@@ -296,20 +300,14 @@ export function useProceduralModels(p: {
         });
         if (!name || !name.trim()) return;
         try {
-            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
-            // Compile so the model has a rendered GLB immediately; ignore compile
-            // errors here (the model still opens and can be recompiled).
-            try {
-                await viewerApi.compileProceduralModel(scopeKey, detail.id);
-            } catch {
-                /* compile is best-effort on create */
-            }
+            // A template belongs to its engine: the model is created for it and its doc names
+            // it, whatever the deployment's default engine is.
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim(), {engine: tpl.engine});
+            const doc = tpl.doc.engine ? tpl.doc : {...tpl.doc, engine: tpl.engine};
+            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, doc, detail.revision);
             const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
             await refreshProceduralModels();
-            useCellBuilderStore
-                .getState()
-                .open(fresh.id, fresh.name, revision, fresh.doc);
+            useCellBuilderStore.getState().open(fresh.id, fresh.name, revision, fresh.doc);
         } catch (e) {
             void alertDialog({title: "Failed to create from template", body: errorText(e), tone: "danger"});
         }

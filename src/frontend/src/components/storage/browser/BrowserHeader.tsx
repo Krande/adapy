@@ -274,10 +274,11 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                                 </span>
                             }
                             items={[
-                                ...importEngines.map(
+                                // The deployment's default engine first, and said so.
+                                ...[...importEngines].sort((a, b) => Number(!!b.is_default) - Number(!!a.is_default)).map(
                                     (eng): KebabMenuItem => ({
                                         key: eng.slug,
-                                        label: eng.name,
+                                        label: eng.is_default ? `${eng.name} (default)` : eng.name,
                                         onClick: () =>
                                             void useCellBuilderStore
                                                 .getState()

@@ -309,6 +309,36 @@ export async function fetchFeaEnvelope(deps: PollDeps & {field: string}): Promis
     );
 }
 
+/** A result file's (steps, fields) inventory read from its bake's manifest -- what
+ * ``GET .../result-meta`` answers, without the worker parse behind it. The browser bake writes
+ * the manifest, so a source the browser bakes needs no worker for its inventory either.
+ *
+ * Mirrors the worker's ``compute_fea_meta``: one entry per native field name, each with the
+ * deck's step numbers it has data for. A step's number is its ``value`` (the deck's case
+ * number or time, truncated as ``int()`` does), except for an eigen field, whose value is the
+ * mode's frequency: its modes are numbered from 1 in order. Fields the bake adds (derived
+ * results, model properties) are not in the deck's inventory and are left out. Throws when
+ * no result field is left (a mesh-only bake), as the server answers 422. */
+export function resultMetaFromManifest(manifest: FeaManifest): ResultMeta {
+    const byName = new Map<string, Set<number>>();
+    for (const f of manifest.fields ?? []) {
+        if (f.derived || f.category === "property") continue;
+        const name = f.name_native || f.name_canonical;
+        if (!name) continue;
+        const steps = byName.get(name) ?? new Set<number>();
+        (f.steps ?? []).forEach((s, k) => {
+            steps.add(f.analysis_kind === "eigen" ? k + 1 : Math.trunc(Number(s.value)));
+        });
+        byName.set(name, steps);
+    }
+    const fields = [...byName].map(([name, steps]) => ({name, steps: [...steps].sort((a, b) => a - b)}));
+    const all = [...new Set(fields.flatMap((f) => f.steps))].sort((a, b) => a - b);
+    if (fields.length === 0 || all.length === 0) {
+        throw new ApiError(`resultMeta: ${manifest.src || "the source"} has no result fields`, 422);
+    }
+    return {steps: all, fields, default_step: all[0], default_field: fields[0].name};
+}
+
 export async function fetchResultMeta(deps: PollDeps): Promise<ResultMeta> {
     return pollEnqueueGet<ResultMeta>(
         deps,

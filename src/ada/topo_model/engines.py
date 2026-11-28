@@ -10,8 +10,8 @@ Pyodide entrypoint (:mod:`ada.topo_model.wasm_compile`) — resolve and call an
 engine THROUGH THIS MODULE, so engine selection behaves identically server-side
 and in WASM.
 
-An engine is selected by ``slug`` (a built-in like ``echo``, or a registered
-one) or directly by its ``module:callable`` entrypoint string (as carried in a
+An engine is selected by ``slug`` (the built-in ``adapy-default``, or a
+registered one) or directly by its ``module:callable`` entrypoint string (as carried in a
 registry manifest). The default engine keeps its own richer call path (it takes
 catalog resolvers the generic contract doesn't), so this module only dispatches
 the NON-default engines through the uniform ``compile(doc, **options)`` contract.
@@ -77,7 +77,7 @@ class EngineBinding(BaseModel):
     """The engine + document-schema a procedural model is bound to.
 
     This is the routing/identity header of a procedural document: which engine
-    compiles it (a built-in slug like ``adapy-default``/``echo``, or a registered
+    compiles it (the built-in ``adapy-default``, or a registered
     engine's slug) and the doc-schema version it was authored against. It is
     carried by the workbook's ``Model`` sheet, stamped into the document
     (``doc["engine"]``/``doc["schema_version"]``), and persisted as first-class
@@ -98,23 +98,17 @@ class EngineBinding(BaseModel):
 # and in the browser (they import only adapy, no external wheel). Each maps a
 # slug to its ``module:callable`` entrypoint.
 #
-# ``echo`` is a diagnostic engine: it renders the document's cells as raw boxes
-# (no structural blueprint), so selecting it produces a visibly-different model —
-# proof that engine selection resolved and dispatched to a NON-default entrypoint
-# on whichever path (server or WASM) ran the compile.
-#
 # ``supports_grouping`` advertises whether an engine understands the cellbuilder's
 # per-group blueprints (a group == one structure with its own blueprint).
 # adapy-default DOES: it maps a doc's ``groups``/``STRUCTURE_NAME`` to one
 # per-structure topology model, each placed at its origin, via
 # ``ada.topo_model.structures`` (see ``ProceduralBuilder.build_structure``); a
-# doc with no groups still compiles the single model it always did. echo
-# remains non-grouping — it renders raw boxes, no structure. A capability
+# doc with no groups still compiles the single model it always did. A capability
 # engine advertises ``True``/``False`` from its own worker specs (see
 # ``ada.topo_model.engine_catalog`` / the worker heartbeat).
 #
-# ``supports_excel`` says whether an engine has an Excel format: adapy-default
-# does, echo does not. A registered engine says the same through its
+# ``supports_excel`` says whether an engine has an Excel format (adapy-default
+# does). A registered engine says the same through its
 # registration (``register_procedural_engine_capabilities(supports_excel=...)``)
 # or its manifest; one that says nothing has one.
 BUILTIN_ENGINES: dict[str, dict] = {
@@ -124,13 +118,6 @@ BUILTIN_ENGINES: dict[str, dict] = {
         "entrypoint": "ada.topo_model.wasm_compile:compile_doc",
         "supports_grouping": True,
         "supports_excel": True,
-    },
-    "echo": {
-        "name": "echo (raw cells)",
-        "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
-        "entrypoint": "ada.topo_model.echo_engine:compile_doc",
-        "supports_grouping": False,
-        "supports_excel": False,
     },
 }
 
@@ -143,13 +130,21 @@ def is_default_engine(engine: str | None) -> bool:
 def entrypoint_for(engine: str) -> str:
     """The ``module:callable`` entrypoint for an engine selector — a built-in
     slug, or an explicit ``module:callable`` string passed straight through
-    (as a registry manifest carries it). Raises on an unknown slug."""
+    (as a registry manifest carries it), or the slug of an engine that announced
+    itself in this process (``register_procedural_engine_capabilities`` with an
+    ``entrypoint``: a plugin wheel's register hook in the browser, a preloaded
+    module on a local server). Raises on an unknown slug."""
     if ":" in engine:
         return engine
     spec = BUILTIN_ENGINES.get(engine)
-    if spec is None:
-        raise ValueError(f"unknown procedural engine {engine!r} (known built-ins: {sorted(BUILTIN_ENGINES)})")
-    return spec["entrypoint"]
+    if spec is not None:
+        return spec["entrypoint"]
+    from ada.topo_model.engine_catalog import _ENGINE_CAPABILITY_REGISTRY
+
+    announced = (_ENGINE_CAPABILITY_REGISTRY.get(engine) or {}).get("entrypoint")
+    if announced:
+        return announced
+    raise ValueError(f"unknown procedural engine {engine!r} (known built-ins: {sorted(BUILTIN_ENGINES)})")
 
 
 def load_entrypoint(entrypoint: str) -> Callable:
@@ -198,10 +193,9 @@ def compile_with_engine(engine: str, doc, **options) -> bytes:
 # a non-default engine exposes sibling ``export_xlsx`` / ``import_xlsx``
 # entrypoints (a registry manifest may name them explicitly, else they are derived
 # from the compile entrypoint's module). An engine whose spec or manifest says
-# ``supports_excel: false`` (the built-in echo) has no Excel format.
+# ``supports_excel: false`` has no Excel format.
 
-# Built-in engine slugs that own an Excel format, read off BUILTIN_ENGINES (the
-# default engine does; the diagnostic ``echo`` engine does not).
+# Built-in engine slugs that own an Excel format, read off BUILTIN_ENGINES.
 _EXCEL_BUILTIN_ENGINES: frozenset[str] = frozenset(
     slug for slug, spec in BUILTIN_ENGINES.items() if spec.get("supports_excel", True)
 )
@@ -223,8 +217,8 @@ def engine_supports_excel(engine: str | None, manifest_doc: dict | None = None) 
     """True if ``engine`` can export/import Excel: the default engine, or a
     registered engine whose manifest names an ``entrypoint`` (from which the xlsx
     siblings are derived) or explicit ``export_entrypoint``/``import_entrypoint``,
-    and does not say ``supports_excel: false``. Built-in non-default engines
-    (echo) return False."""
+    and does not say ``supports_excel: false``. A built-in engine answers from
+    its own ``supports_excel``."""
     if is_default_engine(engine):
         return True
     if engine in BUILTIN_ENGINES:

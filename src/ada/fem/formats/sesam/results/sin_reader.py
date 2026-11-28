@@ -1855,8 +1855,8 @@ class SinFile:
         if not total:
             return n_data, np.empty(0, dtype=np.float32)
         offsets = np.cumsum(n_data) - n_data
-        within = np.arange(total, dtype=np.int64) - np.repeat(offsets, n_data)
-        words = src.gather_f32(np.repeat(ptrs, n_data) + within)
+        within = np.arange(total, dtype=np.int64) - np.repeat(offsets, n_data.astype(np.intp))
+        words = src.gather_f32(np.repeat(ptrs, n_data.astype(np.intp)) + within)
         return n_data, np.asarray(words, dtype=np.float32)
 
     def iter_text_records(self, name: str) -> Iterator[tuple[tuple[float, ...], str]]:

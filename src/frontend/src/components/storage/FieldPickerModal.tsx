@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from "react";
-import {viewerApi, ResultMeta, ScopeUrl} from "@/services/viewerApi";
+import type {ResultMeta, ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {view_picked_fea_render} from "@/utils/scene/handlers/view_picked_fea_render";
 
@@ -45,7 +45,9 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
         let cancelled = false;
         (async () => {
             try {
-                const m = await viewerApi.resultMeta(scope, sourceName);
+                // The browser bake's inventory first, the worker's parse as the policy orders.
+                const {resolveResultMeta} = await import("@/services/conversion");
+                const m = await resolveResultMeta(scope, sourceName);
                 if (cancelled) return;
                 setMeta(m);
                 setStep(m.default_step);

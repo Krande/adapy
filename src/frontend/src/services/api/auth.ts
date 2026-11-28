@@ -2,6 +2,8 @@
 
 import { runtime } from "@/runtime/config";
 
+import type { ExecutionPolicyDoc } from "@/services/compute/executionPolicyModel";
+
 import { authedFetch, jsonOrThrow } from "./client";
 
 export interface WorkerAccessPolicy {
@@ -22,6 +24,9 @@ export interface MeResponse {
   }>;
   projects: Array<{ id: string; slug: string; name: string; role: string }>;
   worker_access?: WorkerAccessPolicy;
+  /** The effective execution policy: the admin's global order overlaid by this
+   * user's override (services/compute/executionPolicy.ts). */
+  execution_policy?: ExecutionPolicyDoc;
 }
 
 export const authApi = {

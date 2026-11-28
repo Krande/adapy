@@ -23,10 +23,11 @@ def model(tmp_path):
 def test_ifc_to_glb_uses_the_native_backend(model, monkeypatch):
     monkeypatch.delenv(ib.ENV_VAR, raising=False)
 
-    def _no_ifcopenshell(src):
-        raise AssertionError("the ifcopenshell tessellation ran although the native one is available")
+    def _not_used(*a, **k):
+        raise AssertionError("a Python IFC path ran although the native tessellation is available")
 
-    monkeypatch.setattr(ib, "ifcopenshell_ifc_to_glb_bytes", _no_ifcopenshell)
+    monkeypatch.setattr(wasm_convert, "_read_source", _not_used)
+    monkeypatch.setattr(wasm_convert, "_ifc_to_glb", _not_used)
     glb = wasm_convert.run("ifc", "ifc", "glb", str(model))
     assert glb[:4] == b"glTF"
     stl = wasm_convert.run("ifc", "ifc", "stl", str(model))
@@ -41,6 +42,16 @@ def test_ifc_to_glb_falls_back_when_native_fails(model, monkeypatch):
         raise RuntimeError("native failure")
 
     monkeypatch.setattr(ib.NativeIfcBackend, "tessellate", _boom)
+    assert wasm_convert.run("ifc", "ifc", "glb", str(model))[:4] == b"glTF"
+
+
+def test_ifc_to_glb_falls_back_to_ifcopenshell_when_adapy_fails(model, monkeypatch):
+    monkeypatch.setenv(ib.ENV_VAR, "ifcopenshell")  # no native tessellation
+
+    def _boom(*a, **k):
+        raise RuntimeError("adapy failure")
+
+    monkeypatch.setattr(wasm_convert, "_read_source", _boom)
     assert wasm_convert.run("ifc", "ifc", "glb", str(model))[:4] == b"glTF"
 
 

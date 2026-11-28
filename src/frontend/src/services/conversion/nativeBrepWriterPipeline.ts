@@ -4,6 +4,7 @@
 // metrics-rich audit row (WASM badge). Buffered MEMFS IO; an OPFS-streaming tier can follow the
 // CAD→GLB pattern for very large B-rep files.
 
+import type {ExecutionAuditInfo} from "@/services/compute/executionPolicy";
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {
@@ -41,7 +42,7 @@ export async function convertViaWasmBrepAndUpload(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat,
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<string> {
     const dir = brepDirFor(sourceKey, targetFormat);
     if (!dir) {
@@ -69,6 +70,7 @@ export async function convertViaWasmBrepAndUpload(
             target_format: targetFormat,
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */

@@ -37,8 +37,8 @@ def compile_doc(
     string). ``lod`` picks the simulation (default) or detail level of detail.
 
     ``engine`` selects the procedural engine: ``None``/``"adapy-default"`` is the
-    built-in compile; any other (built-in like ``"echo"``, or a ``module:callable``
-    entrypoint) is resolved and dispatched via :mod:`ada.topo_model.engines`, so
+    built-in compile; any other (the slug of an engine registered in this process,
+    or a ``module:callable`` entrypoint) is resolved and dispatched via :mod:`ada.topo_model.engines`, so
     a non-default engine runs identically here (in-browser) and server-side. Only
     engines importable in the browser (i.e. in the loaded adapy wheel) work here.
 

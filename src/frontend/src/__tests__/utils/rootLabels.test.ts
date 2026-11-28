@@ -15,6 +15,8 @@ test("the name a caller gives wins; then the model's own root name, unless it is
   assert.equal(topLevelName(undefined, "/SITE-A", "site-0.glb"), "/SITE-A");
   assert.equal(topLevelName("  ", "Scene", "site-0.glb"), "site-0.glb", "blank and generic fall through");
   assert.equal(topLevelName(null, "", "model.glb"), "model.glb");
+  // adapy's own writer roots an unnamed model at its default Assembly name.
+  assert.equal(topLevelName(undefined, "Ada", "beam.ifc"), "beam.ifc", "adapy's default root is generic");
 });
 
 test("labels stay distinct: -2, -3 after the first", () => {

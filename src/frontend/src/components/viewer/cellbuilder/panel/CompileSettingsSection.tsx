@@ -18,7 +18,9 @@
 
 import React from "react";
 
+import {engineAvailability} from "@/services/compute/proceduralBrowserEngine";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {loadPluginWheelsManifest, type PluginWheelsManifest} from "@/utils/pyodide/pluginWheels";
 import {blueprintColour} from "@/utils/cellbuilder/blueprintColours";
 import {focusedStructure} from "@/utils/cellbuilder/structureFocus";
 import {Section, inputCls} from "./chrome";
@@ -33,6 +35,18 @@ export const CompileSettingsSection: React.FC = () => (
 /** The settings themselves (without the fold, for a host or a test). */
 export const CompileSettingsBody: React.FC = () => {
   const s = useCellBuilderStore();
+  // The baked plugin wheels decide which engines also compile in the browser
+  // (the engine label); fetched once per page (loadPluginWheelsManifest caches).
+  const [manifest, setManifest] = React.useState<PluginWheelsManifest>({plugins: {}});
+  React.useEffect(() => {
+    let live = true;
+    void loadPluginWheelsManifest().then((m) => {
+      if (live) setManifest(m);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const supportsGrouping = Boolean(s.engines.find((e) => e.slug === s.selectedEngine)?.supports_grouping);
   const focusName = supportsGrouping ? focusedStructure(s.selection, s.selectedCellIds, s.cells, s.groups, s.loftMembers) : undefined;
   const focus = focusName ? s.groups.find((g) => g.name === focusName) : undefined;
@@ -64,7 +78,7 @@ export const CompileSettingsBody: React.FC = () => {
               value={e.slug}
               title={e.description ?? undefined}
             >
-              {e.name} ({e.origin})
+              {e.name} ({engineAvailability(e, manifest)})
             </option>
           ))}
         </select>

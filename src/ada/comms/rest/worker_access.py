@@ -7,12 +7,44 @@ alongside the async enforcement guard (:func:`require_worker_access`) invoked by
 
 from __future__ import annotations
 
+import contextvars
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 
 from . import db as db_module
 from .auth import User
+
+# The policy governs the CHOICE of the worker pool over the browser, not server
+# compute as such. A workload with no browser path (an Excel export, an asset
+# build, a clash check, a detail-LOD compile, an .odb bake, a plugin without a
+# baked wheel) has nothing to choose between and is never refused. A client that
+# could run a job in the browser and sends it to the worker instead marks that
+# request with this header; only those submissions are judged.
+RUN_ON_HEADER = "x-ada-run-on"
+RUN_ON_WORKER = "worker"
+
+_explicit_worker_choice: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "ada_explicit_worker_choice", default=False
+)
+
+
+def set_explicit_worker_choice(value: bool) -> contextvars.Token:
+    return _explicit_worker_choice.set(bool(value))
+
+
+def reset_explicit_worker_choice(token: contextvars.Token) -> None:
+    _explicit_worker_choice.reset(token)
+
+
+def explicit_worker_choice() -> bool:
+    """True when the current request chose the worker over an in-browser alternative."""
+    return _explicit_worker_choice.get()
+
+
+def requests_worker(headers) -> bool:
+    """Whether request ``headers`` carry ``X-Ada-Run-On: worker``."""
+    return str(headers.get(RUN_ON_HEADER, "")).strip().lower() == RUN_ON_WORKER
 
 
 @dataclass(frozen=True)
@@ -68,13 +100,17 @@ def serialize_me_worker_access(user: User, policy: WorkerAccessPolicy) -> dict:
     }
 
 
-def worker_access_applies(pool, user: User | None) -> bool:
+def worker_access_applies(pool, user: User | None, *, explicit: bool | None = None) -> bool:
     """True when a submission by ``user`` has to pass the policy check at all.
 
-    False for system/scheduled ticks (no user), admins, and a DB-less deployment
-    (shared-only, no ``user_worker_access`` table and no admin panel to grant it).
+    False for system/scheduled ticks (no user), admins, a DB-less deployment
+    (shared-only, no ``user_worker_access`` table and no admin panel to grant it),
+    and any submission that did not choose the worker over the browser
+    (``explicit``, default: the current request's ``X-Ada-Run-On`` header).
     """
-    return user is not None and not user.is_admin and pool is not None
+    if explicit is None:
+        explicit = explicit_worker_choice()
+    return explicit and user is not None and not user.is_admin and pool is not None
 
 
 async def require_worker_access(pool, user: User | None, capability: str | None) -> None:

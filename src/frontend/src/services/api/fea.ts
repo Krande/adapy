@@ -6,7 +6,7 @@ import { runtime } from "@/runtime/config";
 
 import type { FemConcepts } from "@/extensions/design_and_analysis_extension";
 import { fetchFeaCase, fetchFeaManifest, fetchResultMeta } from "@/services/feaManifestPoll";
-import { authedFetch, authHeader, jsonOrThrow, type ScopeUrl } from "./client";
+import { authedFetch, authHeader, jsonOrThrow, withRunOnWorker, type ScopeUrl } from "./client";
 import { conversionApi } from "./conversion";
 
 export interface ResultMetaField {
@@ -629,10 +629,18 @@ export const feaApi = {
    * mock fetchers + clocks without spinning up React.
    *
    * 415 if the source isn't a result file; 422 if it is but has
-   * no usable result data. */
-  async resultMeta(scope: ScopeUrl, sourceKey: string): Promise<ResultMeta> {
+   * no usable result data.
+   *
+   * This is the server's answer only; ``resolveResultMeta`` (services/conversion)
+   * reads it from the browser bake first, as the execution policy orders. */
+  async resultMeta(
+    scope: ScopeUrl,
+    sourceKey: string,
+    /** The user chose the worker over the browser bake (X-Ada-Run-On). */
+    opts?: { runOnWorker?: boolean },
+  ): Promise<ResultMeta> {
     return fetchResultMeta({
-      fetcher: authedFetch,
+      fetcher: opts?.runOnWorker ? withRunOnWorker(authedFetch) : authedFetch,
       convertStatus: (jobId) => conversionApi.convertStatus(jobId),
       apiBase: runtime.apiBase(),
       scope,
@@ -667,10 +675,12 @@ export const feaApi = {
       signal?: AbortSignal;
       /** Mesh first: each preliminary manifest of a running bake. */
       onPartial?: (manifest: FeaManifest, info: { jobId: string }) => void | Promise<void>;
+      /** The user chose the worker over an in-browser bake (X-Ada-Run-On). */
+      runOnWorker?: boolean;
     },
   ): Promise<FeaManifest> {
     return fetchFeaManifest({
-      fetcher: authedFetch,
+      fetcher: opts?.runOnWorker ? withRunOnWorker(authedFetch) : authedFetch,
       convertStatus: (jobId) => conversionApi.convertStatus(jobId),
       apiBase: runtime.apiBase(),
       scope,

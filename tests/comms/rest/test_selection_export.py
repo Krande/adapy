@@ -65,6 +65,18 @@ def test_a_path_only_has_to_match_its_end():
     assert find_selection(_model(), "PL1", ["sub", "PL1"]).parent.name == "sub"
 
 
+def test_a_path_may_carry_levels_the_reader_folds_away():
+    """The viewer's native IFC reader shows an IFC's own levels (project, building); ada's reader
+    folds them, so the re-read chain is the path with levels left out -- still that element."""
+    found = find_selection(_model(), "PL1", ["Project", "asm", "Building", "deck_b", "PL1"])
+    assert found.parent.name == "deck_b"
+    nested = find_selection(_model(), "PL1", ["Project", "asm", "deck_a", "Storey", "sub", "PL1"])
+    assert nested.parent.name == "sub"
+    # A level the chain has and the path does not is still a mismatch.
+    with pytest.raises(SelectionExportError, match="none sits under"):
+        find_selection(_model(), "PL1", ["Project", "Building", "deck_x", "PL1"])
+
+
 def test_a_name_the_model_does_not_carry_says_how_to_export_anyway():
     with pytest.raises(SelectionExportError, match="root row"):
         find_selection(_model(), "nope")

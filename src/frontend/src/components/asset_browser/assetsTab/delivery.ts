@@ -10,6 +10,7 @@ import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
 import { authHeader, type ScopeUrl } from "@/services/api/client";
 import { conversionApi } from "@/services/api/conversion";
+import { browserAssetBuild } from "@/services/compute/assetBuild";
 import { filesApi } from "@/services/api/files";
 import { useModelSessionStore } from "@/state/modelSession";
 import { getViewerRuntime } from "@/state/viewerRuntime";
@@ -42,7 +43,7 @@ export function realDeliveryDeps(
     return {
         ...(signal ? {signal} : {}),
         api: {
-            buildAssetNode: (scope, body) => assetsApi.buildAssetNode(scope, body),
+            buildAssetNode: (scope, body, opts) => assetsApi.buildAssetNode(scope as ScopeUrl, body, opts),
             getBuildSummary: (scope, key) => assetsApi.getBuildSummary(scope, key),
             async jobStatus(jobId) {
                 const status = await conversionApi.convertStatus(jobId);
@@ -53,6 +54,9 @@ export function realDeliveryDeps(
         },
         loadModelFromUrl: (owner, url, opts) => makePluginContextStandalone(OWNER).scene.loadModelFromUrl(owner, url, opts),
         isLoaded,
+        // A build runs in the browser when a baked wheel registers its capability and the
+        // execution policy's asset_build order puts the browser first (services/compute/assetBuild).
+        browserBuild: browserAssetBuild(),
         blobUrl: (scope, key) => filesApi.blobUrl(scope, key),
         blobHeaders: () => authHeader(),
         trackJob:

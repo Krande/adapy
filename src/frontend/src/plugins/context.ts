@@ -12,7 +12,7 @@
 import { trackJob } from "@/services/jobTracking";
 import { runtime } from "@/runtime/config";
 import type { WorkerAccessPolicy } from "@/services/api/auth";
-import { loadWorkerAccess, workerPreferred } from "@/services/compute/workerAccess";
+import { loadWorkerAccess } from "@/services/compute/workerAccess";
 import type { ScopeUrl } from "@/services/api/client";
 import { localArtefactStore } from "@/services/compute/localArtefactStore";
 import {
@@ -101,8 +101,9 @@ function makePluginCompute(defaultPluginId: string, getScope: () => string): Plu
         derivedKey: opts.derivedKey,
         derivedPrefix: opts.derivedPrefix,
         // An explicit per-job choice ("Run on worker") wins; otherwise the
-        // user's engine setting, effective only with global worker access.
-        preferWorker: opts.preferWorker ?? workerPreferred(workerAccess),
+        // execution policy's "plugin_job" order for this plugin (with the user's
+        // preference and worker access), resolved by the router.
+        preferWorker: opts.preferWorker,
         workerAccess,
         onLog: opts.onLog,
         onProgress: opts.onProgress,

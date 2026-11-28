@@ -12,6 +12,7 @@ import ProceduralTab from "./ProceduralTab";
 import {auditHash, parseAdminHash, parseTabId} from "./adminTabs";
 import type {AuditSubTab, PerformanceSubTab, ProceduralSubTab} from "./adminTabs";
 import ConversionSettingsTab from "./ConversionSettingsTab";
+import ExecutionPolicyTab from "./execution/ExecutionPolicyTab";
 import IssueTargetTab from "./IssueTargetTab";
 import PluginAccessTab from "./PluginAccessTab";
 import ProjectsTab from "./ProjectsTab";
@@ -203,6 +204,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
                         Conversion
                     </TabButton>
+                    <TabButton active={tab === "execution"} onClick={() => setTab("execution")}>
+                        Execution
+                    </TabButton>
                     <TabButton active={tab === "procedural"} onClick={() => setTab("procedural")}>
                         Procedural Engine
                     </TabButton>
@@ -244,6 +248,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "database" && <DatabaseTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
+                {tab === "execution" && <ExecutionPolicyTab/>}
                 {tab === "procedural" && (
                     <ProceduralTab initialSubTab={initialSub as ProceduralSubTab | undefined}/>
                 )}

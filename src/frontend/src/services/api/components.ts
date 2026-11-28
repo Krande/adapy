@@ -157,13 +157,13 @@ export const componentsApi = {
     const url = opts?.scope
       ? `${runtime.apiBase()}/components/build?scope=${encodeURIComponent(opts.scope)}`
       : `${runtime.apiBase()}/components/build`;
-    const r = await authedFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    return jsonOrThrow<ComponentBuildResponse>(
-      r,
+    // In this browser first when the execution policy says so (core_job, component_build).
+    const { postCoreJob } = await import("@/services/compute/coreJobs");
+    return postCoreJob<ComponentBuildResponse>(
+      opts?.scope ?? "shared",
+      url,
+      payload,
+      "component_build",
       `componentsBuild(${payload.spec_name})`,
     );
   },

@@ -21,6 +21,7 @@ export type AdminTab =
     | "database"
     | "workers"
     | "conversion"
+    | "execution"
     | "procedural";
 
 // Ids that may appear in a deep link: the current tabs, plus the three that

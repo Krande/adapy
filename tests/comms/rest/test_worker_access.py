@@ -156,8 +156,54 @@ class _FakePool:
         self.rows: dict[str, dict] = {}
 
 
+@pytest.fixture
+def chose_worker():
+    """The request chose the worker over the browser (``X-Ada-Run-On: worker``)."""
+    tok = wa.set_explicit_worker_choice(True)
+    try:
+        yield
+    finally:
+        wa.reset_explicit_worker_choice(tok)
+
+
+def test_run_on_header_is_read_case_insensitively():
+    assert wa.requests_worker({"x-ada-run-on": "worker"})
+    assert wa.requests_worker({"x-ada-run-on": " Worker "})
+    assert not wa.requests_worker({"x-ada-run-on": "browser"})
+    assert not wa.requests_worker({})
+
+
 @pytest.mark.asyncio
-async def test_queue_transport_submit_enforces_policy(monkeypatch):
+async def test_a_workload_with_no_browser_path_is_never_refused(monkeypatch):
+    """Without ``X-Ada-Run-On: worker`` there was no browser alternative to choose:
+    an Excel export, an asset build, a detail compile or an .odb bake runs for a user
+    with no worker access at all."""
+
+    async def _no_access(pool, user_sub: str) -> dict:
+        return {"enabled": False, "allowed_capabilities": []}
+
+    monkeypatch.setattr(db_module, "get_user_worker_access", _no_access)
+    queue = _RoutingQueue(enqueued=[], routes={".odb": "abaqus"})
+    transport = QueueJobTransport(queue, {}, pool=lambda: _FakePool())
+    user = _user(sub="eng-1")
+    for key, fmt, cap in (
+        ("results/job.odb", "fea_artefacts", None),
+        ("models/m.json", "xlsx", "pm-engine"),
+        ("assets/node", "glb", "e2e-ifc-build"),
+    ):
+        res = await transport.submit(
+            JobRequest(
+                source_key=key, target_format=fmt, scope=Scope.shared(), feature="x", target_capability=cap, user=user
+            )
+        )
+        assert res.job_id == "job-1"
+    assert len(queue.enqueued) == 3
+    # Not judged, so the extra registry lookup is skipped too.
+    assert queue.resolved == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_transport_submit_enforces_policy(monkeypatch, chose_worker):
     fake_pool = _FakePool()
 
     async def _fake_get(pool, user_sub: str) -> dict:
@@ -238,7 +284,7 @@ class _RoutingQueue(_FakeQueue):
 
 
 @pytest.mark.asyncio
-async def test_capability_less_bake_is_gated_on_the_pool_it_routes_to(monkeypatch):
+async def test_capability_less_bake_is_gated_on_the_pool_it_routes_to(monkeypatch, chose_worker):
     """A bake/convert carries no capability; the gate must judge the pool the queue
     routes it to, so an ``abaqus``-only grant admits an ``.odb`` bake and nothing else."""
     rows = {"eng-1": {"enabled": False, "allowed_capabilities": ["abaqus"], "updated_by": None, "updated_at": None}}

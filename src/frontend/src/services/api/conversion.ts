@@ -8,6 +8,7 @@ import {
   authedFetch,
   jsonOrThrow,
   readDetail,
+  runOnWorkerHeaders,
   type ConvertStatus,
   type ScopeUrl,
   type TargetFormat,
@@ -63,6 +64,8 @@ export const conversionApi = {
       target_format: string;
       audit_run_id?: string | null;
       image_tag?: string;
+      // Which execution engine ran and what it fell back from (executionPolicy.ts).
+      execution?: { engine: string; fallbacks: Array<{ engine: string; reason: string }> };
     },
   ): Promise<string> {
     if (!runtime.hasDatabase()) return "";
@@ -138,6 +141,11 @@ export const conversionApi = {
       // Re-convert: always re-run and write to the separate ``_reconvert/`` namespace so
       // a corpus scope's ``_derived/`` audit product is never overwritten.
       reconvert?: boolean;
+      // The user chose the worker over an in-browser conversion (X-Ada-Run-On).
+      runOnWorker?: boolean;
+      // The execution-policy operation of that choice: "read" when the source is
+      // opened for viewing, "convert" (the server's default) for an explicit one.
+      operation?: "convert" | "read";
     },
   ): Promise<ConvertResponse> {
     const body: Record<string, unknown> = {
@@ -158,7 +166,10 @@ export const conversionApi = {
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...runOnWorkerHeaders(opts?.runOnWorker, opts?.operation),
+        },
         body: JSON.stringify(body),
       },
     );
@@ -187,22 +198,17 @@ export const conversionApi = {
     utilityName: string,
     kwargs: Record<string, boolean | string | number | null>,
   ): Promise<ConvertResponse> {
-    const r = await authedFetch(
+    // In this browser first when the execution policy says so (core_job, utility): the same
+    // @utility handler runs in Pyodide and its viewer-ops land at the same key.
+    const { postCoreJob } = await import("@/services/compute/coreJobs");
+    const settled = await postCoreJob<ConvertResponse>(
+      scope,
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/utility`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source_key: sourceKey,
-          utility_name: utilityName,
-          kwargs,
-        }),
-      },
-    );
-    return jsonOrThrow<ConvertResponse>(
-      r,
+      { source_key: sourceKey, utility_name: utilityName, kwargs },
+      "utility",
       `runUtility(${utilityName} on ${sourceKey})`,
     );
+    return settled as ConvertResponse;
   },
 
   /** In-flight conversions the current user started in this scope.

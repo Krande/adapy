@@ -36,6 +36,26 @@ router = APIRouter()
 _WASM_JOB_PREFIX = "wasm-"
 
 
+def execution_metrics(execution: object) -> dict | None:
+    """The ``execution`` field of an audit/local create -- which execution engine ran
+    and which ones it fell back from, and why (``{engine, fallbacks: [{engine,
+    reason}]}``, from the viewer's execution-policy resolver) -- flattened into the
+    row's ``client_metrics`` scalars. Bounded; anything malformed is dropped."""
+    if not isinstance(execution, dict):
+        return None
+    engine = execution.get("engine")
+    if not isinstance(engine, str) or not engine.strip():
+        return None
+    out: dict = {"execution_engine": engine.strip()[:32]}
+    fallbacks = execution.get("fallbacks")
+    if isinstance(fallbacks, list):
+        tried = [f for f in fallbacks[:8] if isinstance(f, dict) and isinstance(f.get("engine"), str)]
+        if tried:
+            out["fallback_from"] = ",".join(str(f["engine"])[:32] for f in tried)[:256]
+            out["fallback_reason"] = "; ".join(f"{f['engine']}: {str(f.get('reason') or '')}" for f in tried)[:512]
+    return out
+
+
 @router.post("/scopes/{scope}/audit/local")
 async def api_scope_audit_local_create(
     request: Request,
@@ -79,6 +99,7 @@ async def api_scope_audit_local_create(
         if run is None:
             raise HTTPException(status_code=404, detail="audit run not found")
 
+    execution = execution_metrics(body.get("execution"))
     job_id = _WASM_JOB_PREFIX + uuid.uuid4().hex
     try:
         await db_module.insert_audit(
@@ -93,6 +114,7 @@ async def api_scope_audit_local_create(
             job_id=job_id,
             audit_run_id=audit_run_id,
             worker_image_tag=worker_image_tag,
+            client_metrics=execution,
         )
     except Exception as exc:
         logger.exception("audit/local create failed")

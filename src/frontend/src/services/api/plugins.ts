@@ -4,7 +4,7 @@
 
 import { runtime } from "@/runtime/config";
 
-import { ApiError, authedFetch, jsonOrThrow, readDetail, type ScopeUrl } from "./client";
+import { ApiError, authedFetch, jsonOrThrow, readDetail, runOnWorkerHeaders, type ScopeUrl } from "./client";
 
 // One recurring plugin job. Separate from AuditSchedule because the payloads
 // differ: an audit sweep names a worker pool and a corpus, a plugin job names a
@@ -88,7 +88,8 @@ export const pluginsApi = {
       derived_prefix?: string;
       capability?: string;
     },
-    opts?: { scope?: ScopeUrl },
+    // runOnWorker: the user chose the worker over the in-browser run (X-Ada-Run-On).
+    opts?: { scope?: ScopeUrl; runOnWorker?: boolean },
   ): Promise<{ job_id: string; derived_key: string; scope?: string }> {
     const base = `${runtime.apiBase()}/plugins/${encodeURIComponent(pluginId)}/jobs`;
     const url = opts?.scope
@@ -96,7 +97,7 @@ export const pluginsApi = {
       : base;
     const r = await authedFetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
       body: JSON.stringify(body),
     });
     return jsonOrThrow<{ job_id: string; derived_key: string; scope?: string }>(

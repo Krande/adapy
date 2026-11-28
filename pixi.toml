@@ -771,6 +771,10 @@ build-desktop = { cmd = "cargo build --release --locked --manifest-path src/desk
 [feature.test-pyodide.tasks]
 install-pyodide = { cmd = "npm install", cwd = "scripts/testing/pyodide-test", outputs = ["scripts/testing/pyodide-test/node_modules"] }
 test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "scripts/testing/pyodide-test", depends-on = ["install-pyodide"] }
+# Genie curved shell -> GLB through the browser's conversion entry under node-Pyodide; writes the GLB
+# to the path given. tests/core/cadit/test_genie_curved_shell_glb.py compares it with the worker's
+# (ADA_WASM_GENIE_GLB). Wheels from $ADACPP_WHEEL / $ADAPY_WHEEL; see the script.
+test-pyodide-genie-curved-shell = { cmd = "node test_pyodide_genie_curved_shell.js", cwd = "scripts/testing/pyodide-test", depends-on = ["install-pyodide"] }
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
