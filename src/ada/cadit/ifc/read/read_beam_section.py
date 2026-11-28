@@ -146,10 +146,12 @@ def _filleted_corner_points(segments, tol: float = 1e-6) -> list[tuple[float, ..
     """A closed outline of straight edges whose corners are rounded by tangent arcs, as the
     ``(x, y, r)`` corner points a ``CurvePoly2d`` is defined by -- the form the writer emits those
     arcs from (``CurvePoly2d.segments3d``). Each arc is the fillet of the corner where its two
-    neighbouring edges meet, so the corner is their intersection and ``r`` the arc's radius.
+    neighbouring edges meet: the corner is where the arc's end tangents meet and ``r`` the arc's
+    radius (``ada.geom.curves.fillet_corner_points``, which also keeps a corner whose edge the
+    radius took up whole).
 
-    None when there is no arc, or any arc is not such a fillet (between two edges, tangent to
-    both): that outline is not one corner points can state, and is read as points, as before.
+    None when there is no arc, or any arc is not between two edges joined to it, or is a half
+    circle or more: that outline is not one corner points can state, and is read as points.
     """
     import numpy as np
 
@@ -162,43 +164,29 @@ def _filleted_corner_points(segments, tol: float = 1e-6) -> list[tuple[float, ..
     def xy(p) -> np.ndarray:
         return np.asarray(p, dtype=float)[:2]
 
-    def corner_of(prev, arc, nxt):
+    def corners_of(prev, arc, nxt):
         if not (isinstance(prev, geo_cu.Edge) and isinstance(nxt, geo_cu.Edge)):
             return None
         s, m, e = xy(arc.start), xy(arc.midpoint), xy(arc.end)
         # The circle through the arc's three points.
         a = np.array([[s[0] - m[0], s[1] - m[1]], [m[0] - e[0], m[1] - e[1]]]) * 2.0
-        b = np.array([s @ s - m @ m, m @ m - e @ e])
         if abs(np.linalg.det(a)) < 1e-18:
             return None
-        center = np.linalg.solve(a, b)
-        radius = float(np.linalg.norm(s - center))
-        d_in = xy(prev.end) - xy(prev.start)
-        d_out = xy(nxt.end) - xy(nxt.start)
-        if np.linalg.norm(d_in) < tol or np.linalg.norm(d_out) < tol:
-            return None
-        d_in, d_out = d_in / np.linalg.norm(d_in), d_out / np.linalg.norm(d_out)
-        # Tangent at both ends, and joined to the edges it rounds.
-        if abs((s - center) @ d_in) > tol * max(1.0, radius) or abs((e - center) @ d_out) > tol * max(1.0, radius):
-            return None
+        # Joined to the edges around it.
         if np.linalg.norm(xy(prev.end) - s) > tol or np.linalg.norm(xy(nxt.start) - e) > tol:
             return None
-        cross = d_in[0] * d_out[1] - d_in[1] * d_out[0]
-        if abs(cross) < 1e-12:
-            return None
-        # Intersection of the incoming edge's line (through s) and the outgoing one's (through e).
-        t = ((e - s)[0] * d_out[1] - (e - s)[1] * d_out[0]) / cross
-        corner = s + t * d_in
-        return float(corner[0]), float(corner[1]), radius
+        corners = geo_cu.fillet_corner_points(s, m, e, prev, nxt)
+        # A half circle or more names no corner: not a fillet.
+        return corners if any(len(c) == 3 for c in corners) else None
 
     points: list[tuple[float, ...]] = []
     for i, seg in enumerate(segments):
         prev, nxt = segments[i - 1], segments[(i + 1) % n]
         if isinstance(seg, geo_cu.ArcLine):
-            corner = corner_of(prev, seg, nxt)
-            if corner is None:
+            corners = corners_of(prev, seg, nxt)
+            if corners is None:
                 return None
-            points.append(corner)
+            points.extend(corners)
         elif isinstance(seg, geo_cu.Edge):
             if isinstance(prev, geo_cu.ArcLine):
                 continue  # its start is the arc's end: that corner is the arc's

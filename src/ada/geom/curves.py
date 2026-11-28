@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Iterable, Union
 import numpy as np
 
 from ada.core.curve_utils import calc_arc_radius_center_from_3points
-from ada.core.vector_utils import intersect_calc
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
@@ -384,14 +383,59 @@ class IndexedPolyCurve:
                     f"lines and arcs have a corner-and-radius form; sample the curve instead."
                 )
 
-            _, radius = calc_arc_radius_center_from_3points(seg.start, seg.midpoint, seg.end)
-            v1_ = seg.start - pseg.start
-            v2_ = nseg.end - seg.end
-            s, _t = intersect_calc(seg.start, nseg.end, v1_, v2_)
-            ip = seg.start + s * v1_
-            local_points.append((ip[0], ip[1], radius))
+            local_points.extend(fillet_corner_points(seg.start, seg.midpoint, seg.end, pseg, nseg))
 
         return local_points
+
+
+def _xy(p) -> np.ndarray:
+    return np.asarray(p, dtype=float)[:2]
+
+
+def fillet_corner_points(start, midpoint, end, prev=None, nxt=None, tol: float = 1e-7) -> list[tuple]:
+    """The corner points an arc between two straight edges stands for, in adapy's ``(x, y)`` /
+    ``(x, y, radius)`` convention.
+
+    The arc is the fillet of one corner: the corner is where its tangents at the two ends meet,
+    and the radius is the arc's own. Usually both neighbouring edges run along those tangents. When
+    the radius takes up a whole edge of the polygon it rounds, that edge has no straight part left,
+    so the writer emits no segment for it and the arc's neighbour there is the edge BEFORE it: the
+    arc's end point is then a corner of the polygon too, and is returned as one (before the fillet
+    corner at the start, after it at the end). ``prev`` / ``nxt`` are the neighbouring segments
+    (anything with ``start`` / ``end``); a missing one counts as tangent."""
+    s, m, e = _xy(start), _xy(midpoint), _xy(end)
+    center, radius = calc_arc_radius_center_from_3points(s, m, e)
+    center = _xy(center)
+    rs, re_ = s - center, e - center
+    # Travel direction along the arc: the sense that goes from start through the midpoint.
+    turn = np.sign((m - s)[0] * (e - m)[1] - (m - s)[1] * (e - m)[0]) or 1.0
+    t_s = turn * np.array([-rs[1], rs[0]])
+    t_e = turn * np.array([-re_[1], re_[0]])
+    t_s, t_e = t_s / np.linalg.norm(t_s), t_e / np.linalg.norm(t_e)
+
+    def _along(seg, direction) -> bool:
+        if seg is None:
+            return True
+        d = _xy(seg.end) - _xy(seg.start)
+        ln = float(np.linalg.norm(d))
+        if ln < tol:
+            return True
+        d = d / ln
+        return abs(d[0] * direction[1] - d[1] * direction[0]) < 1e-6 and float(d @ direction) > 0
+
+    cross = t_s[0] * t_e[1] - t_s[1] * t_e[0]
+    if abs(cross) < 1e-12:  # a half circle or more: no single corner -- keep the three points
+        return [(float(s[0]), float(s[1])), (float(m[0]), float(m[1])), (float(e[0]), float(e[1]))]
+    k = ((e - s)[0] * t_e[1] - (e - s)[1] * t_e[0]) / cross
+    corner = s + k * t_s
+
+    out: list[tuple] = []
+    if not _along(prev, t_s):
+        out.append((float(s[0]), float(s[1])))
+    out.append((float(corner[0]), float(corner[1]), float(radius)))
+    if not _along(nxt, t_e):
+        out.append((float(e[0]), float(e[1])))
+    return out
 
 
 @dataclass(slots=True)
