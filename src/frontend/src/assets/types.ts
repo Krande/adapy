@@ -290,6 +290,37 @@ export interface WireBuildAssetResponse {
   /** Descendants with a newer element-level publish that this build EXCLUDED: each is loaded
    *  from its own geometry beside the build. Absent on a build with none (or an older core). */
   readonly overrides?: readonly WireBuildOverride[];
+  /** `"browser"`: asked with `browser: true` and not built yet -- nothing was enqueued, the
+   *  viewer builds it from `build` and uploads it (`POST /assets/build/result`). */
+  readonly execution?: "browser";
+  readonly build?: WireBrowserBuildBlock;
+  /** Where `derived_key` lives (`providers` for a granted dataset's build). */
+  readonly scope?: string;
+}
+
+/** What a browser build runs from (`ada.assets.wasm_build.run`): the identity core composed,
+ *  the claim's capability and opaque options, and the prefix the builder writes under. */
+export interface WireBrowserBuildBlock {
+  readonly provider: string;
+  readonly collection: string;
+  readonly subject: string;
+  readonly revision: string;
+  readonly node: string;
+  readonly fingerprint: string;
+  readonly hierarchy_source: string;
+  readonly capability: string;
+  readonly options: Readonly<Record<string, unknown>>;
+  readonly derived_prefix: string;
+  readonly exclude_nodes?: readonly string[];
+}
+
+/** `POST /assets/build/result`'s reply: `stored` false when the key was already built (by a
+ *  worker or another browser) -- the summary there is the one to read either way. */
+export interface WireBrowserBuildStored {
+  readonly derived_key: string;
+  readonly stored: boolean;
+  readonly cached: boolean;
+  readonly glb_key?: string | null;
 }
 
 export interface WireBuildOverride {

@@ -3,34 +3,28 @@
 // Interactive compute workloads default to browser Pyodide/WASM when the plugin
 // has a baked wheel in `/wheels/plugin-wheels-manifest.json`. Users granted
 // worker-pool access (globally or for the requested capability via GET /api/me)
-// can opt into "Run on Worker" for long-duration jobs. Server-only formats
-// (e.g. native `.odb` conversion) route to the worker pool when permitted and
-// surface a clear capability notice when denied.
+// can opt into "Run on Worker" for long-duration jobs; only that explicit choice
+// is judged by the server's policy. A plugin with no browser path runs on the
+// worker pool for everyone.
 
 import { runtime } from "@/runtime/config";
 import type { WorkerAccessPolicy } from "@/services/api/auth";
 import type { ScopeUrl } from "@/services/api/client";
 import { pluginsApi } from "@/services/api/plugins";
 import { getAccessToken } from "@/services/auth/oidc";
+import { loadPluginWheelsManifest } from "@/utils/pyodide/pluginWheels";
 import { runPluginJobViaPyodide } from "@/utils/pyodide/pyodide_converter";
 
+import { engineOrder, type ExecEngine } from "./executionPolicy";
 import { localArtefactStore, type LocalArtefactStore } from "./localArtefactStore";
-import { canUseWorker } from "./workerAccess";
+import { canUseWorker, refreshAccessIfStale } from "./workerAccess";
 
-export interface PluginWheelEntry {
-  wheel: string;
-  entrypoint?: string;
-  register?: string;
-  deps?: string[];
-}
-
-export interface PluginWheelsManifest {
-  plugins: Record<string, PluginWheelEntry>;
-}
+export type { PluginWheelEntry, PluginWheelsManifest } from "@/utils/pyodide/pluginWheels";
 
 export type ExecutionDecision =
   | { target: "browser" }
-  | { target: "worker" }
+  // explicit: the user chose the worker over the browser (sent as X-Ada-Run-On).
+  | { target: "worker"; explicit?: boolean }
   | { target: "denied"; reason: string; capability?: string };
 
 export interface BrowserPluginJobOutcome {
@@ -49,69 +43,61 @@ export interface WorkerPluginJobOutcome {
 
 export type DispatchPluginJobOutcome = BrowserPluginJobOutcome | WorkerPluginJobOutcome;
 
-const PLUGIN_WHEELS_MANIFEST_URL = "/wheels/plugin-wheels-manifest.json";
-let cachedManifestPromise: Promise<PluginWheelsManifest> | null = null;
-
-export { canUseWorker };
+export { canUseWorker, loadPluginWheelsManifest };
 
 /** Decide whether a workload should execute in the browser, on the server worker
- * pool, or be denied with an actionable message. */
+ * pool, or be denied with an actionable message.
+ *
+ * ``order`` is the execution policy's order for this plugin ("plugin_job", see
+ * executionPolicy.ts: the allowed engines, worker access applied, the user's
+ * preference first); without one the browser comes first. ``preferWorker`` is an
+ * explicit per-job "Run on worker". */
 export function decideExecutionTarget(params: {
   wasmCapable: boolean;
   workerAccess?: WorkerAccessPolicy | null;
   capability?: string | null;
   preferWorker?: boolean;
+  order?: readonly ExecEngine[];
 }): ExecutionDecision {
   const { wasmCapable, workerAccess, capability, preferWorker } = params;
   const workerAllowed = canUseWorker(workerAccess, capability);
+  const order = (params.order ?? (["pyodide", "worker"] as const)).filter(
+    (e) => e !== "worker" || workerAllowed,
+  );
 
+  // No browser path: nothing to choose between, so the worker runs it for
+  // everyone (the server's policies judge only an explicit worker choice).
+  if (!wasmCapable) return { target: "worker" };
+
+  // Choosing the worker is only a choice when the browser could run it.
   if (preferWorker) {
-    if (workerAllowed) return { target: "worker" };
+    if (workerAllowed && order.includes("worker")) return { target: "worker", explicit: true };
+    if (!workerAllowed) {
+      return {
+        target: "denied",
+        capability: capability ?? undefined,
+        reason: capability
+          ? `Worker pool access is required for capability '${capability}'. Ask an administrator to enable it in the Admin Panel.`
+          : "Worker pool access is not enabled for your account. Ask an administrator to enable it in the Admin Panel.",
+      };
+    }
     return {
       target: "denied",
       capability: capability ?? undefined,
-      reason: capability
-        ? `Worker pool access is required for capability '${capability}'. Ask an administrator to enable it in the Admin Panel.`
-        : "Worker pool access is not enabled for your account. Ask an administrator to enable it in the Admin Panel.",
+      reason:
+        "The execution policy does not allow the server worker pool for this plugin. Ask an administrator to change it in the Admin Panel (Execution).",
     };
   }
 
-  if (wasmCapable) {
-    return { target: "browser" };
-  }
-
-  if (workerAllowed) {
-    return { target: "worker" };
-  }
-
+  const first = order.find((e) => e === "pyodide" || e === "worker");
+  if (first === "pyodide") return { target: "browser" };
+  if (first === "worker") return { target: "worker", explicit: true };
   return {
     target: "denied",
     capability: capability ?? undefined,
-    reason: capability
-      ? `This workload requires server worker pool access ('${capability}'). Ask an administrator to enable it in the Admin Panel.`
-      : "This workload requires server worker pool access. Ask an administrator to enable it in the Admin Panel.",
+    reason:
+      "No execution engine is allowed for this plugin job. Ask an administrator to change the execution policy in the Admin Panel (Execution).",
   };
-}
-
-/** Fetch and cache `/wheels/plugin-wheels-manifest.json`. Returns `{ plugins: {} }`
- * when no plugin wheels are baked into the deployment (e.g. standalone `adapy`). */
-export async function loadPluginWheelsManifest(
-  fetchImpl: typeof fetch = fetch,
-  forceReload = false,
-): Promise<PluginWheelsManifest> {
-  if (!cachedManifestPromise || forceReload) {
-    cachedManifestPromise = (async () => {
-      try {
-        const resp = await fetchImpl(PLUGIN_WHEELS_MANIFEST_URL, { cache: "no-store" });
-        if (!resp.ok) return { plugins: {} };
-        const parsed = (await resp.json()) as Partial<PluginWheelsManifest>;
-        return { plugins: parsed?.plugins ?? {} };
-      } catch {
-        return { plugins: {} };
-      }
-    })();
-  }
-  return cachedManifestPromise;
 }
 
 export async function isPluginWasmCapable(
@@ -135,24 +121,39 @@ export async function dispatchPluginJob(params: {
   derivedPrefix?: string;
   preferWorker?: boolean;
   workerAccess?: WorkerAccessPolicy | null;
+  /** The execution policy's order (default: resolved for this plugin id). */
+  order?: readonly ExecEngine[];
   store?: LocalArtefactStore;
   onLog?: (msg: string) => void;
   onProgress?: (message: string, fraction: number) => void;
+  /** Injectable for tests: the in-browser run and the worker submission. */
+  runInBrowser?: typeof runPluginJobViaPyodide;
+  submitToWorker?: typeof pluginsApi.pluginJob;
 }): Promise<DispatchPluginJobOutcome> {
+  // Route by the policy as it is now (an injected order is the caller's own).
+  if (!params.order) await refreshAccessIfStale();
   const wasmCapable = await isPluginWasmCapable(params.pluginId);
+  const order =
+    params.order ??
+    engineOrder("plugin_job", params.pluginId, {
+      capability: params.capability ?? null,
+      workerAccess: params.workerAccess ?? null,
+    });
   const decision = decideExecutionTarget({
     wasmCapable,
     workerAccess: params.workerAccess,
     capability: params.capability,
     preferWorker: params.preferWorker,
+    order,
   });
 
   if (decision.target === "denied") {
     throw new Error(decision.reason);
   }
 
-  if (decision.target === "worker") {
-    const queued = await pluginsApi.pluginJob(
+  const toWorker = async (explicit: boolean): Promise<WorkerPluginJobOutcome> => {
+    const submit = params.submitToWorker ?? pluginsApi.pluginJob;
+    const queued = await submit(
       params.pluginId,
       {
         options: params.options,
@@ -160,23 +161,42 @@ export async function dispatchPluginJob(params: {
         derived_prefix: params.derivedPrefix,
         capability: params.capability,
       },
-      { scope: params.scope },
+      { scope: params.scope, runOnWorker: explicit },
     );
     return { execution: "worker", ...queued };
+  };
+
+  if (decision.target === "worker") {
+    return toWorker(decision.explicit === true);
   }
 
   const token = getAccessToken();
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
-  const res = await runPluginJobViaPyodide({
-    pluginId: params.pluginId,
-    scope: params.scope,
-    options: params.options,
-    derivedPrefix: params.derivedPrefix,
-    apiBase: runtime.apiBase(),
-    authHeaders,
-    onLog: params.onLog,
-    onProgress: params.onProgress,
-  });
+  const runBrowser = params.runInBrowser ?? runPluginJobViaPyodide;
+  let res: Awaited<ReturnType<typeof runPluginJobViaPyodide>>;
+  try {
+    res = await runBrowser({
+      pluginId: params.pluginId,
+      scope: params.scope,
+      options: params.options,
+      derivedPrefix: params.derivedPrefix,
+      apiBase: runtime.apiBase(),
+      authHeaders,
+      onLog: params.onLog,
+      onProgress: params.onProgress,
+    });
+  } catch (err) {
+    // The policy's next engine after the browser, when it lists the worker (and
+    // the user may use it): an explicit worker choice, judged by the server.
+    const next = order.slice(order.indexOf("pyodide") + 1);
+    if ((err as { name?: string })?.name === "AbortError" || !next.includes("worker")) throw err;
+    if (!canUseWorker(params.workerAccess, params.capability)) throw err;
+    const reason = err instanceof Error ? err.message : String(err);
+    (params.onLog ?? ((m: string) => console.info(m)))(
+      `[execution] plugin_job ${params.pluginId}: Pyodide failed (${reason}); trying Server worker`,
+    );
+    return toWorker(true);
+  }
 
   const targetStore = params.store ?? localArtefactStore;
   const storedMetas = await targetStore.putMany(params.scope, res.localArtefacts);

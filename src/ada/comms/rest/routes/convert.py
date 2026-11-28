@@ -22,6 +22,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import local_jobs, pending_uploads
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..converter import (
     TARGET_FORMATS,
     ConverterRegistry,
@@ -311,6 +312,8 @@ async def api_scope_utility(
     payload.setdefault("source_key", source_key)
     payload.setdefault("target_format", "utility")
     payload["utility_name"] = utility_name
+    # A claim the browser runs carries no job id (no worker job was queued) and the claim itself.
+    payload.update(job_fields(job))
     return JSONResponse(payload, status_code=202)
 
 

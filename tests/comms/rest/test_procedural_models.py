@@ -90,7 +90,7 @@ def test_preview_glb_key_and_hash():
     # get distinct keys so previews never collide.
     assert doc_content_hash({"a": 1, "b": 2}) == doc_content_hash({"b": 2, "a": 1})
     assert doc_content_hash({"a": 1}) != doc_content_hash({"a": 2})
-    assert procedural_preview_glb_key("m", h, "echo") != procedural_preview_glb_key("m", h)
+    assert procedural_preview_glb_key("m", h, "raw-box") != procedural_preview_glb_key("m", h)
     assert procedural_preview_glb_key("m", h, None, "detail").endswith("_detail.glb")
 
 
@@ -98,8 +98,8 @@ def test_procedural_log_key_is_glb_sibling():
     # The log key is the GLB key with .log swapped for .glb, so it covers every
     # variant (committed / detail / engine-suffixed / preview) with one rule.
     assert procedural_log_key("_procedural/abc-123/r4.glb") == "_procedural/abc-123/r4.log"
-    assert procedural_log_key(procedural_glb_key("m", 2, "echo")).endswith(".log")
-    assert not procedural_log_key(procedural_glb_key("m", 2, "echo")).endswith(".glb")
+    assert procedural_log_key(procedural_glb_key("m", 2, "raw-box")).endswith(".log")
+    assert not procedural_log_key(procedural_glb_key("m", 2, "raw-box")).endswith(".glb")
     h = doc_content_hash({"spaces": []})
     assert procedural_log_key(procedural_preview_glb_key("m", h)) == f"_procedural/m/preview/{h}.log"
     # A non-.glb key (defensive) just gains the .log suffix.
@@ -169,7 +169,7 @@ def test_models_are_storage_files_without_a_db(app_client: TestClient, tmp_path:
     assert app_client.post(base, json={"name": "decks/level-3"}).status_code == 409
     assert [m["id"] for m in app_client.get(base).json()["models"]] == [model_id]
 
-    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}], "engine": "echo"}
+    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}], "engine": "raw-box"}
     r = app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
     assert r.status_code == 200, r.text
     assert r.json()["revision"] == 1
@@ -182,7 +182,7 @@ def test_models_are_storage_files_without_a_db(app_client: TestClient, tmp_path:
     got = app_client.get(f"{base}/{model_id}").json()
     assert got["revision"] == 1 and got["doc"]["spaces"][0]["NAME"] == "Cell1"
     # The routing header is mirrored from the doc, as postgres does.
-    assert app_client.get(base).json()["models"][0]["engine"] == "echo"
+    assert app_client.get(base).json()["models"][0]["engine"] == "raw-box"
 
     other = app_client.post(base, json={"name": "other"}).json()
     assert app_client.patch(f"{base}/{model_id}/name", json={"name": "other"}).status_code == 409
@@ -213,7 +213,7 @@ def _wait_job(client: TestClient, job_id: str, timeout: float = 120.0) -> dict:
     raise AssertionError(f"job {job_id} did not finish: {status}")
 
 
-def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_path: pathlib.Path):
+def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_path: pathlib.Path, raw_box_engine):
     """No queue: the compile is the worker's procedural_build handler, run in this
     process on the model row the route read (local_jobs.start_procedural_build)."""
     base = "/api/scopes/shared/procedural-models"
@@ -221,7 +221,7 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
     doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
     app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
 
-    r = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"})
+    r = app_client.post(f"{base}/{model_id}/compile", params={"engine": raw_box_engine})
     assert r.status_code == 200, r.text
     started = r.json()
     assert started["job_id"].startswith("local-") and started["cached"] is False
@@ -233,7 +233,7 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
     log = app_client.get(f"{base}/{model_id}/compile-log", params={"run": started["job_id"]})
     assert "ok" in log.text
     # Compiled once: the next compile of the same revision is the cached artifact.
-    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": raw_box_engine}).json()
     assert again == {"job_id": None, "derived_key": started["derived_key"], "cached": True}
 
     # A preview (the uncommitted doc) compiles the same way, without a revision.
@@ -241,14 +241,16 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
         **doc,
         "spaces": [*doc["spaces"], {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}],
     }
-    r = app_client.post(f"{base}/{model_id}/compile-preview", params={"engine": "echo"}, json={"doc": preview_doc})
+    r = app_client.post(
+        f"{base}/{model_id}/compile-preview", params={"engine": raw_box_engine}, json={"doc": preview_doc}
+    )
     assert r.status_code == 200, r.text
     assert _wait_job(app_client, r.json()["job_id"])["status"] == "done"
     assert app_client.get(f"{base}/{model_id}").json()["revision"] == 1
 
 
 def test_a_local_compile_is_bound_to_the_file_catalogs_fingerprint(
-    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch, raw_box_engine
 ):
     """An in-process build with no pool resolves equipment from the scope's catalog FILES
     (catalog_store.py), so it binds its artifact to the fingerprint the route took of
@@ -265,20 +267,20 @@ def test_a_local_compile_is_bound_to_the_file_catalogs_fingerprint(
     model_id = app_client.post(base, json={"name": "catalog-fp"}).json()["id"]
     doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
     app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
-    started = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    started = app_client.post(f"{base}/{model_id}/compile", params={"engine": raw_box_engine}).json()
     assert _wait_job(app_client, started["job_id"])["status"] == "done"
     assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).is_file()
     sidecar = tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))
     assert sidecar.read_text() == "catalog-fp-1"
     # The cached GLB is current for that catalog state...
-    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()["cached"] is True
+    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": raw_box_engine}).json()["cached"] is True
 
     async def _fp2(pool, scope_obj, doc, store=None):
         return "catalog-fp-2"
 
     # ...and stale once the catalog changed.
     monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp2)
-    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()["cached"] is False
+    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": raw_box_engine}).json()["cached"] is False
 
 
 def test_the_local_transport_compiles_with_the_routes_pool(monkeypatch):

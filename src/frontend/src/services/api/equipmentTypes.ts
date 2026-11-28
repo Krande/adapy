@@ -182,13 +182,15 @@ export const equipmentTypesApi = {
     scope: ScopeUrl,
     typeId: string,
   ): Promise<{ job_id: string | null; derived_key: string; status?: "done" }> {
-    const r = await authedFetch(
+    // In this browser first when the execution policy says so (core_job, equipment_bbox): the
+    // bbox is measured here and merged into the doc by the server (services/compute/coreJobs.ts).
+    const { postCoreJob } = await import("@/services/compute/coreJobs");
+    return postCoreJob<{ job_id: string | null; derived_key: string; status?: "done" }>(
+      scope,
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/equipment-types/${encodeURIComponent(typeId)}` +
         `/infer-bbox`,
-      { method: "POST" },
-    );
-    return jsonOrThrow<{ job_id: string | null; derived_key: string; status?: "done" }>(
-      r,
+      {},
+      "equipment_bbox",
       `inferEquipmentBbox(${typeId})`,
     );
   },

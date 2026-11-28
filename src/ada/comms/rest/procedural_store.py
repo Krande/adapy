@@ -44,6 +44,15 @@ DEFAULT_ENGINE = "adapy-default"
 DEFAULT_SCHEMA_VERSION = "1.0"
 
 
+def new_model_doc(engine: str | None = None) -> dict[str, Any]:
+    """A new model's doc: :data:`EMPTY_DOC`, naming ``engine`` when one was chosen for it (the
+    caller's, or the deployment's default) so every client opens it on that engine."""
+    doc = json.loads(json.dumps(EMPTY_DOC))
+    if engine:
+        doc["engine"] = engine
+    return doc
+
+
 def model_key(model_id: str) -> str:
     return f"{MODEL_DIR}{model_id}/{MODEL_FILE}"
 
@@ -51,7 +60,9 @@ def model_key(model_id: str) -> str:
 class ProceduralStore(Protocol):
     """The operations the routes need, with db/procedural_models.py's return shapes."""
 
-    async def create(self, scope: Scope, *, name: str, created_by: str | None) -> dict | None: ...
+    async def create(
+        self, scope: Scope, *, name: str, created_by: str | None, engine: str | None = None
+    ) -> dict | None: ...
     async def list(self, scope: Scope) -> list[dict]: ...
     async def get(self, scope: Scope, model_id: str) -> dict | None: ...
     async def update_doc(self, scope: Scope, model_id: str, doc: dict, base_revision: int) -> int | None: ...
@@ -65,11 +76,13 @@ class DbProceduralStore:
     def __init__(self, pool: Any) -> None:
         self.pool = pool
 
-    async def create(self, scope: Scope, *, name: str, created_by: str | None) -> dict | None:
+    async def create(
+        self, scope: Scope, *, name: str, created_by: str | None, engine: str | None = None
+    ) -> dict | None:
         from . import db as db_module
 
         return await db_module.create_procedural_model(
-            self.pool, scope_kind=scope.kind, scope_id=scope.id, name=name, created_by=created_by
+            self.pool, scope_kind=scope.kind, scope_id=scope.id, name=name, created_by=created_by, engine=engine
         )
 
     async def list(self, scope: Scope) -> list[dict]:
@@ -160,12 +173,14 @@ class FileProceduralStore:
     async def _name_taken(self, scope: Scope, name: str, *, other_than: str | None = None) -> bool:
         return any(r["name"] == name and r["id"] != other_than for r in await self._records(scope))
 
-    async def create(self, scope: Scope, *, name: str, created_by: str | None) -> dict | None:
+    async def create(
+        self, scope: Scope, *, name: str, created_by: str | None, engine: str | None = None
+    ) -> dict | None:
         async with _LOCK:
             if await self._name_taken(scope, name):
                 return None
             stamp = _now()
-            body = json.loads(json.dumps(EMPTY_DOC))
+            body = new_model_doc(engine)
             record = {
                 "id": str(uuid.uuid4()),
                 "scope_kind": scope.kind,
@@ -173,7 +188,7 @@ class FileProceduralStore:
                 "name": name,
                 "doc": body,
                 "revision": 0,
-                "engine": DEFAULT_ENGINE,
+                "engine": engine or DEFAULT_ENGINE,
                 "schema_version": DEFAULT_SCHEMA_VERSION,
                 "created_by": created_by,
                 "created_at": stamp,

@@ -210,6 +210,21 @@ def _candidates(model: Any) -> Iterator[_Candidate]:
                 yield _Candidate(obj, (*obj_chain, str(seg.name)))
 
 
+def _path_matches(chain: tuple[str, ...], want: tuple[str, ...]) -> bool:
+    """Whether a candidate's name chain is the tree path the viewer sent.
+
+    Either the chain ENDS with the path (the GLB carries levels above what the viewer sent), or
+    every level of the chain appears in the path, in order, the element last: a tree drawn by a
+    reader that keeps the source's own levels (an IFC's project, site and building, which the
+    viewer's native IFC reader shows) over a model whose reader folds them away."""
+    if len(chain) >= len(want) and chain[-len(want) :] == want:
+        return True
+    if not chain or not want or chain[-1] != want[-1] or len(chain) > len(want):
+        return False
+    rest = iter(want)
+    return all(name in rest for name in chain)
+
+
 def find_selection(model: Any, element: str, path: Sequence[str] = ()) -> Any:
     """The one object in ``model`` the tree row ``element`` (under ``path``) stands for.
 
@@ -229,7 +244,7 @@ def find_selection(model: Any, element: str, path: Sequence[str] = ()) -> Any:
             f"this source's objects do not carry that name -- select the model's root row to export "
             f"the whole model instead"
         )
-    matched = [c for c in named if len(c.chain) >= len(want) and c.chain[-len(want) :] == want]
+    matched = [c for c in named if _path_matches(c.chain, want)]
     # One OBJECT can surface as several rows (a pipe through its segments); those are one answer.
     unique = list({id(c.obj): c for c in matched}.values())
     if len(unique) == 1:

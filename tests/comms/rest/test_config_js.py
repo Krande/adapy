@@ -91,6 +91,13 @@ def test_ui_default_is_json_encoded(tmp_path):
     assert 'window.ADA_UI_DEFAULT = "we\\"ird";' in body
 
 
+def test_pyodide_index_url_is_emitted_only_when_set(monkeypatch, tmp_path):
+    monkeypatch.delenv("ADA_VIEWER_PYODIDE_INDEX_URL", raising=False)
+    assert "PYODIDE_INDEX_URL" not in _config_js(tmp_path)
+    monkeypatch.setenv("ADA_VIEWER_PYODIDE_INDEX_URL", " /pyodide/v0.29.4/full/ ")
+    assert 'window.PYODIDE_INDEX_URL = "/pyodide/v0.29.4/full/";' in _config_js(tmp_path)
+
+
 def test_ui_default_reads_ada_viewer_ui_default(monkeypatch, tmp_path):
     monkeypatch.setenv("ADA_VIEWER_STORAGE_KIND", "local")
     monkeypatch.setenv("ADA_VIEWER_LOCAL_PATH", str(tmp_path))

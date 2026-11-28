@@ -27,7 +27,7 @@ import {runtime} from "@/runtime/config";
 import {listUiShells, activeUiShellId, setActiveUiShell} from "@/plugins/uiShells";
 import {promptDialog} from "@/plugins/dialogs";
 import {capabilities} from "@/services/capabilities";
-import {workerPreferred} from "@/services/compute/workerAccess";
+import {workerPreferred} from "@/services/compute/executionPolicy";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
@@ -239,12 +239,13 @@ const builderCompileBusy = () => {
   const job = useCellBuilderStore.getState().compileJob;
   return job && (job.status === "queued" || job.status === "running") ? "A compile is running" : null;
 };
-// A compile builds in the browser by default (local only; see jobsSlice); only a
-// user who opted into the worker pool needs the server's preview route.
+// A compile builds in the browser by default (local only; see jobsSlice); only
+// when the execution policy puts the worker first does it need the server's preview route.
 const builderServerCompile = () =>
   builderReadOnly() ??
   builderCompileBusy() ??
-  (!workerPreferred() || capabilities.procedural.supports("previewModel")
+  (!workerPreferred("procedural_compile", useCellBuilderStore.getState().selectedEngine || "*") ||
+  capabilities.procedural.supports("previewModel")
     ? null
     : "Server-side compile is not available over this connection");
 

@@ -47,23 +47,10 @@ _BUILTIN_ENGINE = {
     "supports_grouping": True,
     "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc", "supports_excel": True},
 }
-# A second built-in: the diagnostic ``echo`` engine (renders the document's
-# cells as raw boxes). It exercises the full engine-selection path — resolve a
-# ``module:callable`` entrypoint and dispatch to it — on both the server and
-# WASM compile, without needing an external wheel. Kept ada-free here (slim API).
-_ECHO_ENGINE = {
-    "id": "builtin:echo",
-    "slug": "echo",
-    "name": "echo (raw cells)",
-    "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
-    "revision": 0,
-    "origin": "builtin",
-    "supports_grouping": False,
-    # No Excel format: the export/import routes read this off the manifest, as they
-    # read a registered engine's ``supports_excel``.
-    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc", "supports_excel": False},
-}
-_BUILTIN_ENGINES = [_BUILTIN_ENGINE, _ECHO_ENGINE]
+# Kept ada-free here (slim API): the built-ins as the viewer lists them. Every
+# other engine is a registered row, a worker's advertisement, or one this process
+# registered.
+_BUILTIN_ENGINES = [_BUILTIN_ENGINE]
 _BUILTIN_ENGINE_IDS = {e["id"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}
@@ -165,6 +152,40 @@ async def api_procedural_engines_list(
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
+    """The engines this scope offers, and ``default_engine``: the one a new model gets when
+    nobody names one (the deployment's, resolved against this list; see
+    :mod:`..procedural_default_engine`). That engine's summary also carries ``is_default``."""
+    engines = await scope_engine_list(request, scope_obj, ctx)
+    default = await effective_default_engine(request, ctx, engines)
+    for e in engines:
+        e["is_default"] = e.get("id") == default["id"]
+    return JSONResponse({"procedural_engines": engines, "default_engine": default})
+
+
+async def effective_default_engine(request: Request, ctx: RestContext, engines: list[dict]) -> dict:
+    """The deployment's default procedural engine among ``engines`` (a scope's
+    :func:`scope_engine_list`): the admin setting, else ``ADA_DEFAULT_PROCEDURAL_ENGINE``, else
+    the built-in -- and the built-in, with a ``note``, when what is configured is not offered."""
+    from ..procedural_default_engine import (
+        configured_default_engine,
+        resolve_default_engine,
+    )
+
+    configured, source = await configured_default_engine(
+        getattr(request.app.state, "db_pool", None), ctx.settings.default_procedural_engine
+    )
+    return resolve_default_engine(configured, source, engines)
+
+
+async def default_engine_for_scope(request: Request, scope_obj: Scope, ctx: RestContext) -> dict:
+    """:func:`effective_default_engine` for a scope, listing its engines first."""
+    return await effective_default_engine(request, ctx, await scope_engine_list(request, scope_obj, ctx))
+
+
+async def scope_engine_list(request: Request, scope_obj: Scope, ctx: RestContext) -> list[dict]:
+    """Every engine a scope offers, as the list route serves them: built-ins, the scope's
+    registered rows, engines a live worker advertises, then (a queue-less server) the ones
+    this process registered."""
     # No database (a local viewer): no registered rows, but the built-ins and the
     # engines this process registered are still the honest answer.
     pool = getattr(request.app.state, "db_pool", None)
@@ -232,7 +253,7 @@ async def api_procedural_engines_list(
         for slug in sorted(local_engine_specs(ctx.queue))
         if slug not in known and (d := _local_engine(ctx.queue, f"{_LOCAL_ENGINE_PREFIX}{slug}")) is not None
     ]
-    return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised, *local]})
+    return [*summaries, *engines, *advertised, *local]
 
 
 @router.post("/scopes/{scope}/procedural-engines", status_code=201)
@@ -310,6 +331,10 @@ async def api_procedural_engines_resolve(
     if local is not None:
         # Compiled by this server, never in the browser.
         return JSONResponse({"kind": "server", "entrypoint": local["doc"]["entrypoint"], "ready": False})
+    if engine_id.startswith("worker:"):
+        # Advertised by a worker (the list hands out ``worker:<slug>`` ids): it has
+        # no catalog row, and compiles on that worker, never in the browser.
+        return JSONResponse({"kind": "server", "entrypoint": None, "ready": False})
     pool = require_catalog_pool(request)
     row = await _get_engine_in_scope(pool, engine_id, scope_obj)
     doc = row.get("doc") or {}
@@ -396,18 +421,23 @@ async def api_procedural_engines_update(
     # A kind:wheel engine needs its wheel (re)built from the repo whenever the
     # manifest changes; enqueue the build worker (it clones + builds + stores
     # the wheel under _engines/ and records wheel_key). force so a manifest
-    # edit at an unchanged spot still rebuilds.
-    if normalized.get("kind") == "wheel" and ctx.queue.enabled:
+    # edit at an unchanged spot still rebuilds. Through the transport like every
+    # other job: the build is server-only (git + pip in a worker image), has no
+    # browser path, and so is never an explicit worker choice to judge.
+    if normalized.get("kind") == "wheel" and ctx.jobs.supports("engine_build"):
+        from ..job_transport import JobRequest
         from ..procedural import engine_wheel_dir
 
-        await ctx.queue.enqueue(
-            f"_synthetic/engine-build/{engine_id}/r{new_rev}",
-            target_format="procedural_engine_build",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={"engine_id": engine_id},
-            derived_key=engine_wheel_dir(engine_id),
-            force_rebuild=True,
+        await ctx.jobs.submit(
+            JobRequest(
+                source_key=f"_synthetic/engine-build/{engine_id}/r{new_rev}",
+                target_format="procedural_engine_build",
+                scope=scope_obj,
+                feature="engine_build",
+                conversion_options={"engine_id": engine_id},
+                derived_key=engine_wheel_dir(engine_id),
+                force_rebuild=True,
+            )
         )
     return JSONResponse({"id": row["id"], "revision": new_rev})
 

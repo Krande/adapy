@@ -15,6 +15,8 @@
 import { runtime } from "@/runtime/config";
 import type { GroupMember } from "@/utils/groups/savedGroups";
 
+import { postCoreJob } from "@/services/compute/coreJobs";
+
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
 import { filesApi } from "./files";
 
@@ -338,14 +340,17 @@ export const clashCheckApi = {
     scope: ScopeUrl,
     body: { target: ClashCheckTarget; options?: ClashCheckOptions },
   ): Promise<ClashCheckResponse> {
-    const r = await authedFetch(checkBase(scope), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    // Run in this browser first when the execution policy says so (core_job, clash_check): the
+    // route answers with the job as a claim and `postCoreJob` runs it here (services/compute/coreJobs.ts).
+    return postCoreJob<ClashCheckResponse>(
+      scope,
+      checkBase(scope),
       // Exactly one addressing shape goes on the wire: the route refuses both at once, because
       // which model was checked would otherwise depend on the order it reads them in.
-      body: JSON.stringify({ ...clashTargetBody(body.target), options: body.options ?? {} }),
-    });
-    return jsonOrThrow<ClashCheckResponse>(r, `runClashCheck(${describeClashTarget(body.target)})`);
+      { ...clashTargetBody(body.target), options: body.options ?? {} },
+      "clash_check",
+      `runClashCheck(${describeClashTarget(body.target)})`,
+    );
   },
 
   /** Which members `geometryProvider` has no node for -- asked before a check through it, so the
@@ -367,17 +372,13 @@ export const clashCheckApi = {
     scope: ScopeUrl,
     body: { result_key: string; joint_ids: readonly string[]; spec: string; options?: Record<string, unknown> },
   ): Promise<ClashDetailResponse> {
-    const r = await authedFetch(detailBase(scope), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        result_key: body.result_key,
-        joint_ids: body.joint_ids,
-        spec: body.spec,
-        options: body.options ?? {},
-      }),
-    });
-    return jsonOrThrow<ClashDetailResponse>(r, `runClashDetail(${body.spec})`);
+    return postCoreJob<ClashDetailResponse>(
+      scope,
+      detailBase(scope),
+      { result_key: body.result_key, joint_ids: body.joint_ids, spec: body.spec, options: body.options ?? {} },
+      "clash_detail",
+      `runClashDetail(${body.spec})`,
+    );
   },
 
   /** The scope's kept detail models, newest first. */

@@ -10,6 +10,7 @@ import {
   authedFetch,
   jsonOrThrow,
   readDetail,
+  runOnWorkerHeaders,
   toQueryString,
   type ScopeUrl,
 } from "./client";
@@ -168,16 +169,20 @@ export const proceduralApi = {
     return body.templates;
   },
 
+  /** Create an empty model. `opts.engine` records the engine it is for (a template's); without
+   *  it the server gives the model the deployment's default engine, stamped in the returned
+   *  doc when that is not the built-in. */
   async createProceduralModel(
     scope: ScopeUrl,
     name: string,
+    opts?: { engine?: string },
   ): Promise<ProceduralModelDetail> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(opts?.engine ? { name, engine: opts.engine } : { name }),
       },
     );
     return jsonOrThrow<ProceduralModelDetail>(
@@ -264,6 +269,8 @@ export const proceduralApi = {
     engine?: string | null,
     detailing?: string | null,
     detailingOptions?: DetailingOptionsPayload | null,
+    // The user chose the worker over the in-browser compile (X-Ada-Run-On).
+    runOnWorker?: boolean,
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
@@ -290,7 +297,7 @@ export const proceduralApi = {
     const qs = toQueryString(params);
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
-      { method: "POST" },
+      { method: "POST", headers: runOnWorkerHeaders(runOnWorker) },
     );
     return jsonOrThrow<ProceduralCompileResponse>(
       r,
@@ -313,6 +320,8 @@ export const proceduralApi = {
       force?: boolean;
       detailing?: string | null;
       detailingOptions?: DetailingOptionsPayload | null;
+      // The user chose the worker over the in-browser compile (X-Ada-Run-On).
+      runOnWorker?: boolean;
     },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams();
@@ -328,7 +337,7 @@ export const proceduralApi = {
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-preview${qs}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
         body: JSON.stringify({ doc }),
       },
     );
@@ -428,7 +437,8 @@ export const proceduralApi = {
   async exportProceduralModelXlsx(
     scope: ScopeUrl,
     modelId: string,
-    opts?: { engine?: string | null; force?: boolean },
+    // runOnWorker: the user chose the worker over the in-browser export (X-Ada-Run-On).
+    opts?: { engine?: string | null; force?: boolean; runOnWorker?: boolean },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams();
     if (opts?.force) params.set("force", "true");
@@ -436,7 +446,7 @@ export const proceduralApi = {
     const qs = toQueryString(params);
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/export-xlsx${qs}`,
-      { method: "POST" },
+      { method: "POST", headers: runOnWorkerHeaders(opts?.runOnWorker) },
     );
     return jsonOrThrow<ProceduralCompileResponse>(
       r,
@@ -454,7 +464,7 @@ export const proceduralApi = {
     scope: ScopeUrl,
     modelId: string,
     format: "ifc" | "gxml" | "gnx",
-    opts?: { force?: boolean; cad?: boolean },
+    opts?: { force?: boolean; cad?: boolean; runOnWorker?: boolean },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams({ format });
     if (opts?.force) params.set("force", "true");
@@ -463,7 +473,7 @@ export const proceduralApi = {
     if (format === "ifc" && opts?.cad === false) params.set("cad", "false");
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/export-model?${params.toString()}`,
-      { method: "POST" },
+      { method: "POST", headers: runOnWorkerHeaders(opts?.runOnWorker) },
     );
     return jsonOrThrow<ProceduralCompileResponse>(
       r,
@@ -497,12 +507,14 @@ export const proceduralApi = {
   async importProceduralModelXlsx(
     scope: ScopeUrl,
     body: { source_key: string; engine: string; name: string },
+    // The user chose the worker over the in-browser import (X-Ada-Run-On).
+    opts?: { runOnWorker?: boolean },
   ): Promise<{ job_id: string; derived_key: string }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/import-xlsx`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
         body: JSON.stringify(body),
       },
     );
@@ -519,10 +531,12 @@ export const proceduralApi = {
   async proposeProceduralRelocations(
     scope: ScopeUrl,
     modelId: string,
+    // The user chose the worker over the in-browser analysis (X-Ada-Run-On).
+    opts?: { runOnWorker?: boolean },
   ): Promise<{ job_id: string | null; derived_key: string }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/propose-relocations`,
-      { method: "POST" },
+      { method: "POST", headers: runOnWorkerHeaders(opts?.runOnWorker) },
     );
     return jsonOrThrow(r, `proposeProceduralRelocations(${modelId})`);
   },

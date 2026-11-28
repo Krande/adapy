@@ -20,6 +20,8 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..execution_policy import default_policy as default_execution_policy
+from ..execution_policy import load_effective_policy
 from ..worker_access import default_policy, policy_from_row, serialize_me_worker_access
 
 router = APIRouter()
@@ -76,6 +78,14 @@ async def api_me(
         except Exception:
             logger.exception("api_me: reading worker_access failed")
 
+    # The engines each operation may run on, in order (execution_policy.py); the
+    # defaults without a database or when the stored policy cannot be read.
+    try:
+        execution = await load_effective_policy(pool, user.sub)
+    except Exception:
+        logger.exception("api_me: reading the execution policy failed")
+        execution = default_execution_policy()
+
     return JSONResponse(
         {
             "sub": user.sub,
@@ -85,6 +95,7 @@ async def api_me(
             "scopes": scopes,
             "projects": projects,
             "worker_access": serialize_me_worker_access(user, worker_policy),
+            "execution_policy": execution,
         }
     )
 

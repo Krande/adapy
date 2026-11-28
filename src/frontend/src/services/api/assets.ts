@@ -10,10 +10,13 @@
 
 import { runtime } from "@/runtime/config";
 
-import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
+import { encodeBuildUpload, type BuildUploadFile, type BuildUploadRequest } from "@/assets/buildUpload";
+
+import { authedFetch, jsonOrThrow, runOnWorkerHeaders, type ScopeUrl } from "./client";
 import { filesApi } from "./files";
 import type {
   WireAssetIndex,
+  WireBrowserBuildStored,
   WireBuildAssetResponse,
   WireGeometryRollup,
   WireDeliveryClaim,
@@ -146,14 +149,42 @@ export const assetsApi = {
    *  it straight from there. */
   async buildAssetNode(
     scope: ScopeUrl,
-    body: { provider: string; collection: string; node: string; subject?: string; revision?: string; force?: boolean },
+    body: {
+      provider: string;
+      collection: string;
+      node: string;
+      subject?: string;
+      revision?: string;
+      force?: boolean;
+      /** The viewer builds it itself: plan it, enqueue nothing (`execution: "browser"`). */
+      browser?: boolean;
+    },
+    // runOnWorker: the user (or the policy's fallback) chose the worker over the browser build.
+    opts?: { runOnWorker?: boolean },
   ): Promise<WireBuildAssetResponse> {
     const r = await authedFetch(`${base(scope)}/build`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...runOnWorkerHeaders(opts?.runOnWorker) },
       body: JSON.stringify(body),
     });
     return jsonOrThrow<WireBuildAssetResponse>(r, `buildAssetNode(${body.collection}/${body.node})`);
+  },
+
+  /** Store a build the browser made (`ada/assets/build_upload.py` has the frame and the rules the
+   *  server checks it against). `stored: false` means the key was already built: read that one. */
+  async uploadBrowserBuild(
+    scope: ScopeUrl,
+    request: BuildUploadRequest,
+    summary: Record<string, unknown>,
+    files: readonly BuildUploadFile[],
+  ): Promise<WireBrowserBuildStored> {
+    const body = encodeBuildUpload(request, summary, files);
+    const r = await authedFetch(`${base(scope)}/build/result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: body as unknown as BodyInit,
+    });
+    return jsonOrThrow<WireBrowserBuildStored>(r, `uploadBrowserBuild(${request.collection}/${request.node})`);
   },
 
   /** A build summary blob (`ada.assets/build@1`). Gzip-at-rest like every

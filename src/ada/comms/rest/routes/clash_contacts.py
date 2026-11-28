@@ -47,6 +47,7 @@ from ada.clash.sidecar import (
 from .. import auth as auth_module
 from .. import clash_details, clash_inspect
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..clash_runs import write_run_and_index
 from ..job_transport import JobRequest
 from ..scope import Scope
@@ -275,7 +276,7 @@ async def api_clash_contacts(
             "annotate": bool(body.get("annotate", True)),
         },
     )
-    return JSONResponse({"job_id": submitted.job_id, "run_key": key})
+    return JSONResponse({**job_fields(submitted), "run_key": key})
 
 
 @router.post("/scopes/{scope}/clash-contacts/runs")
@@ -308,7 +309,7 @@ async def api_clash_contacts_store(
     await write_run_and_index(ctx.storage, scope_obj, key, run.to_json().encode("utf-8"), pool=optional_pool(request))
     await ctx.audit(request, user, scope_obj, "clash_run_store", key=key, target_format=KIND, status="done")
 
-    job_id = None
+    job: dict = {"job_id": None}
     if annotate:
         submitted = await _submit(
             ctx,
@@ -321,8 +322,8 @@ async def api_clash_contacts_store(
             options={"mode": "annotate", "run_key": key, **({"geometry_provider": provider} if provider else {})},
             capability=capability,
         )
-        job_id = submitted.job_id
-    return JSONResponse({"run_key": key, "summary": run.summary(key), "job_id": job_id})
+        job = job_fields(submitted)
+    return JSONResponse({"run_key": key, "summary": run.summary(key), **job})
 
 
 @router.get("/scopes/{scope}/clash-contacts/runs")
@@ -475,7 +476,7 @@ async def api_clash_contacts_annotate(
         options={"mode": "annotate", "run_key": key, **({"geometry_provider": provider} if provider else {})},
         capability=capability,
     )
-    return JSONResponse({"job_id": submitted.job_id, "geometry_provider": provider})
+    return JSONResponse({**job_fields(submitted), "geometry_provider": provider})
 
 
 @router.post("/scopes/{scope}/clash-contacts/detail")
@@ -574,7 +575,7 @@ async def api_clash_contacts_detail(
     )
     return JSONResponse(
         {
-            "job_id": submitted.job_id,
+            **job_fields(submitted),
             "derived_key": derived_key,
             "glb_key": glb_key,
             "detail_id": paths.detail_id,

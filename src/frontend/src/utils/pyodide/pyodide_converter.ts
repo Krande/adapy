@@ -5,8 +5,30 @@
 // reuse the warm worker. Each request gets a unique reqId so
 // concurrent calls don't cross-talk.
 
+import {runtime} from "@/runtime/config";
+import {
+    bakedPyodidePackages,
+    bakedRuntimeWheels,
+    loadPluginWheelsManifest,
+    patchPyodideLock,
+    planPluginInstall,
+    planPluginsInstall,
+    pluginsForCapability,
+    PLUGIN_WHEELS_DIR,
+    PYODIDE_VERSION,
+    resolvePyodideSource,
+    type BootRuntimeWheel,
+    type PluginInstallPlan,
+} from "./pluginWheels";
+
 let workerPromise: Promise<Worker> | null = null;
+// Who hears the boot's log lines (loading Pyodide, numpy, ...): every caller waiting on the
+// worker while it boots, not just the one that spawned it -- a conversion that finds a
+// prewarm's boot under way still shows the boot's stages instead of a frozen bar.
+const bootLogListeners = new Set<(msg: string) => void>();
 let nextReqId = 1;
+// Plugins whose install the live worker was already asked to prewarm.
+let prewarmedPlugins = new Set<string>();
 // Peak wasm linear-memory the live worker last reported. Pyodide never frees
 // heap back to the OS, so once a worker has grown near the wasm32 ceiling we
 // recycle it (terminate + respawn) before the NEXT job rather than risk an OOM
@@ -46,6 +68,13 @@ type WorkerMessage =
           localArtefacts: LocalArtefactOutput[];
           heap?: number;
       }
+    | {
+          type: "core-result";
+          reqId: number;
+          status: string;
+          outputs: Array<{name: string; bytes: Uint8Array}>;
+          heap?: number;
+      }
     | {type: "error"; reqId?: number; message: string};
 
 /** Terminate the live worker (the "subprocess") and reset state so the next
@@ -54,10 +83,57 @@ function killWorker(): void {
     const p = workerPromise;
     workerPromise = null;
     lastHeapBytes = 0;
+    prewarmedPlugins = new Set();
     if (p) p.then((w) => w.terminate()).catch(() => {});
 }
 
-function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
+/** What the worker boots with: where Pyodide loads from and, when the build baked
+ * Pyodide packages next to the plugin wheels, a lock file pointing at them. */
+export interface PyodideBootConfig {
+    version: string;
+    indexURL: string;
+    lockFileContents?: unknown;
+    /** Baked wheels for the worker's pure-Python stacks (trimesh, pyquaternion), by name. */
+    runtimeWheels?: Record<string, BootRuntimeWheel>;
+}
+
+// The page's URL, to resolve origin-relative Pyodide and wheel URLs against.
+function pageUrl(): string {
+    return (globalThis as {location?: {href?: string}}).location?.href ?? "http://localhost/";
+}
+
+async function resolveBootConfig(onLog?: (msg: string) => void): Promise<PyodideBootConfig> {
+    const here = pageUrl();
+    const manifest = await loadPluginWheelsManifest();
+    const source = resolvePyodideSource(runtime.pyodideIndexUrl(), manifest, here, (m) => onLog?.(m));
+    const config: PyodideBootConfig = {version: PYODIDE_VERSION, indexURL: source.indexURL};
+    const runtimeWheels = bakedRuntimeWheels(manifest);
+    if (Object.keys(runtimeWheels).length > 0) config.runtimeWheels = runtimeWheels;
+    const baked = bakedPyodidePackages(manifest);
+    if (baked.length === 0) return config;
+    try {
+        const resp = await fetch(`${source.indexURL}pyodide-lock.json`);
+        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+        const patch = patchPyodideLock(await resp.json(), baked, new URL(PLUGIN_WHEELS_DIR, here).href);
+        for (const s of patch.skipped) onLog?.(`baked ${s.name} not used: ${s.reason}`);
+        if (patch.redirected.length > 0) config.lockFileContents = patch.lock;
+    } catch (err) {
+        // The packages then load from the index by name, as without baking.
+        onLog?.(`Pyodide lock file not read (${err instanceof Error ? err.message : String(err)}); baked packages unused`);
+    }
+    return config;
+}
+
+function spawnWorker(): Promise<Worker> {
+    const onLog = (msg: string) => {
+        for (const listener of bootLogListeners) {
+            try {
+                listener(msg);
+            } catch {
+                /* a listener's failure is its own */
+            }
+        }
+    };
     return new Promise((resolve, reject) => {
         // new URL(..., import.meta.url) lets Vite bundle the worker
         // file as an asset and rewrite the URL at build time.
@@ -67,7 +143,7 @@ function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
         const onMessage = (e: MessageEvent<WorkerMessage>) => {
             const data = e.data;
             if (data.type === "log") {
-                onLog?.(data.message);
+                onLog(data.message);
             } else if (data.type === "ready") {
                 worker.removeEventListener("message", onMessage);
                 resolve(worker);
@@ -84,11 +160,23 @@ function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
             workerPromise = null;
             reject(new Error(e.message || "worker spawn error"));
         });
-        // Boot is implicit on first message. Send a ping-style message
-        // to kick it off; the worker treats any message as the boot
-        // trigger.
-        worker.postMessage({type: "boot"});
+        // Boot is implicit on the first message, which must carry the boot config
+        // (the worker cannot load Pyodide before it knows where from). Every
+        // other message waits for "ready", so this one is always first.
+        resolveBootConfig(onLog)
+            .catch((): PyodideBootConfig => {
+                const source = resolvePyodideSource(runtime.pyodideIndexUrl(), {plugins: {}}, pageUrl());
+                return {version: PYODIDE_VERSION, indexURL: source.indexURL};
+            })
+            .then((pyodide) => worker.postMessage({type: "boot", pyodide}));
     });
+}
+
+/** The install plans for one plugin, or none when the manifest does not list it. */
+async function pluginPlans(pluginId: string): Promise<PluginInstallPlan[] | null> {
+    const manifest = await loadPluginWheelsManifest();
+    if (!manifest.plugins[pluginId]) return null;
+    return planPluginInstall(manifest, pluginId);
 }
 
 export function isPyodideWorkerReady(): boolean {
@@ -96,21 +184,42 @@ export function isPyodideWorkerReady(): boolean {
 }
 
 export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promise<Worker> {
+    if (onLog) bootLogListeners.add(onLog);
     if (!workerPromise) {
-        workerPromise = spawnWorker(onLog);
+        workerPromise = spawnWorker();
     }
-    return workerPromise;
+    try {
+        return await workerPromise;
+    } finally {
+        if (onLog) bootLogListeners.delete(onLog);
+    }
 }
 
 /** Boot the worker and pre-load the CAD stack in the background. Call when the
  * WASM engine is enabled so the first conversion doesn't pay the cold
- * pyodide-boot + kernel-load cost when the user opens a file. Fire-and-forget. */
-export function prewarmPyodide(onLog?: (msg: string) => void): void {
-    ensurePyodideWorker(onLog)
-        .then((w) => w.postMessage({type: "prewarm"}))
-        .catch(() => {
-            /* best-effort warm-up; a real conversion will surface any error */
-        });
+ * pyodide-boot + kernel-load cost when the user opens a file. Fire-and-forget.
+ *
+ * `plugins`: manifest plugin ids to install too, after the core stack, one at a
+ * time (their dependency files included). Each id is sent once per worker; a job
+ * for a plugin still installing waits for that same install. */
+export function prewarmPyodide(onLog?: (msg: string) => void, opts?: {plugins?: readonly string[]}): void {
+    void (async () => {
+        let ids: string[] = [];
+        let plans: PluginInstallPlan[] = [];
+        if (opts?.plugins) {
+            // A plugins-only call with nothing new to install does not boot the worker.
+            const manifest = await loadPluginWheelsManifest();
+            ids = opts.plugins.filter((id) => !prewarmedPlugins.has(id) && id in manifest.plugins);
+            if (ids.length === 0) return;
+            plans = planPluginsInstall(manifest, ids);
+        }
+        const w = await ensurePyodideWorker(onLog);
+        for (const id of ids) prewarmedPlugins.add(id);
+        w.postMessage({type: "prewarm", plugins: plans});
+    })().catch((err) => {
+        onLog?.(`prewarm not started: ${err instanceof Error ? err.message : String(err)}`);
+        /* best-effort warm-up; a real conversion will surface any error */
+    });
 }
 
 export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea_glb" | "fem" | "genie";
@@ -127,7 +236,12 @@ export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea
 // listeners synchronously (so they're live before the caller posts), and
 // resolves with the result bytes / rejects on handled error, crash, or
 // timeout. Caller posts the request message after calling this.
-function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) => void): Promise<Uint8Array> {
+function awaitWorkerResult(
+    worker: Worker,
+    reqId: number,
+    onLog?: (msg: string) => void,
+    onProgress?: (stage: string, fraction: number) => void,
+): Promise<Uint8Array> {
     return new Promise<Uint8Array>((resolve, reject) => {
         let settled = false;
         const cleanup = () => {
@@ -148,6 +262,10 @@ function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) 
             const data = e.data;
             if (data.type === "log") {
                 onLog?.(data.message);
+                return;
+            }
+            if (data.type === "progress") {
+                if (data.reqId === reqId && !settled) onProgress?.(data.message, data.fraction);
                 return;
             }
             if ((data.type === "result" || data.type === "error") && data.reqId !== reqId) {
@@ -183,7 +301,15 @@ function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) 
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
+    /** ``srcKey``: the source's storage key; an FEA bake records it as its manifest's ``src``.
+     * ``onProgress``: adapy's ``(stage, fraction)`` reports as the conversion runs. */
+    opts?: {
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+        ext?: string;
+        target?: string;
+        srcKey?: string;
+    },
 ): Promise<Uint8Array> {
     // Proactively recycle a worker whose heap has grown near the ceiling, so
     // this job starts with reclaimed memory instead of risking an OOM abort.
@@ -192,9 +318,9 @@ export async function convertViaPyodide(
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage(
-        {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
+        {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", srcKey: opts?.srcKey, bytes},
         [bytes],
     );
     return result;
@@ -226,7 +352,7 @@ export async function compileProceduralViaPyodide(
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
-    // engine = a built-in slug (echo) dispatched directly; wheel = an external
+    // engine = a non-default slug dispatched directly; wheel = an external
     // engine the worker micropip-installs, then dispatches via its entrypoint.
     const engine = opts?.engine && opts.engine !== "adapy-default" ? opts.engine : null;
     const wheel = opts?.wheel ?? null;
@@ -243,14 +369,21 @@ export async function compileProceduralViaPyodide(
 export async function convertViaPyodideStream(
     format: PyodideSourceFormat,
     url: string,
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string; size?: number; headers?: Record<string, string>},
+    opts?: {
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+        ext?: string;
+        target?: string;
+        size?: number;
+        headers?: Record<string, string>;
+    },
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage({
         type: "convert",
         reqId,
@@ -276,10 +409,13 @@ export async function convertViaPyodideFeaBakeStream(
     uploadUrl: string,
     opts?: {
         onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
         ext?: string;
         size?: number;
         headers?: Record<string, string>;
         uploadHeaders?: Record<string, string>;
+        /** The source's storage key, recorded as the manifest's ``src``. */
+        srcKey?: string;
     },
 ): Promise<{count: number; files: string[]; manifest: string; bytes: number}> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
@@ -287,7 +423,7 @@ export async function convertViaPyodideFeaBakeStream(
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage({
         type: "convert",
         reqId,
@@ -300,6 +436,7 @@ export async function convertViaPyodideFeaBakeStream(
         format: "fea",
         ext: opts?.ext,
         target: "glb",
+        srcKey: opts?.srcKey,
     });
     const bytes = await result;
     return JSON.parse(new TextDecoder().decode(bytes));
@@ -322,6 +459,8 @@ export async function runPluginJobViaPyodide(opts: {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
+    const plans = await pluginPlans(opts.pluginId);
+    if (!plans) throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${opts.pluginId}"`);
     const worker = await ensurePyodideWorker(opts.onLog);
     const reqId = nextReqId++;
     const resultPromise = new Promise<PluginJobResult>((resolve, reject) => {
@@ -377,6 +516,7 @@ export async function runPluginJobViaPyodide(opts: {
         type: "run-plugin-job",
         reqId,
         pluginId: opts.pluginId,
+        plans,
         scope: opts.scope,
         options: opts.options,
         derivedPrefix: opts.derivedPrefix ?? "",
@@ -387,16 +527,107 @@ export async function runPluginJobViaPyodide(opts: {
     return resultPromise;
 }
 
+/** A claimed core job (services/compute/coreJobs.ts) as the worker gets it. */
+export interface CoreJobClaimMessage {
+    id: string;
+    kind: string;
+    source_key: string;
+    derived_key: string;
+    conversion_options: Record<string, unknown>;
+    target_capability: string | null;
+    scope: string;
+}
+
+/** Run a claimed core job (a clash check, a detail, a component build, a selection export, an
+ * equipment bbox, a scene utility) in the browser Pyodide worker: ada.comms.rest.wasm_jobs.run,
+ * the worker handler's own work, reading the scope's blobs through a synchronous facade. The
+ * plugin wheels that serve the job's pool (manifest `capabilities`) are installed first, so a
+ * checker or spec they register is there. Resolves to the run's status and its outputs by name. */
+export async function runCoreJobViaPyodide(
+    claim: CoreJobClaimMessage,
+    opts: {
+        apiBase?: string;
+        authHeaders?: Record<string, string>;
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+    } = {},
+): Promise<{status: "done" | "error"; error: string | null; traceback?: string | null; outputs: Record<string, Uint8Array>}> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const manifest = await loadPluginWheelsManifest();
+    const plugins = pluginsForCapability(manifest, claim.target_capability);
+    const plans = plugins.length ? planPluginsInstall(manifest, plugins) : [];
+    const worker = await ensurePyodideWorker(opts.onLog);
+    const reqId = nextReqId++;
+    const result = new Promise<{status: string; outputs: Array<{name: string; bytes: Uint8Array}>}>((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            clearTimeout(timer);
+        };
+        const fail = (message: string, kill: boolean) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            if (kill) killWorker();
+            reject(new Error(message));
+        };
+        const onMessage = (e: MessageEvent<WorkerMessage>) => {
+            const data = e.data;
+            if (data.type === "log") {
+                opts.onLog?.(data.message);
+                return;
+            }
+            if (data.type === "progress" && data.reqId === reqId) {
+                opts.onProgress?.(data.message, data.fraction);
+                return;
+            }
+            if ((data.type === "core-result" || data.type === "error") && data.reqId !== reqId) return;
+            if (settled) return;
+            if (data.type === "core-result") {
+                settled = true;
+                cleanup();
+                if (typeof data.heap === "number") lastHeapBytes = data.heap;
+                resolve({status: data.status, outputs: data.outputs});
+            } else if (data.type === "error") {
+                fail(data.message, false);
+            }
+        };
+        const onError = () => fail("wasm worker crashed (likely out-of-memory); it was restarted", true);
+        const timer = setTimeout(
+            () => fail(`wasm core job exceeded ${JOB_TIMEOUT_MS / 1000}s; worker terminated`, true),
+            JOB_TIMEOUT_MS,
+        );
+        worker.addEventListener("message", onMessage);
+        worker.addEventListener("error", onError);
+    });
+    worker.postMessage({
+        type: "run-core-job",
+        reqId,
+        claim: JSON.stringify(claim),
+        plans,
+        apiBase: opts.apiBase ?? "/api",
+        authHeaders: opts.authHeaders,
+    });
+    const {status, outputs} = await result;
+    const doc = JSON.parse(status) as {status: "done" | "error"; error: string | null; traceback?: string | null};
+    return {...doc, outputs: Object.fromEntries(outputs.map((o) => [o.name, o.bytes]))};
+}
+
 /** Run a procedural engine registered in /wheels/plugin-wheels-manifest.json
- * (e.g. a baked template/detailing wheel) in the browser Pyodide worker. */
+ * (a baked plugin wheel keyed by the engine's slug, whose register hook announces
+ * the engine) in the browser Pyodide worker. Dispatches by slug, as the worker does. */
 export async function runProceduralEngineViaPyodide(
     engineId: string,
     doc: unknown,
-    opts?: {onLog?: (msg: string) => void},
+    opts?: {onLog?: (msg: string) => void; lod?: "sim" | "detail"},
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
+    const plans = await pluginPlans(engineId);
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
@@ -404,8 +635,41 @@ export async function runProceduralEngineViaPyodide(
         type: "run-procedural-engine",
         reqId,
         engineId,
+        plans,
         doc: JSON.stringify(doc),
+        lod: opts?.lod ?? "sim",
     });
+    return result;
+}
+
+/** What `runProceduralIoViaPyodide` runs (ada.topo_model.wasm_io.run's actions). */
+export type ProceduralIoAction = "export_xlsx" | "import_xlsx" | "propose_relocations" | "export_model";
+
+/** A procedural model's Excel export / import, relocation proposals or IFC/Genie
+ * export in the browser Pyodide worker (ada.topo_model.wasm_io.run), the same engine
+ * calls the server's jobs make. `engineId` names an engine a baked plugin wheel
+ * registers (its install plans are installed first, as for a compile); null is a
+ * built-in engine. Resolves to the file bytes (export_xlsx / export_model) or the
+ * UTF-8 JSON answer (import_xlsx: the document; propose_relocations: the proposals). */
+export async function runProceduralIoViaPyodide(
+    action: ProceduralIoAction,
+    payload: Record<string, unknown>,
+    opts?: {onLog?: (msg: string) => void; engineId?: string | null; data?: Uint8Array | null},
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const engineId = opts?.engineId ?? null;
+    const plans = engineId ? await pluginPlans(engineId) : null;
+    if (engineId && !plans) throw new Error(`No browser wheel registered in plugin-wheels-manifest.json for "${engineId}"`);
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const data = opts?.data ?? null;
+    worker.postMessage(
+        {type: "run-procedural-io", reqId, action, payload: JSON.stringify(payload), engineId, plans, data},
+        data ? [data.buffer] : [],
+    );
     return result;
 }
 

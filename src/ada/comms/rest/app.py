@@ -24,6 +24,7 @@ from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_db import retention_loop as db_retention_loop
 from .routes.admin_db import router as admin_db_router
+from .routes.admin_execution_policy import router as admin_execution_policy_router
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
 from .routes.admin_provider_grants import router as admin_provider_grants_router
@@ -40,6 +41,7 @@ from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
 from .routes.attribute_search import router as attribute_search_router
 from .routes.audit_local import router as audit_local_router
+from .routes.browser_jobs import router as browser_jobs_router
 from .routes.clash_check import router as clash_check_router
 from .routes.clash_contacts import router as clash_contacts_router
 from .routes.components import router as components_router
@@ -320,10 +322,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def _reset_request_user_middleware(request, call_next):
+        from .browser_jobs import (
+            requests_browser,
+            reset_browser_choice,
+            set_browser_choice,
+        )
+        from .execution_policy import (
+            requested_operation,
+            reset_requested_operation,
+            set_requested_operation,
+        )
+        from .worker_access import (
+            requests_worker,
+            reset_explicit_worker_choice,
+            set_explicit_worker_choice,
+        )
+
         token = auth_module.set_request_user(None)
+        choice = set_explicit_worker_choice(requests_worker(request.headers))
+        browser = set_browser_choice(requests_browser(request.headers))
+        operation = set_requested_operation(requested_operation(request.headers))
         try:
             return await call_next(request)
         finally:
+            reset_requested_operation(operation)
+            reset_browser_choice(browser)
+            reset_explicit_worker_choice(choice)
             auth_module.reset_request_user(token)
 
     # A connection library served live (`ada dev connections`), when ADA_DEV_CONNECTIONS names one.
@@ -429,6 +453,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # In-browser (WASM) conversion audit rows and viewer load/render samples (routes/audit_local.py).
     api.include_router(audit_local_router)
+    api.include_router(browser_jobs_router)
 
     api.include_router(fea_router)
 
@@ -581,6 +606,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_projects_router)
 
     admin.include_router(admin_users_router)
+    admin.include_router(admin_execution_policy_router)
 
     admin.include_router(admin_storage_router)
 

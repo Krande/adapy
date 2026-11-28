@@ -36,11 +36,12 @@ test("detectWasmFormat returns null for unsupported / bake-only sources", () => 
 
 test("isWasmFeaSource matches the FEA bake sources only", () => {
     // .sqlite: an already-exported Abaqus results DB, read with stdlib sqlite3.
-    for (const k of ["a.rmed", "x/y.MED", "z.sif", "w.sin", "results/job.sqlite"]) {
+    // .inp/.fem: FEM input decks, opened in the viewer as a mesh-only bake.
+    for (const k of ["a.rmed", "x/y.MED", "z.sif", "w.sin", "results/job.sqlite", "deck.inp", "a.FEM"]) {
         assert.equal(isWasmFeaSource(k), true, k);
     }
     // .odb needs the native Abaqus export — server worker only.
-    for (const k of ["a.step", "a.ifc", "a.obj", "a.glb", "a.fem", "job.odb"]) {
+    for (const k of ["a.step", "a.ifc", "a.obj", "a.glb", "a.xml", "job.odb"]) {
         assert.equal(isWasmFeaSource(k), false, k);
     }
 });

@@ -5,8 +5,7 @@ capability flagged here is ``supports_grouping``: whether the engine understands
 the cellbuilder's cell GROUPS (a group is one structure compiled with its own
 blueprint, placed at its own origin). ``adapy-default`` does — it maps a doc's
 ``groups``/``STRUCTURE_NAME`` to per-structure topology models (see
-``ada.topo_model.structures``); ``echo`` does not — it renders raw boxes, no
-structure. A non-built-in capability engine
+``ada.topo_model.structures``). A non-built-in capability engine
 advertises ``supports_grouping=True`` by importing a module that calls
 :func:`register_procedural_engine_capabilities` at worker start — see
 ``ADA_WORKER_PRELOAD`` — exactly like :func:`register_procedural_blueprint`.
@@ -145,8 +144,8 @@ def procedural_engine_specs() -> list[dict]:
     return [dict(v) for v in _ENGINE_CAPABILITY_REGISTRY.values()]
 
 
-# The base adapy worker re-announces the built-in engines' capability flags (all
-# non-grouping; ``echo`` without an Excel format), mirroring how blueprint_catalog
+# The base adapy worker re-announces the built-in engines' capability flags,
+# mirroring how blueprint_catalog
 # re-announces the default engine's built-in blueprints. The engine-list endpoint also carries these statically, so
 # the flags are correct with or without a live worker.
 for _slug, _spec in BUILTIN_ENGINES.items():

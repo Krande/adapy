@@ -51,7 +51,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.45.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.48.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -138,8 +138,11 @@ COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 # Optional extra pure-Python plugin wheels overlay — GENERIC, names no plugin here.
 # When EXTRA_WHEELS_DIR is set (relative to src/frontend/), its .whl files and
 # plugin-wheels-manifest.json are copied into /build/dist/wheels/ and every
-# wheel referenced by the manifest is verified to exist at build time. Unset is
-# a no-op so standalone public adapy builds are unchanged.
+# wheel referenced by the manifest is verified to exist at build time -- the
+# plugin wheels, the dependency files an entry lists under `packages`, the
+# wheels it bakes for the worker's own stacks under `runtime` (trimesh,
+# pyquaternion), and a Pyodide runtime the manifest says is staged there. Unset is a no-op so
+# standalone public adapy builds are unchanged (and carry no plugin deps).
 ARG EXTRA_WHEELS_DIR=""
 RUN set -eu; \
     if [ -n "${EXTRA_WHEELS_DIR}" ]; then \
@@ -161,6 +164,25 @@ RUN set -eu; \
                     console.error(`ERROR: plugin-wheels-manifest.json entry "${id}" references missing wheel "${whl}"`); \
                     process.exit(1); \
                 } \
+                for (const pkg of (entry.packages || [])) { \
+                    const f = typeof pkg === "string" ? pkg : pkg && pkg.file; \
+                    if (!f || !fs.existsSync(path.join(dir, f))) { \
+                        console.error(`ERROR: plugin-wheels-manifest.json entry "${id}" references missing package file "${f}"`); \
+                        process.exit(1); \
+                    } \
+                } \
+            } \
+            for (const [n, pkg] of Object.entries(m.runtime || {})) { \
+                const f = typeof pkg === "string" ? pkg : pkg && pkg.file; \
+                if (!f || !fs.existsSync(path.join(dir, f))) { \
+                    console.error(`ERROR: plugin-wheels-manifest.json runtime "${n}" references missing wheel "${f}"`); \
+                    process.exit(1); \
+                } \
+            } \
+            const py = m.pyodide && m.pyodide.index_url; \
+            if (py && py.startsWith("/wheels/") && !fs.existsSync(path.join(dir, py.slice("/wheels/".length), "pyodide.js"))) { \
+                console.error(`ERROR: plugin-wheels-manifest.json stages Pyodide at "${py}" but it holds no pyodide.js`); \
+                process.exit(1); \
             } \
         '; \
     fi
@@ -244,10 +266,16 @@ ARG IMAGE_TAG=dev
 # Empty by default: a local `docker build` that was not told anything says
 # nothing, rather than claiming a ref it cannot know.
 ARG ADAPY_REF=""
+# The engine a new procedural model gets when nobody names one (a slug or an engine id), for an
+# image that ships with another engine than adapy's built-in. Empty: the built-in. A deployment's
+# own ADA_DEFAULT_PROCEDURAL_ENGINE overrides it, and an admin's procedural_default_engine
+# setting overrides both (ada/comms/rest/procedural_default_engine.py).
+ARG DEFAULT_PROCEDURAL_ENGINE=""
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     ADA_IMAGE_TAG=${IMAGE_TAG} \
-    ADA_ADAPY_REF=${ADAPY_REF}
+    ADA_ADAPY_REF=${ADAPY_REF} \
+    ADA_DEFAULT_PROCEDURAL_ENGINE=${DEFAULT_PROCEDURAL_ENGINE}
 WORKDIR /app
 
 COPY --from=env-builder /work/.pixi/envs/viewer-api-slim /env

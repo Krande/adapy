@@ -17,7 +17,8 @@ import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useComputeStore, COMPUTE_MODES, type ComputeMode} from "@/state/computeStore";
 import {CAMERA_ACTIONS, CAMERA_PRESETS, CAMERA_PRESET_IDS, MOUSE_BUTTONS, ONE_FINGER_ACTIONS, TWO_FINGER_ACTIONS, presetOf} from "@/utils/camera/cameraMapping";
 import {appearanceIsDefault, useAppearanceStore} from "@/state/appearanceStore";
-import {useConversionEngineStore, type ConversionEngine} from "@/state/conversionEngineStore";
+import {useExecutionPreferenceStore} from "@/state/executionPolicyStore";
+import {ENGINE_LABELS, EXEC_ENGINES, EXEC_OPERATIONS, OPERATION_LABELS, type ExecEngine} from "@/services/compute/executionPolicyModel";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useMeStore} from "@/state/meStore";
 import {useModelState} from "@/state/modelState";
@@ -276,10 +277,15 @@ export function optionDescriptors(): OptionDescriptor[] {
       choices: BUTTON_CHOICES, get: () => sm().button2, set: (v) => sm().setButton2(v as SpaceMouseButtonAction)},
     {kind: "open", id: "spacemouse-sensitivity", title: "3D mouse: sensitivity…", group: "3D mouse", keywords: SM_KEYS, setters: ["setSensitivity"], focus: "spacemouse-sensitivity"},
     {kind: "open", id: "spacemouse-dead-zone", title: "3D mouse: dead zone…", group: "3D mouse", keywords: SM_KEYS, setters: ["setDeadZone"], focus: "spacemouse-dead-zone"},
-    // --- Conversion engine ---
-    {kind: "choice", id: "conversion-engine", title: "Conversion engine", group: "Conversion", keywords: ["pyodide", "wasm", "browser", "worker", "server", "convert", ...GEN],
-      setters: ["setEngine"], choices: [{value: "browser", label: "In-browser (WASM)"}, {value: "worker", label: "Server worker pool"}],
-      get: () => useConversionEngineStore.getState().engine, set: (v) => useConversionEngineStore.getState().setEngine(v as ConversionEngine)},
+    // --- Execution engine: per operation, which allowed engine runs first (executionPolicy.ts) ---
+    ...EXEC_OPERATIONS.map((op, i): ChoiceOption => ({
+      kind: "choice", id: `execution-engine-${op}`, title: `Execution engine: ${OPERATION_LABELS[op]}`, group: "Execution",
+      keywords: ["pyodide", "wasm", "native", "browser", "worker", "server", "convert", "engine", ...GEN],
+      setters: i === 0 ? ["setPreferred"] : [],
+      choices: [{value: "default", label: "As configured"}, ...EXEC_ENGINES.map((e) => ({value: e, label: ENGINE_LABELS[e]}))],
+      get: () => useExecutionPreferenceStore.getState().preferred[op] ?? "default",
+      set: (v) => useExecutionPreferenceStore.getState().setPreferred(op, v === "default" ? null : (v as ExecEngine)),
+    })),
     // --- Calculations ---
     {kind: "choice", id: "compute-mode", title: "Calculations", group: "Calculations", keywords: ["compute", "cores", "workers", "performance mode", ...GEN],
       setters: ["setMode"], choices: COMPUTE_MODES.map((m) => ({value: m, label: {interactive: "Interactive", balanced: "Balanced", throughput: "All cores"}[m]})),

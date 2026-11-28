@@ -41,6 +41,7 @@ from ada.clash.result import ClashResultError, parse_clash_result
 from .. import auth as auth_module
 from .. import clash_details
 from ..auth import User
+from ..browser_jobs import job_fields
 from ..catalog import merge_catalog_specs
 from ..job_transport import JobRequest
 from ..provider_reads import ProviderDataNotGranted, ProviderReads
@@ -428,7 +429,7 @@ async def api_clash_check(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
+    return JSONResponse({**job_fields(submitted), "derived_key": derived_key, "cached": False})
 
 
 async def _asset_manifest(reads: ProviderReads, collection: str, subject: str, revision):
@@ -605,7 +606,7 @@ async def _submit_asset_node_check(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
+    return JSONResponse({**job_fields(submitted), "derived_key": derived_key, "cached": False})
 
 
 async def _resolve_group(reads: ProviderReads, group: dict) -> tuple[dict, dict[str, str]]:
@@ -709,7 +710,7 @@ async def _submit_group_check(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
+    return JSONResponse({**job_fields(submitted), "derived_key": derived_key, "cached": False})
 
 
 async def _spec_capability(ctx: RestContext, spec_name: str) -> str | None:
@@ -865,7 +866,7 @@ async def api_clash_detail(
     )
     return JSONResponse(
         {
-            "job_id": submitted.job_id,
+            **job_fields(submitted),
             "derived_key": derived_key,
             "glb_key": glb_key,
             "detail_id": paths.detail_id,

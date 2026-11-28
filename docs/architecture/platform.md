@@ -155,6 +155,17 @@ sequenceDiagram
   and read it, through its registration (`register_procedural_engine_capabilities(
   supports_excel=, export_entrypoint=, import_entrypoint=)`) or its manifest row; the
   export/import routes read that, not a list of slugs.
+- **Default procedural engine** (`procedural_default_engine.py`): the engine a new model gets
+  when nobody names one. adapy's is the built-in `adapy-default`; a deployment names another
+  by slug or engine id in `ADA_DEFAULT_PROCEDURAL_ENGINE` (the viewer image's
+  `DEFAULT_PROCEDURAL_ENGINE` build arg, the chart's `procedural.defaultEngine`), and an admin
+  can override it in the `procedural_default_engine` app setting (Admin > Conversion
+  settings). It is resolved against the engines the scope offers and served as
+  `default_engine` on `/procedural-engines` (that engine's summary carries `is_default`); one
+  not offered falls back to the built-in with a logged warning and a `note`. Creating a model
+  (`POST /procedural-models`, `/import-xlsx`) records it on the row and in the doc unless the
+  caller names an engine (a template names its own), so the Builder opens on it. A commit
+  whose doc names no engine keeps the model's recorded one: stored models are never moved.
 - **Queue** (`queue.py`, `JobQueue`): a JetStream stream with WORK_QUEUE retention. The
   message body is just the job id. Status and the worker registry live in a KV bucket.
   Jobs go to capability subjects, so a worker only pulls what it can do.
@@ -303,6 +314,46 @@ An idle worker does not walk its pools one blocking fetch at a time. Each round 
 stream which pools hold messages (one `STREAM.INFO` request with a subject filter, no lease),
 fetches from those, then waits about a second on one pool. It still holds at most one leased
 message. A credential without the stream-info permission falls back to polling the pools in turn.
+
+#### Where work runs, and what stays on a worker
+
+Interactive work runs in the user's browser by default: adacpp's native WebAssembly modules
+where they can do the job, then Pyodide running the same Python entrypoints a worker runs. The
+admin execution policy (Admin > Execution, with per-user overrides under Admin > Users) orders
+the engines per operation (`convert`, `read`, `fea_bake`, `procedural_compile`, `procedural_io`,
+`plugin_job`, `asset_build`, `core_job`). Worker pool access is opt-in per user; the server
+judges only an explicit choice of the worker over a browser path (`X-Ada-Run-On: worker`), and
+refuses a worker job the user's policy does not allow. With every ordinary user's policy set to
+the browser engines, none of their work needs a worker, apart from the list below.
+
+The FEA bake follows the same rule. A result file (`.rmed`, `.med`, `.sif`, `.sin`, an exported
+`.sqlite`) and a FEM input deck opened in the viewer (`.inp`, `.fem`, baked mesh-only) are baked
+in the browser and the artefact tree is uploaded to `/fea/artefacts`; the manifest request then
+finds it stored and queues nothing. A result file's step and field inventory (`/result-meta`) is
+read from that same manifest, so it queues nothing either.
+
+Every job a route starts goes through the job transport (`ctx.jobs.submit`); none is put on the
+queue directly, so the execution policy and worker access see all of them.
+
+Work that stays on a worker by design, and why:
+
+| Work | Why it stays on a worker |
+|---|---|
+| Asset publish | A two-phase publish into the provider store every member reads |
+| Asset change check | Reads the provider's source system and writes the change feed |
+| A provider's own plugin job | Stages the provider's data for a publish, with the provider's credentials |
+| Selection export of a published node or group | Reads attributes and relations from the server's database |
+| The connection builder's build and subject routes | The route waits for its job on the server |
+| FEA combinations that re-read raw records (`needs_raw` recipes, a bake without client-side results) | Only the server keeps the raw records |
+| Geometry compare, search exports, sweeps and schedules | Administrator and background work across providers or users |
+| Simulations | Each provider runs on its own infrastructure (a cluster, a solver licence) |
+| Engine wheel builds | git and pip in a subprocess; queued in the background when a wheel engine's manifest is saved |
+| Conversion audits and parity runs | They measure the worker pools themselves |
+| Abaqus `.odb` to `.sqlite` | Needs the Abaqus libraries (the `abaqus` capability); the `.sqlite` it writes bakes in the browser |
+| Code_Aster / gmsh iteration from the CLI | A native solver run in a subprocess |
+| Plugin jobs that drive native or Windows-only tools (an external pre-processor, a .NET exporter, pandoc reports, a local workbook, a credentialed remote API) | Native executables, local files or network credentials no browser has |
+
+Anything else that reaches a worker for an ordinary user is work still to move to the browser.
 
 ### Simulations (`ada.simulation`)
 

@@ -3,6 +3,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import type {AdminUser, AdminUserWorkerAccess} from "@/services/viewerApi";
 import {auditHash} from "../adminTabs";
+import UserExecutionOverride from "../execution/UserExecutionOverride";
 import {fmtTimestamp} from "../scheduleFormat";
 import {filterUsers, userLabel, userScopes} from "./userScopes";
 
@@ -448,6 +449,11 @@ const UserDetail: React.FC<{
                         )}
                     </div>
                 )}
+            </div>
+
+            <div className="border-t border-gray-700/70 pt-2 space-y-2">
+                <div className="text-[11px] uppercase tracking-wide text-gray-400">Execution Policy Override</div>
+                <UserExecutionOverride userSub={u.sub}/>
             </div>
 
             <div>

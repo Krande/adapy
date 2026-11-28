@@ -1,7 +1,7 @@
 import {describe, it} from "node:test";
 import assert from "node:assert/strict";
 
-import {ApiError, fetchFeaManifest} from "../../services/feaManifestPoll";
+import {ApiError, fetchFeaManifest, resultMetaFromManifest} from "../../services/feaManifestPoll";
 import type {ConvertResponse, FeaManifest} from "../../services/viewerApi";
 
 // Minimal manifest shape used as the "happy path" body. The picker
@@ -300,6 +300,53 @@ describe("fetchFeaManifest", () => {
         await assert.rejects(
             () => m,
             (err: unknown) => err instanceof ApiError && err.status === 504,
+        );
+    });
+});
+
+describe("resultMetaFromManifest", () => {
+    const field = (over: Partial<FeaManifest["fields"][number]>, values: number[]) =>
+        ({
+            ...FAKE_MANIFEST.fields[0],
+            ...over,
+            n_steps: values.length,
+            steps: values.map((value, i) => ({i, value, label: String(value)})),
+        }) as FeaManifest["fields"][number];
+
+    it("lists each native field with the deck's step numbers, as the worker's parse does", () => {
+        const meta = resultMetaFromManifest({
+            ...FAKE_MANIFEST,
+            fields: [
+                field({name_native: "DISP", name_canonical: "Displacement"}, [1, 2, 3]),
+                field({name_native: "SIGXX", name_canonical: "Stress", category: "stress", support: "gauss"}, [2, 3]),
+                // Bake additions the deck's inventory does not list.
+                field({name_native: "VONMISES", derived: true}, [1, 2, 3]),
+                field({name_native: "THICKNESS", category: "property"}, [1]),
+            ],
+        });
+        assert.deepEqual(meta, {
+            steps: [1, 2, 3],
+            fields: [
+                {name: "DISP", steps: [1, 2, 3]},
+                {name: "SIGXX", steps: [2, 3]},
+            ],
+            default_step: 1,
+            default_field: "DISP",
+        });
+    });
+
+    it("numbers an eigen field's modes from 1, not by their frequencies", () => {
+        const meta = resultMetaFromManifest({
+            ...FAKE_MANIFEST,
+            fields: [field({name_native: "DISP", analysis_kind: "eigen"}, [0.71, 2.4, 5.03])],
+        });
+        assert.deepEqual(meta.steps, [1, 2, 3]);
+    });
+
+    it("refuses a mesh-only bake, as the server answers 422", () => {
+        assert.throws(
+            () => resultMetaFromManifest({...FAKE_MANIFEST, fields: []}),
+            (err: unknown) => err instanceof ApiError && err.status === 422,
         );
     });
 });

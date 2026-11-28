@@ -18,6 +18,7 @@
 import { runtime } from "@/runtime/config";
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "@/services/api/client";
 import { filesApi } from "@/services/api/files";
+import { postCoreJob } from "@/services/compute/coreJobs";
 import type { GroupMember, GroupMemberTarget } from "@/utils/groups/savedGroups";
 
 export const CONTACT_ORIGIN = "convex-contact";
@@ -440,36 +441,35 @@ function base(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/clash-contacts`;
 }
 
-async function postJson<T>(url: string, body: unknown, what: string): Promise<T> {
-  const r = await authedFetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return jsonOrThrow<T>(r, what);
-}
-
 export const contactRunsApi = {
   runOnWorker(
     scope: ScopeUrl,
     body: { target: ContactTarget; glb_key: string; up_axis: "z" | "y"; options: Record<string, number>; annotate?: boolean },
   ) {
-    return postJson<{ job_id: string; run_key: string }>(base(scope), body, "clash-contacts");
+    // In this browser first when the policy says so (core_job, clash_check): Pyodide runs the same
+    // coal check a worker would (services/compute/coreJobs.ts); else the worker.
+    return postCoreJob<{ job_id: string; run_key: string }>(scope, base(scope), body, "clash_check", "clash-contacts");
   },
   /** `annotate: false` stores the run without resolving its specs -- the caller annotates next. */
   storeRun(scope: ScopeUrl, run: ContactRunDoc, opts: { annotate?: boolean } = {}) {
-    return postJson<{ run_key: string; summary: ContactRunSummary; job_id: string | null }>(
+    // The annotate it asks for (the specs a run's clashes could be detailed with) runs in this
+    // browser first, with the specs the baked plugin wheels register (core_job, clash_check).
+    return postCoreJob<{ run_key: string; summary: ContactRunSummary; job_id: string | null }>(
+      scope,
       `${base(scope)}/runs`,
       opts.annotate === false ? { run, annotate: false } : { run },
+      "clash_check",
       "clash-contacts/runs",
     );
   },
   /** Resolve a stored run's specs and roles -- through `geometryProvider`'s publish of its members
    *  when one is named (`POST …/clash-contacts/annotate`), else each member's own provider. */
   annotate(scope: ScopeUrl, runKey: string, geometryProvider: string | null = null) {
-    return postJson<{ job_id: string; geometry_provider?: string | null }>(
+    return postCoreJob<{ job_id: string; geometry_provider?: string | null }>(
+      scope,
       `${base(scope)}/annotate`,
       geometryProvider ? { run_key: runKey, geometry_provider: geometryProvider } : { run_key: runKey },
+      "clash_check",
       "clash-contacts/annotate",
     );
   },
@@ -487,9 +487,11 @@ export const contactRunsApi = {
     return jsonOrThrow<ContactRunDoc>(r, "clash-contacts run");
   },
   detail(scope: ScopeUrl, body: { run_key: string; contact_ids: readonly string[]; spec: string; options?: Record<string, unknown> }) {
-    return postJson<{ job_id: string; derived_key: string; glb_key: string }>(
+    return postCoreJob<{ job_id: string; derived_key: string; glb_key: string }>(
+      scope,
       `${base(scope)}/detail`,
       { ...body, options: body.options ?? {} },
+      "clash_detail",
       `clash-contacts/detail(${body.spec})`,
     );
   },

@@ -7,7 +7,10 @@
 // (gallery tools + ConversionRow) and the client/server routing all agree.
 
 import {runtime, ConversionOption} from "@/runtime/config";
-import {workerPreferred} from "@/services/compute/workerAccess";
+import {allowedEngines, workerPreferred} from "@/services/compute/executionPolicy";
+
+/** The client tessellator token for adacpp's native CAD->GLB embind modules. */
+export const NATIVE_TESSELLATOR = "wasm-native";
 
 export interface SerializerSelection {
     serializer?: string;
@@ -39,12 +42,12 @@ export function tessellatorsFor(schema: SerializerSchema, serializer: string): r
 }
 
 /** The serializer an untouched dropdown starts on. The backend's default names
- * a server serializer (it is the worker's matrix), but the in-browser engine is
- * the default engine: unless the user opted into the server worker (and may use
- * it), the first client serializer the row offers wins. */
-function defaultSerializer(schema: SerializerSchema): string {
+ * a server serializer (it is the worker's matrix), but unless the execution
+ * policy (with the user's preference) puts the worker first for converting this
+ * source, the first client serializer the row offers wins. */
+function defaultSerializer(schema: SerializerSchema, ext?: string): string {
     const serEnum = schema.serializer.enum ?? [];
-    if (!workerPreferred()) {
+    if (!workerPreferred("convert", ext || "*")) {
         const client = serEnum.find((s) => schema.serializer.runtime?.[s] === "client");
         if (client) return client;
     }
@@ -58,16 +61,27 @@ function defaultSerializer(schema: SerializerSchema): string {
 export function normalizeSelection(
     schema: SerializerSchema,
     value: SerializerSelection,
+    /** The source extension (".step"): the execution-policy qualifier. */
+    ext?: string,
 ): {serializer: string; tessellator: string; isClient: boolean} {
     const serEnum = schema.serializer.enum ?? [];
     let serializer = value.serializer && serEnum.includes(value.serializer)
         ? value.serializer
-        : defaultSerializer(schema);
+        : defaultSerializer(schema, ext);
     const allowed = tessellatorsFor(schema, serializer);
+    const isClient = schema.serializer.runtime?.[serializer] === "client";
+    // An untouched client row starts on adacpp's native (embind, no Pyodide) module when the
+    // row offers it: the same reader/writer as the server, so the same scene hierarchy, and no
+    // Python runtime to boot. An explicit choice (e.g. "pyodide") is always honoured.
+    // Not when the execution policy leaves the native engine out for this source.
+    const nativeAllowed = allowedEngines("convert", ext || "*").includes("native");
+    const untouchedDefault =
+        isClient && nativeAllowed && allowed.includes(NATIVE_TESSELLATOR)
+            ? NATIVE_TESSELLATOR
+            : allowed.find((t) => t !== NATIVE_TESSELLATOR || nativeAllowed) ?? allowed[0] ?? "";
     const tessellator = value.tessellator && allowed.includes(value.tessellator)
         ? value.tessellator
-        : allowed[0] ?? "";
-    const isClient = schema.serializer.runtime?.[serializer] === "client";
+        : untouchedDefault;
     return {serializer, tessellator, isClient};
 }
 
@@ -75,7 +89,7 @@ export function normalizeSelection(
 export function selectionIsClient(ext: string, target: string, value: SerializerSelection): boolean {
     const schema = serializerSchemaFor(ext, target);
     if (!schema) return false;
-    return normalizeSelection(schema, value).isClient;
+    return normalizeSelection(schema, value, ext).isClient;
 }
 
 /** A bool conversion option (by name) for an (ext, target) row, or null when the backend doesn't

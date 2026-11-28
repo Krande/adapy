@@ -1,0 +1,43 @@
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.4-06" version_date="23-Sep-2022" platform="64bit" />
+		<session_info date="18-Jan-2023" time="13:26:33" user="userX" />
+	</administrative>
+	<model name="change_me">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<mesh_properties />
+				<hydro_properties />
+			<sections /><materials><material name="steel"><isotropic_linear_material yield_stress="355000000.0" density="7850" youngs_modulus="210000000000.0" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" /></material></materials><hinges /><thicknesses><thickness name="thk025" default="true"><constant_thickness th="0.025" /></thickness></thicknesses></properties>
+			<feature_concepts />
+		<structures><structure><curved_shell name="curved_plate_1" thickness_ref="thk025" material_ref="steel"><segmentation /><front /><back /><local_system><sense_flag sense="true" /></local_system><geometry><sheet><sat_reference><face face_ref="FACE00000001" /></sat_reference></sheet></geometry></curved_shell></structure></structures><sets /><geometry><sat_embedded_sequence encoding="base64" compression="zip" tag_name="dnvscp"><cdata_segment><![CDATA[UEsDBBQAAAAIAAAAIQBjmQDG5AQAAEkfAAALAAAAYjY0dGVtcC5zYXTtmUtv4zYQgM/rXzFAfRUxnOFzTwkWcbEF2ktyXzi28kAdyfAju4ti/3uHlJ34IdlJmuZkK7IUe8h5cT5SNCEiIGjAng5weXF5/icUcPvwe1k/lIvZT9AGzr98vQRmhUrDX1dABq6WJfwxrEB7IPzM8TMGuSHu6dRdVHH7ZcsCPeiy0NgrEK7r8U/oFxqav3TXX13kvILCofLApJgjR0LN5H3QDqyK3gTPno22FAkK65KkURa8wq0XO/itJ91Nlg/TXWXpJOjj++oimN+Vk0mbsnTy2tF3VcpwMxyV0Le7Kl12Md0ZuKln34ezMYzr5fWkhHq5gIEc0tzAfDq5r8pivpw1HW0ZPysfy9m8HMM/UP4YjhYiBTdL8bFazq7nQMCSzMUd1NOyat6quiqbN5Kj9wmVOOhiRHEvBk9GzCbQCkNEExyRNQGDDVm4MEobInIueMdRxygKUE75qgkZK7MZIG33Q6afpUnFQDaiN+jJBbbglHFeW+fJWx9Ry7gXGfTBUkCDTKmHjfa7CZJsMFsf2LEP0aZRncRtVOw2XtlSkbeBTIiGpXdpylsf0HNTE9nJJ0Gu0nNqK65btAF1cMEltc549DZIc4cYbTbb65gEIksMXYcZJAFz5DQb0uKklq4CEQdrpTcbJRB2ZUdQyJuvNOq02Bs1GeO1JCSZsfmBMc9NtdOGTWAdveQvJ0qzk3RjjM5aznol9taYKHpNE3kxXfyMLF94Q7HDDlJiv2aUzKEMJkxpjFrrSD74SDGIOytLDlXLhgQrR8dkSPlOETxwDkRiIKN2ff0FX1eH1JuF+WJ2X91+Gy7kel1Uw4dyfX9bVkVzu67CDXak0dJ14Op65mBcPc5HUzjTBIPzLxcrq3VS7WBS160oDEnB+1FpWf1d1d+rpNPDdLScPe5iBbfBMp2OBCjCE90wpOGG1CRHUS/WeCPqk4tK+4AywowMGqelkJtstDCmBSW9Ty3YaZVDlWImIyG9NYA8ofCEwhMK3w2FvU+/IK07hREBRnU5vt1lRF+jnGa1WNsgRlrZ+NQwvh0u8o9RUm/CkDQCojES3C6U4GsQgydsnLBxwsb/jw3BQwc3KK9oMjbMNjZibqjfzI1CJ4+aBVfraqILFXgiw4kMJzJ8EBmoiwymWVVkNISnXZFEBp0fkTS/HQ1GYYqW01bLQItNAjtB8dLHkxM4TuA4geOjwGE6wBGaVUXeicFtbnBuaGFa31eLnXYvL4/UhwMp60X5Y1c5pecgm0X8ITUvqYvUSTikpxGJUE4m99N5WbTRcKVPAyu7lYeGeIVTmpjEmGg9O+9cmSzHJJ6BKPHf39wZtG3upE11hFaUu7ZO+uJcSzc5f/Epb2f+aYvqVZteXdlsDbMUdWuujv6IQF3pkcmL8ixFDNJxzkxrftZ+rqaH0fP0ILMDbz4Fc8tTMB8t2Rdxyexxid/O5FfMNGsQVOLxt/WPGq3/SjA2boqn/b4GCpvwWH+TZ9DBDkNSQkzrGJVUYh6p+0HOyxDJ46Eh+QJsHB9NHWA6DNPUsJNGUkvUVKZPe9nD+9u7RTsmDhqHkNdV6wiGAxEUW/JzV2awaG0P2mGXjkcqvmdR7S0F+fgU9uZp9j8sMl61qPr4wuJ2+JPLhRXaAp0X+fRa2O87e7RELqpxUd8U6bfxYjxcDP8FUEsBAhQDFAAAAAgAAAAhAGOZAMbkBAAASR8AAAsAAAAAAAAAAAAAAIABAAAAAGI2NHRlbXAuc2F0UEsFBgAAAAABAAEAOQAAAA0FAAAAAA==]]></cdata_segment></sat_embedded_sequence></geometry></structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts><equipments /></equipment_concepts>
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties />
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global active="true"><loads><equipment_loads /></loads></global>
+			</analyses>
+		</analysis_domain>
+	</model>
+</DNV_structure_concept_protocol>

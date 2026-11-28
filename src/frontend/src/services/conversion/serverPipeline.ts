@@ -36,6 +36,11 @@ export async function convertViaServer(
         // Force a fresh re-conversion into the ``_reconvert/`` namespace (never touches the
         // ``_derived/`` audit product). The returned derived_key points at ``_reconvert/…``.
         reconvert?: boolean;
+        // The user chose the worker over an in-browser conversion: the only kind
+        // of submission the server's worker-access policy judges.
+        runOnWorker?: boolean;
+        // The execution-policy operation it is for ("read" when opened for viewing).
+        operation?: "convert" | "read";
     },
 ): Promise<string> {
     // Track jobs per (source, format) so a parallel ifc + xml conversion

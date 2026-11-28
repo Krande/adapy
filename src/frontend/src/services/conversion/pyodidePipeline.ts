@@ -9,6 +9,7 @@
 // (audit/local) so in-browser conversions show up in the audit panel
 // exactly like worker conversions.
 
+import type {ExecutionAuditInfo} from "@/services/compute/executionPolicy";
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {
     convertViaPyodide,
@@ -17,6 +18,7 @@ import {
 } from "@/utils/pyodide/pyodide_converter";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {detectWasmFormat, isWasmFeaSource, wasmSupportsConversion} from "./wasmSupport";
+import {BROWSER_BANDS, BROWSER_HINT, browserJobProgress, currentJob} from "./browserProgress";
 
 // Identifies in-browser conversions in the audit panel (worker_image_tag
 // prefix "wasm:" → "WASM" badge).
@@ -26,7 +28,7 @@ export async function convertViaPyodideAndUpload(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<string> {
     const detected = detectWasmFormat(sourceKey);
     if (!detected) {
@@ -48,12 +50,16 @@ export async function convertViaPyodideAndUpload(
         jobId: "pyodide",
         derivedKey: "",
         status: "running",
-        progress: 0.05,
-        stage: "fetching source",
+        progress: BROWSER_BANDS.fetch,
+        stage: `fetching source${BROWSER_HINT}`,
         error: null,
         startedAt,
     };
     store.setJob(storeKey, job);
+    // The worker's boot / install log lines and adapy's own reports move the bar from here.
+    const progress = browserJobProgress(storeKey, job);
+    const onLog = (msg: string) => progress.setupLog(msg);
+    const onProgress = (stage: string, fraction: number) => progress.convert(stage, fraction);
 
     // Open the audit row first so the conversion is visible as "running"
     // in the panel. Best-effort: a DB-less deployment (or a transient
@@ -65,6 +71,7 @@ export async function convertViaPyodideAndUpload(
             target_format: targetFormat,
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */
@@ -102,47 +109,38 @@ export async function convertViaPyodideAndUpload(
         let outBytes: Uint8Array;
         let readBytes: number;
         if (downloadUrl) {
-            store.setJob(storeKey, {
-                ...job,
-                progress: 0.15,
-                stage: `streaming ${format} → ${targetFormat} in browser`,
-            });
+            progress.stage(`preparing browser runtime for ${format} → ${targetFormat}${BROWSER_HINT}`, BROWSER_BANDS.setup[0]);
             outBytes = await convertViaPyodideStream(format, downloadUrl.url, {
                 ext,
                 target: targetFormat,
                 size: downloadUrl.size,
-                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+                onLog,
+                onProgress,
             });
             readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
         } else {
             const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
             readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
 
-            store.setJob(storeKey, {
-                ...job,
-                progress: 0.15,
-                stage: `converting ${format} → ${targetFormat} in browser`,
-            });
+            progress.stage(`preparing browser runtime for ${format} → ${targetFormat}${BROWSER_HINT}`, BROWSER_BANDS.setup[0]);
 
             outBytes = await convertViaPyodide(format, sourceBuf, {
                 ext,
                 target: targetFormat,
-                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+                onLog,
+                onProgress,
             });
         }
 
-        store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
-            progress: 0.9,
-            stage: "uploading derived",
-        });
+        progress.stage(`uploading derived${BROWSER_HINT}`, BROWSER_BANDS.upload);
+        progress.dispose();
 
         // putDerivedBlob computes the canonical derived key server-side
         // (and skips its own auto-audit via managed_audit=1).
         const derivedKey = await viewerApi.putDerivedBlob(scope, sourceKey, targetFormat, outBytes);
 
         store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
+            ...currentJob(storeKey, job),
             progress: 1.0,
             stage: "ready",
             status: "done",
@@ -157,9 +155,10 @@ export async function convertViaPyodideAndUpload(
         });
         return derivedKey;
     } catch (err) {
+        progress.dispose();
         const msg = err instanceof Error ? err.message : String(err);
         store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
+            ...currentJob(storeKey, job),
             status: "error",
             stage: "error",
             error: msg,
@@ -180,7 +179,8 @@ function feaExt(sourceKey: string): string {
 }
 
 /**
- * Bake a FEA result file (.rmed/.med/.sif/.sin/.sqlite) into the streaming-viewer
+ * Bake a FEA result file (.rmed/.med/.sif/.sin/.sqlite) or a FEM input deck
+ * (.inp/.fem, mesh only) into the streaming-viewer
  * artefact tree entirely in the browser, then upload the tree (as a zip)
  * to ``/fea/artefacts``. The existing streaming FEA reader then consumes
  * ``_derived/<source>.fea/`` unchanged — the WASM counterpart of
@@ -190,7 +190,7 @@ function feaExt(sourceKey: string): string {
 export async function convertViaPyodideFeaBake(
     scope: ScopeUrl,
     sourceKey: string,
-    opts?: {auditRunId?: string | null},
+    opts?: {auditRunId?: string | null; execution?: ExecutionAuditInfo},
 ): Promise<void> {
     if (!isWasmFeaSource(sourceKey)) {
         throw new Error(`pyodide FEA bake does not support source: ${sourceKey}`);
@@ -204,12 +204,15 @@ export async function convertViaPyodideFeaBake(
         jobId: "pyodide",
         derivedKey: "",
         status: "running",
-        progress: 0.05,
-        stage: "fetching source",
+        progress: BROWSER_BANDS.fetch,
+        stage: `fetching source${BROWSER_HINT}`,
         error: null,
         startedAt,
     };
     store.setJob(storeKey, job);
+    const progress = browserJobProgress(storeKey, job);
+    const onLog = (msg: string) => progress.setupLog(msg);
+    const onProgress = (stage: string, fraction: number) => progress.convert(stage, fraction);
 
     let auditJobId: string | null = null;
     try {
@@ -218,6 +221,7 @@ export async function convertViaPyodideFeaBake(
             target_format: "fea_artefacts",
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
+            execution: opts?.execution,
         });
     } catch {
         /* proceed without an audit row */
@@ -259,41 +263,45 @@ export async function convertViaPyodideFeaBake(
             // artefact straight to the server as it lands (per-file POST), then
             // free it. Neither the source nor the output tree (nor a zip of it)
             // is ever held whole in wasm memory.
-            store.setJob(storeKey, {...job, progress: 0.15, stage: "streaming FEA bake in browser"});
+            progress.stage(`preparing browser runtime for the FEA bake (streamed)${BROWSER_HINT}`, BROWSER_BANDS.setup[0]);
             const target = viewerApi.feaArtefactUploadTarget(scope, sourceKey);
             const summary = await convertViaPyodideFeaBakeStream(downloadUrl.url, target.url, {
                 ext,
                 size: downloadUrl.size,
                 uploadHeaders: target.headers,
-                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+                srcKey: cleanSrc,
+                onLog,
+                onProgress,
             });
             readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
             writeBytes = summary.bytes;
+            progress.dispose();
         } else {
             // No presign (local-disk backends): buffer the source, bake to a
             // zip, and upload the whole tree at once.
             const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
             readBytes = sourceBuf.byteLength;
 
-            store.setJob(storeKey, {...job, progress: 0.15, stage: "baking FEA result in browser"});
+            progress.stage(`preparing browser runtime for the FEA bake${BROWSER_HINT}`, BROWSER_BANDS.setup[0]);
 
+            // The manifest records the source's key as its `src`, as the worker's bake does:
+            // the case and envelope documents built from it in the browser carry it on.
             const zip = await convertViaPyodide("fea", sourceBuf, {
                 ext,
-                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+                srcKey: cleanSrc,
+                onLog,
+                onProgress,
             });
 
-            store.setJob(storeKey, {
-                ...(store.jobs[storeKey] || job),
-                progress: 0.9,
-                stage: "uploading artefacts",
-            });
+            progress.stage(`uploading artefacts${BROWSER_HINT}`, BROWSER_BANDS.upload);
+            progress.dispose();
 
             await viewerApi.uploadFeaArtefacts(scope, sourceKey, zip);
             writeBytes = zip.byteLength;
         }
 
         store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
+            ...currentJob(storeKey, job),
             progress: 1.0,
             stage: "done",
             status: "done",
@@ -307,9 +315,10 @@ export async function convertViaPyodideFeaBake(
             write_bytes: writeBytes,
         });
     } catch (err) {
+        progress.dispose();
         const msg = err instanceof Error ? err.message : String(err);
         store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
+            ...currentJob(storeKey, job),
             status: "error",
             stage: "error",
             error: msg,

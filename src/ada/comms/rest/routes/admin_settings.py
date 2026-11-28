@@ -25,6 +25,9 @@ from .. import db as db_module
 from ..auth import User
 from ..plugin_access import BINDINGS_SETTING as PLUGIN_ACCESS_BINDINGS_SETTING
 from ..plugin_access import BindingsError, normalise_bindings
+from ..procedural_default_engine import (
+    DEFAULT_ENGINE_SETTING as DEFAULT_PROCEDURAL_ENGINE_SETTING,
+)
 from ..provider_grant_migration import SCOPE_COLLECTIONS_SETTING
 from .deps import (
     CAPABILITY_REQUIREMENTS_SETTING,
@@ -86,6 +89,10 @@ async def admin_set_setting(
             value = normalise_bindings(value)
         except BindingsError as exc:
             raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
+    if key == DEFAULT_PROCEDURAL_ENGINE_SETTING:
+        # A slug or an engine id. Not checked against what is offered now: the engine's worker
+        # may simply be down, and an unoffered default already falls back to the built-in.
+        value = value.strip()
     await db_module.set_setting(pool, key, value, updated_by=user.sub)
     if key == CAPABILITY_REQUIREMENTS_SETTING:
         await publish_capability_requirements(ctx.queue, value)

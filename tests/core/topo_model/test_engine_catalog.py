@@ -4,8 +4,7 @@ handling of a grouped doc.
 The capability flag is advertised per engine and rides in the worker heartbeat
 (``procedural_engine_specs``); adapy-default reports ``supports_grouping=True``
 (it maps ``groups``/``STRUCTURE_NAME`` to per-structure topology models, see
-``ada.topo_model.structures``), ``echo`` stays ``False`` (raw boxes, no
-structure), and a capability engine registers its own flag."""
+``ada.topo_model.structures``), and a capability engine registers its own flag."""
 
 from __future__ import annotations
 
@@ -35,7 +34,6 @@ def _is_glb(data: bytes) -> bool:
 
 def test_builtin_engines_grouping_flags():
     assert BUILTIN_ENGINES["adapy-default"]["supports_grouping"] is True
-    assert BUILTIN_ENGINES["echo"]["supports_grouping"] is False
 
 
 def test_specs_advertise_builtins_grouping_flags():
@@ -43,7 +41,6 @@ def test_specs_advertise_builtins_grouping_flags():
     # Every built-in engine is advertised, each with its own flag.
     assert set(BUILTIN_ENGINES) <= set(specs)
     assert specs["adapy-default"]["supports_grouping"] is True
-    assert specs["echo"]["supports_grouping"] is False
 
 
 def test_register_capabilities_is_idempotent_and_flags_grouping():
@@ -92,7 +89,6 @@ def test_adapy_default_without_groups_is_unchanged():
 def test_builtins_declare_their_excel_format_through_their_specs():
     specs = {s["slug"]: s for s in procedural_engine_specs()}
     assert specs["adapy-default"]["supports_excel"] is True
-    assert specs["echo"]["supports_excel"] is False
 
 
 def test_a_registration_carries_its_excel_handlers(monkeypatch):
@@ -142,4 +138,4 @@ def test_supports_excel_false_in_a_manifest_means_no_excel_format():
         import_xlsx_to_doc("xl-engine", b"", manifest_doc=manifest)
     # Saying nothing keeps the Excel format an entrypoint has always implied.
     assert engine_supports_excel("xl-engine", {"kind": "server", "entrypoint": "xl.mod:compile"}) is True
-    assert engine_supports_excel("echo") is False and engine_supports_excel(None) is True
+    assert engine_supports_excel(None) is True and engine_supports_excel("adapy-default") is True

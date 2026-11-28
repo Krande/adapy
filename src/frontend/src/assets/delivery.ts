@@ -27,6 +27,7 @@
 //      module implements, `notes_core_asset_browser.md` §2c), so "is this
 //      loaded" is a Set lookup, never a network round trip.
 
+import type { BuildUploadRequest } from "./buildUpload";
 import type {
   BuildDelivery,
   DeliveryClaim,
@@ -356,7 +357,16 @@ export interface DeliveryApi {
    *  two covered nodes under the same ancestor are two builds. */
   buildAssetNode(
     scope: string,
-    body: { provider: string; collection: string; node: string; subject?: string; revision?: string; force?: boolean },
+    body: {
+      provider: string;
+      collection: string;
+      node: string;
+      subject?: string;
+      revision?: string;
+      force?: boolean;
+      browser?: boolean;
+    },
+    opts?: { runOnWorker?: boolean },
   ): Promise<WireBuildAssetResponse>;
   /** The parsed build summary at `key` (the blob route auto-decompresses
    *  gzip-at-rest JSON, so the caller hands back a plain parsed document). */
@@ -404,6 +414,21 @@ export interface LoadNodeDeps {
    *  is no longer waited on, and nothing more is put in the scene. Cancelling the build JOB is the
    *  owner of the signal's business (an operation cancels the jobs it tracked). */
   signal?: AbortSignal;
+  /** Build in the browser where this viewer can (see `BrowserAssetBuild`). Absent, every build
+   *  is the worker's, as before. */
+  browserBuild?: BrowserAssetBuild;
+}
+
+/** Which engine builds a capability, and the browser's own build. The real one is
+ *  `services/compute/assetBuild.ts`; tests hand in fakes. */
+export interface BrowserAssetBuild {
+  /** The execution policy's order for `asset_build` / `capability` (worker access applied), and
+   *  whether the browser can build it at all (a baked wheel registers the capability's builder).
+   *  `browserPath` false: the worker is the only path, asked without `X-Ada-Run-On`. */
+  route(capability: string): Promise<{ engines: readonly ("pyodide" | "worker" | "native")[]; browserPath: boolean }>;
+  /** Run the build `built` planned (`execution: "browser"`) and store it with the server, which
+   *  validates it (`POST /assets/build/result`). Resolves once the summary is at `derived_key`. */
+  run(scope: string, built: WireBuildAssetResponse, request: BuildUploadRequest, signal?: AbortSignal): Promise<void>;
 }
 
 const OWNER = "assets";
@@ -441,6 +466,53 @@ async function pollToTerminal(deps: LoadNodeDeps, jobId: string, capability: str
     }
     await wait(POLL_INTERVAL_MS);
   }
+}
+
+type BuildBody = { provider: string; collection: string; node: string; subject?: string; revision?: string };
+
+/** `POST /assets/build`, routed by the execution policy's `asset_build` order.
+ *
+ *  The browser first (the default, when a baked wheel registers the capability's builder): the
+ *  route plans the build without enqueueing it, the browser builds and uploads it, and the server
+ *  validates the upload before storing it at the key it composed. A failed browser build falls to
+ *  the worker when the order lists it next (an explicit choice, `X-Ada-Run-On: worker`, judged by
+ *  the server). With no browser path, the worker builds it, unjudged, as before. Answers the
+ *  route's reply: a cached one, a worker job, or a browser build already stored. */
+async function requestBuild(
+  deps: LoadNodeDeps,
+  scope: string,
+  body: BuildBody,
+  capability: string,
+): Promise<WireBuildAssetResponse> {
+  const browser = deps.browserBuild;
+  const route = browser ? await browser.route(capability) : null;
+  if (!browser || !route || !route.browserPath) return deps.api.buildAssetNode(scope, body);
+  const engines = route.engines.filter((e) => e === "pyodide" || e === "worker");
+  if (!engines.length) {
+    throw new DeliveryError(
+      `No execution engine is allowed for asset_build (${capability}). ` +
+        "Ask an administrator to change the execution policy in the Admin Panel (Execution).",
+    );
+  }
+  let lastError: unknown = null;
+  for (const engine of engines) {
+    throwIfCancelled(deps);
+    if (engine === "worker") {
+      if (lastError) console.info(`[execution] asset_build ${capability}: Pyodide failed (${String((lastError as Error)?.message ?? lastError)}); trying Server worker`);
+      return deps.api.buildAssetNode(scope, body, { runOnWorker: true });
+    }
+    try {
+      const planned = await deps.api.buildAssetNode(scope, { ...body, browser: true });
+      if (planned.cached || planned.execution !== "browser") return planned;
+      if (!planned.build) throw new DeliveryError("the browser build was planned without a build block");
+      await browser.run(scope, planned, { ...body, revision: planned.revision }, deps.signal);
+      return planned;
+    } catch (err) {
+      if (err instanceof LoadCancelled || (err as { name?: string })?.name === "AbortError") throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 /** Turn one claim into scene content and hand back what got loaded.
@@ -579,15 +651,16 @@ export async function prepareNode(
   // still scoping the derived key/fingerprint to `node` (Decision 3): two
   // rows covered by the same ancestor are two builds, not one shared blob.
   const node = ref.node ?? ref.subject;
-  const built = await deps.api.buildAssetNode(scope, {
+  const body = {
     provider: ref.provider,
     collection: ref.collection,
     node,
     subject: ref.subject,
     revision: ref.revision,
-  });
+  };
+  const built = await requestBuild(deps, scope, body, claim.capability);
 
-  if (!built.cached) {
+  if (!built.cached && built.execution !== "browser") {
     if (!built.job_id) {
       throw new DeliveryError("asset build reported neither a cached summary nor a job id");
     }

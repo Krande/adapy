@@ -510,15 +510,27 @@ export class WSProceduralModelCapability implements ProceduralModelCapability {
     return this.unavailable("stageXlsxImport");
   }
 
-  async importXlsx(_scope: string, _body: ProceduralXlsxImportRequest): Promise<ProceduralXlsxImportResponse> {
+  async importXlsx(
+    _scope: string,
+    _body: ProceduralXlsxImportRequest,
+    _opts?: { runOnWorker?: boolean },
+  ): Promise<ProceduralXlsxImportResponse> {
     return this.unavailable("importXlsx");
+  }
+
+  async createModelWithDoc(_scope: string, _name: string, _doc: unknown): Promise<ProceduralModelDetail> {
+    return this.unavailable("createModelWithDoc");
   }
 
   async fetchImportedModel(_scope: string, _derivedKey: string): Promise<ProceduralModelDetail> {
     return this.unavailable("fetchImportedModel");
   }
 
-  async proposeRelocations(_scope: string, _modelId: string): Promise<ProceduralRelocationResponse> {
+  async proposeRelocations(
+    _scope: string,
+    _modelId: string,
+    _opts?: { runOnWorker?: boolean },
+  ): Promise<ProceduralRelocationResponse> {
     return this.unavailable("proposeRelocations");
   }
 

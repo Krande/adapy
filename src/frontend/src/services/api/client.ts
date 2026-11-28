@@ -127,6 +127,30 @@ export function authHeader(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/** Marks a job submission that chose the server worker over an in-browser
+ * alternative. Only these are judged by the server's worker-pool access policy;
+ * a workload with no browser path is never refused (worker_access.py). */
+export const RUN_ON_HEADER = "X-Ada-Run-On";
+
+/** Which execution-policy operation an explicit worker choice is for, where the
+ * job alone does not say: a conversion is either an explicit one ("convert") or a
+ * source opened for viewing ("read"). See execution_policy.py. */
+export const OPERATION_HEADER = "X-Ada-Operation";
+
+export function runOnWorkerHeaders(explicit?: boolean, operation?: string): Record<string, string> {
+  if (!explicit) return {};
+  return operation ? { [RUN_ON_HEADER]: "worker", [OPERATION_HEADER]: operation } : { [RUN_ON_HEADER]: "worker" };
+}
+
+/** ``fetcher`` with the explicit-worker-choice header on every request. */
+export function withRunOnWorker(fetcher: typeof authedFetch): typeof authedFetch {
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set(RUN_ON_HEADER, "worker");
+    return fetcher(url, { ...init, headers });
+  };
+}
+
 /**
  * Fetch with auth handling. Attaches the bearer token, and on a 401
  * tries one refresh-then-retry. If still unauthorized, redirects to

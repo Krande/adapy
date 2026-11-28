@@ -40,6 +40,8 @@ __all__ = [
     "derived_asset_prefix",
     "parse_build_summary",
     "patch_glb_provenance",
+    "read_glb_provenance",
+    "validate_build_provenance",
     "validate_build_summary",
 ]
 
@@ -303,7 +305,36 @@ def validate_build_summary(
         raise NothingToBuild(summary.error or "the build found nothing to draw")
     if not summary.ok:
         raise BuildError(summary.error or "build reported ok=false without an error")
-    p = summary.provenance
+    validate_build_provenance(
+        summary.provenance,
+        provider=provider,
+        collection=collection,
+        subject=subject,
+        revision=revision,
+        node=node,
+        fingerprint=fingerprint,
+    )
+    if not summary.glb_key:
+        raise BuildError("build summary has no 'glb_key'")
+    if not summary.glb_key.startswith(f"{derived_prefix}/"):
+        raise BuildError(
+            f"build summary's glb_key {summary.glb_key!r} is outside the prefix core composed "
+            f"({derived_prefix}/) -- a build may only write under its own derived prefix"
+        )
+
+
+def validate_build_provenance(
+    p: BuildProvenance,
+    *,
+    provider: str,
+    collection: str,
+    subject: str,
+    revision: str,
+    node: str | None,
+    fingerprint: str,
+) -> None:
+    """The identity half of :func:`validate_build_summary`: refuse a provenance block that names
+    another request. Also what an ``empty`` summary (nothing to draw) is held to."""
     for field_name, want, got in (
         ("provider", provider, p.provider),
         ("collection", collection, p.collection),
@@ -317,13 +348,6 @@ def validate_build_summary(
                 f"build summary answers a different request: provenance.{field_name} is {got!r}, "
                 f"this request is {want!r}"
             )
-    if not summary.glb_key:
-        raise BuildError("build summary has no 'glb_key'")
-    if not summary.glb_key.startswith(f"{derived_prefix}/"):
-        raise BuildError(
-            f"build summary's glb_key {summary.glb_key!r} is outside the prefix core composed "
-            f"({derived_prefix}/) -- a build may only write under its own derived prefix"
-        )
 
 
 # --- the GLB's own copy ---------------------------------------------------------------------------

@@ -13,7 +13,11 @@
 
 import {capabilities} from "@/services/capabilities";
 import type {FeaCapability} from "@/services/capabilities/types";
-import type {FeaManifest} from "@/services/viewerApi";
+import {planExecution, runWithFallback} from "@/services/compute/executionPolicy";
+import {sourceQualifier} from "@/services/compute/executionPolicyModel";
+import {refreshAccessIfStale} from "@/services/compute/workerAccess";
+import {isWasmFeaSource} from "@/services/conversion/wasmSupport";
+import type {FeaManifest, ScopeUrl} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import {useConversionStore} from "@/state/conversionStore";
@@ -21,6 +25,29 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import type {LoadFeaStreaming} from "./types";
 import {feaOpening} from "./meshFirst";
+
+/** The "fea_bake" plan for ``sourceName``: Pyodide where the browser can bake it
+ * (the same rule as conversion/index.ts feaBakePlan, which this module does not
+ * import), the worker as the policy orders. */
+function feaBakePlan(sourceName: string) {
+    return planExecution("fea_bake", sourceQualifier(sourceName), (engine) =>
+        engine === "pyodide" ? isWasmFeaSource(sourceName) : engine === "worker",
+    );
+}
+
+/** Bake ``sourceName`` in the browser unless its manifest is already stored
+ * (``_derived/<source>.fea/fea.manifest.json``, where both bakes write it). */
+async function bakeInBrowserUnlessStored(scope: ScopeUrl, sourceName: string): Promise<void> {
+    const clean = sourceName.replace(/^\/+|\/+$/g, "");
+    try {
+        await capabilities.files.fetchBlob(scope, `_derived/${clean}.fea/fea.manifest.json`);
+        return;
+    } catch {
+        // Not stored yet: bake it.
+    }
+    const {convertViaPyodideFeaBake} = await import("@/services/conversion/pyodidePipeline");
+    await convertViaPyodideFeaBake(scope, sourceName);
+}
 
 /** Toggle entry point: fetch the manifest, pick sensible defaults
  * (first field, default reduction, step 0, factor 1), and run
@@ -42,6 +69,8 @@ export async function loadFeaWithDefaults(
         throw new Error("This transport cannot serve streamed FEA results");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
+    // Route the bake by the policy as it is now, not as it was when the page loaded.
+    if (fea.transport === "rest") await refreshAccessIfStale();
 
     // Mirror the FEA bake's queue lifecycle into the global
     // conversion store so the bottom-right ConversionProgress toast
@@ -121,7 +150,32 @@ export async function loadFeaWithDefaults(
 
     let manifest: FeaManifest;
     try {
+        // The execution policy's "fea_bake" order: a source the browser can bake is
+        // baked here first when Pyodide comes before the worker (its tree uploaded
+        // before the manifest is asked for, so the request finds it stored instead
+        // of queueing a worker bake); a failed browser bake falls back to the worker
+        // when the policy lists it next. Without a REST transport (nothing to upload
+        // to) the transport serves the manifest itself.
+        // (An empty plan -- the policy allows nothing that can bake it -- throws.)
+        const plan = fea.transport === "rest" ? feaBakePlan(sourceName) : null;
+        let runOnWorker = false;
+        if (plan) {
+            const {engine} = await runWithFallback(
+                plan,
+                {
+                    pyodide: async () => {
+                        await bakeInBrowserUnlessStored(scope, sourceName);
+                        return null;
+                    },
+                    // The manifest request below runs the worker bake.
+                    worker: async () => null,
+                },
+                {label: `fea_bake ${sourceName}`},
+            );
+            runOnWorker = engine === "worker" && plan.browserPath;
+        }
         manifest = await fea.fetchManifest(scope, sourceName, {
+            runOnWorker,
             signal: controller.signal,
             onPartial: (partial) => loadPartial(partial),
             onProgress: ({jobId, stage, progress, status}) => {

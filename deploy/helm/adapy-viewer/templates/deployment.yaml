@@ -85,6 +85,10 @@ spec:
             - name: ADA_VIEWER_UI_DEFAULT
               value: {{ . | quote }}
             {{- end }}
+            {{- with (.Values.procedural).defaultEngine }}
+            - name: ADA_DEFAULT_PROCEDURAL_ENGINE
+              value: {{ . | quote }}
+            {{- end }}
             {{- include "adapy-viewer.authEnv" . | nindent 12 }}
             {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
             {{- /* Last, deliberately: a duplicate env name resolves to the final

@@ -43,6 +43,27 @@ def fem_files(example_files) -> pathlib.Path:
 
 
 @pytest.fixture
+def raw_box_engine(monkeypatch) -> str:
+    """A non-default procedural engine, registered in this process for one test (as a
+    tool's package registers its engine at import): ``tests.procedural_engine_fixture``,
+    which renders the cells as raw boxes and has no Excel format. Returns its slug; the
+    engine registry is restored afterwards."""
+    from tests import procedural_engine_fixture as fixture
+
+    from ada.topo_model import engine_catalog
+
+    monkeypatch.setattr(engine_catalog, "_ENGINE_CAPABILITY_REGISTRY", dict(engine_catalog._ENGINE_CAPABILITY_REGISTRY))
+    engine_catalog.register_procedural_engine_capabilities(
+        fixture.SLUG,
+        name="raw boxes (test engine)",
+        description="Test-only engine: the document's cells as raw boxes.",
+        entrypoint=fixture.ENTRYPOINT,
+        supports_excel=False,
+    )
+    return fixture.SLUG
+
+
+@pytest.fixture
 def plate1():
     return ada.Plate("MyPlate", [(0, 0), (1, 0), (1, 1), (0, 1)], 20e-3)
 

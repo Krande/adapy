@@ -432,6 +432,93 @@ jobs:
           working-directory: src/frontend
           run: npx tsc --noEmit -p tsconfig.json
 
+    # The browser converts in Pyodide with the ada-cpp WASM wheel; the worker converts natively. Until
+    # this job nothing on a pull request ran a conversion under Pyodide at all (the pyodide-test
+    # scripts were local-only), so the browser could render a model differently from the worker and
+    # every check stay green -- a Genie curved shell came out as a flat plate standing ~0.23 m off
+    # its surface in the browser alone. This converts a fixture through the browser's own entry
+    # (ada.cadit.wasm_convert) under node-Pyodide, with the ada-cpp wheel out of the very image the
+    # viewer is built from (the ADACPP_BASE_IMAGE pin), and compares the GLB plate by plate with the
+    # worker's converter on the native ada-cpp (tests/core/cadit/test_genie_curved_shell_glb.py).
+    wasm-parity:
+        name: Browser (Pyodide) vs worker conversion parity
+        runs-on: ubuntu-latest
+        permissions:
+          contents: read
+          # The ada-cpp wasm wheel ships in ghcr.io/krande/adacpp-wasm-base (a cross-repo package).
+          packages: read
+        defaults:
+          run:
+            shell: bash -l {0}
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            fetch-depth: 0
+
+        # Same inline scope gate as the jobs above, so the job always reports a status.
+        - name: Could this PR change what the browser converts?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if printf '%s\n' "$CHANGED" | grep -qE '^(src/ada/|scripts/testing/pyodide-test/|scripts/packaging/build_pyodide_adapy_wheel\.py$|files/fem_files/sesam/|tests/core/cadit/test_genie_curved_shell_glb\.py$|deploy/Dockerfile\.viewer$|pixi\.(toml|lock)$|\.github/workflows/pr-tests\.yml$)'; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "Nothing the browser conversion depends on changed."
+            fi
+
+        - uses: prefix-dev/setup-pixi@v0.11.3
+          if: steps.scope.outputs.run == 'true'
+          with:
+            pixi-version: v0.84.2
+            environments: >-
+              tests
+              test-pyodide
+            cache: true
+
+        - name: Log in to GitHub Container Registry
+          if: steps.scope.outputs.run == 'true'
+          uses: docker/login-action@v4
+          with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+        # The wheel the viewer image installs (deploy/Dockerfile.viewer: COPY --from=adacpp-wheel /out/).
+        - name: The ada-cpp pyodide wheel of the viewer's pin
+          if: steps.scope.outputs.run == 'true'
+          run: |
+            image="$(sed -n 's/^ARG ADACPP_BASE_IMAGE=//p' deploy/Dockerfile.viewer)"
+            echo "ADACPP_BASE_IMAGE=$image"
+            docker pull -q "$image"
+            cid="$(docker create "$image" true)"
+            mkdir -p "$RUNNER_TEMP/adacpp"
+            docker cp "$cid:/out/." "$RUNNER_TEMP/adacpp/"
+            docker rm "$cid"
+            whl="$(ls "$RUNNER_TEMP"/adacpp/ada_cpp-*-pyodide_*_wasm32.whl | head -n 1)"
+            test -f "$whl"
+            echo "ADACPP_WHEEL=$whl" >> "$GITHUB_ENV"
+
+        - name: The adapy pyodide wheel of this checkout
+          if: steps.scope.outputs.run == 'true'
+          run: |
+            whl="$(pixi run -e tests python scripts/packaging/build_pyodide_adapy_wheel.py "$RUNNER_TEMP/adapy" | tail -n 1)"
+            test -f "$whl"
+            echo "ADAPY_WHEEL=$whl" >> "$GITHUB_ENV"
+
+        - name: Convert the fixture under Pyodide
+          if: steps.scope.outputs.run == 'true'
+          run: pixi run -e test-pyodide test-pyodide-genie-curved-shell "$RUNNER_TEMP/wasm/genie_curved_shell.glb"
+
+        - name: Compare with the worker's conversion
+          if: steps.scope.outputs.run == 'true'
+          env:
+            ADA_WASM_GENIE_GLB: ${{ runner.temp }}/wasm/genie_curved_shell.glb
+          run: pixi run -e tests python -m pytest tests/core/cadit/test_genie_curved_shell_glb.py -v -rs
+
     # Build the conda package the way conda-forge does, from THIS checkout.
     #
     # Everything else in this workflow runs from a checkout, so nothing else can see what the

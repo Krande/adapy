@@ -185,6 +185,14 @@ from .corpora import (
     list_corpora,
     update_corpus,
 )
+from .execution_policy import (
+    delete_execution_policy,
+    delete_user_execution_policy,
+    get_execution_policy,
+    get_user_execution_policy,
+    set_execution_policy,
+    set_user_execution_policy,
+)
 from .geometry_compare import (
     geometry_compare_previous,
     list_geometry_compare,
@@ -357,6 +365,12 @@ __all__ = [
     "get_user_worker_access",
     "set_user_worker_access",
     "list_user_worker_access",
+    "get_execution_policy",
+    "set_execution_policy",
+    "delete_execution_policy",
+    "get_user_execution_policy",
+    "set_user_execution_policy",
+    "delete_user_execution_policy",
     "insert_cli_token",
     "check_cli_token",
     "list_cli_tokens",

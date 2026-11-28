@@ -30,22 +30,48 @@ def _procedural_row_summary(r) -> dict:
 
 
 async def create_procedural_model(
-    pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None, name: str, created_by: str | None
+    pool: asyncpg.Pool,
+    *,
+    scope_kind: str,
+    scope_id: str | None,
+    name: str,
+    created_by: str | None,
+    engine: str | None = None,
 ) -> dict | None:
     """Insert a new (empty) procedural model. Returns the full row incl. doc,
-    or None when a live model with that name already exists in the scope."""
+    or None when a live model with that name already exists in the scope.
+
+    ``engine`` (a slug) records the model's engine on the row and in its doc; None leaves
+    both at their defaults (the column's ``adapy-default``, a doc naming no engine)."""
     try:
-        row = await pool.fetchrow(
-            """
-            INSERT INTO procedural_models (scope_kind, scope_id, name, created_by)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
-            """,
-            scope_kind,
-            scope_id,
-            name,
-            created_by,
-        )
+        if engine:
+            from ..procedural_store import new_model_doc
+
+            row = await pool.fetchrow(
+                """
+                INSERT INTO procedural_models (scope_kind, scope_id, name, created_by, engine, doc)
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
+                """,
+                scope_kind,
+                scope_id,
+                name,
+                created_by,
+                engine,
+                json.dumps(new_model_doc(engine)),
+            )
+        else:
+            row = await pool.fetchrow(
+                """
+                INSERT INTO procedural_models (scope_kind, scope_id, name, created_by)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
+                """,
+                scope_kind,
+                scope_id,
+                name,
+                created_by,
+            )
     except asyncpg.UniqueViolationError:
         return None
     out = _procedural_row_summary(row)
