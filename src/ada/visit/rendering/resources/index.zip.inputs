@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 7e8feff403d1c477899347419502bc8eb4ea471e1abb5a58d6934b764d3f2103
-bundle-sha256 4426ebe9b631e47d77c0c0459ccb92a9adb036885335a8a99b0ae654dc7a25c9
+inputs-sha256 9e32bc501da96076cd3f9e7b809294b1899cdbf2398dbd47f6f78a369384a8be
+bundle-sha256 546c48d91b40ee89e757068294ef91215d3f4f90dfbf48dc48774d4404ea7cc7
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.48.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -495,7 +495,7 @@ src/frontend/src/components/viewer/cellbuilder/numericEntry.ts 225bedc707b920fa1
 src/frontend/src/components/viewer/cellbuilder/overlays.ts 01e4cf8a68c96380dece72b019df08ac5772f667
 src/frontend/src/components/viewer/cellbuilder/panel/BuildTab.tsx f792e3bcac5d003364d885c586a7ac0827c68861
 src/frontend/src/components/viewer/cellbuilder/panel/CompileLogSection.tsx 2dac9740f533ff199cdb966e49849ddeb3ec6993
-src/frontend/src/components/viewer/cellbuilder/panel/CompileSettingsSection.tsx 2ff10e5f01dad43efefdfe0d566f38f7360d28e0
+src/frontend/src/components/viewer/cellbuilder/panel/CompileSettingsSection.tsx bab157deba5c7fecc6364eec509052a19a43cf0c
 src/frontend/src/components/viewer/cellbuilder/panel/ComponentList.tsx 8b3f1955f5a7a39c4aa82144b3023af89035634e
 src/frontend/src/components/viewer/cellbuilder/panel/ConnectionAdder.tsx 5571807880f8e41d65e701f750d580b74ee379ed
 src/frontend/src/components/viewer/cellbuilder/panel/EquipmentTab.tsx ad3ab95ceda19cc4b4f9c226b84018ada8e79d75
@@ -829,7 +829,7 @@ src/frontend/src/services/compute/executionPolicyModel.ts b425081c75691b0d518edb
 src/frontend/src/services/compute/localArtefactStore.ts 09d09788709dcebdd484488077dfbc2485cb7da8
 src/frontend/src/services/compute/pluginJobRouter.ts d8cc1227666a66bc71571731be0b6add93fe7589
 src/frontend/src/services/compute/pluginPrewarm.ts 16037e6e15bff19e5a53e22f02988ba2fd3fe98a
-src/frontend/src/services/compute/proceduralBrowserEngine.ts 95dfb08f69677266493f87e31cd8bde3ccc7fa1a
+src/frontend/src/services/compute/proceduralBrowserEngine.ts 84eb1b9a6b3c544d4b7387d1b7b8f7240a91b5c8
 src/frontend/src/services/compute/proceduralIo.ts f7e684809a05baffefe760eb5e4668568549bd72
 src/frontend/src/services/compute/workerAccess.ts dac06a83c02d2e730a666207b0065630a03a9b28
 src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3e7915a
@@ -927,7 +927,7 @@ src/frontend/src/state/cellbuilder/fieldHelp.ts 92ca4f5686aa7a4546ffc9202e722a17
 src/frontend/src/state/cellbuilder/groupViewStore.ts 01672d7ec3afcb1252f3a2eaffe26db9289b0c29
 src/frontend/src/state/cellbuilder/historySlice.ts 4bb39882aad14a52ee6f95e9c09ae3cec8400294
 src/frontend/src/state/cellbuilder/index.ts 705c69de3031d62a9cb0f61ba7d2f5f21d3c5bcb
-src/frontend/src/state/cellbuilder/jobsSlice.ts 46ad397ab819214d1dcef4b4265e3be430c5dd68
+src/frontend/src/state/cellbuilder/jobsSlice.ts 2076e7687696f526b6079f87cccd6a06ffa57dcf
 src/frontend/src/state/cellbuilder/loftCells.ts 73255b57c593140150fb926989ac77d0a3a85832
 src/frontend/src/state/cellbuilder/loftSlice.ts 2fe546e29f6a4072cd64314d033bdcf050a09fb5
 src/frontend/src/state/cellbuilder/placementSlice.ts d586ae048d803d1f5a3b0a84360a7aded4dbad96
@@ -1195,8 +1195,8 @@ src/frontend/src/utils/overlays/overlayController.ts c2ec0f0da0def6b007ed5518117
 src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919b6750106
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pluginWheels.ts 090bf13ab0995be5819923ce7ea0a844bc9cfe20
-src/frontend/src/utils/pyodide/pyodide_converter.ts b7570a4809fa4dd9df14d3e752deab25f70b2074
-src/frontend/src/utils/pyodide/pyodide_worker.js 4fd7bc0b9853c63831668f04258b12485cfe5537
+src/frontend/src/utils/pyodide/pyodide_converter.ts 6130f2edea20b5f6a4a945085ce9347f9aada754
+src/frontend/src/utils/pyodide/pyodide_worker.js 3ba78ad92b2c0a8308330fb138887b1d1741a712
 src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
