@@ -69,10 +69,11 @@ def native_stream_read_ifc_blobs(ifc_path: str | pathlib.Path) -> Iterator[tuple
         yield nbytes, (guid or name), color, mats, paths
 
 
-def _native_members_by_guid(ifc_path) -> dict[str, dict]:
+def _native_members_by_guid(ifc_path, classes: dict[str, str] | None = None) -> dict[str, dict]:
     """The member scan's beam/plate records by GlobalId, or {} where the installed adacpp scan
     cannot state a member fully (no structural fields): a member rebuilt from its axis alone would
-    be a lesser object than the shape it replaces."""
+    be a lesser object than the shape it replaces. ``classes``, when given, is filled with every
+    scanned product's IFC class by GlobalId (also where no member is rebuilt)."""
     from ada.cadit.ifc.read.native_members import (
         _BEAM_CLASSES,
         _PLATE_CLASSES,
@@ -83,13 +84,19 @@ def _native_members_by_guid(ifc_path) -> dict[str, dict]:
     if not native_members_available():
         return {}
     out: dict[str, dict] = {}
+    complete = True
     for rec in scan_ifc_members(ifc_path):
-        if "cuts" not in rec:
-            return {}
         cls = (rec.get("ifc_class") or "").upper()
+        if classes is not None and rec.get("guid") and cls:
+            classes[rec["guid"]] = cls
+        if "cuts" not in rec:
+            complete = False
+            if classes is None:
+                return {}
+            continue
         if rec.get("guid") and (cls in _BEAM_CLASSES or cls in _PLATE_CLASSES):
             out[rec["guid"]] = rec
-    return out
+    return out if complete else {}
 
 
 def native_read_ifc_into(
@@ -107,7 +114,11 @@ def native_read_ifc_into(
     from ada.cadit.ifc.read.native_members import member_object
     from ada.config import Config, logger
 
-    by_guid = _native_members_by_guid(ifc_path) if members else {}
+    classes: dict[str, str] = {}
+    by_guid = _native_members_by_guid(ifc_path, classes) if members else {}
+    # The IFC class of every product the scan saw, by GlobalId: lets a caller tell a structural
+    # member left as a shape from a product that is a shape in any reader.
+    assembly._native_ifc_classes = classes
     materials: dict = {}
 
     # Lazy store retains each product's NGEOM blob (the zero-copy ndarray view the C++ IfcNgeomStream
@@ -124,7 +135,10 @@ def native_read_ifc_into(
             return assembly
         parent = assembly
         name_path: tuple = ()
-        for level in path[:-1]:
+        # An IFC spatial path starts at the IfcProject, which is the assembly itself (the
+        # ifcopenshell reader makes no Part of it either).
+        levels = path[1:-1] if len(path) > 2 else []
+        for level in levels:
             pname = (level[1] if level[1] else f"asm_{level[0]}") if isinstance(level, (tuple, list)) else str(level)
             name_path += (pname,)
             p = asm_parts.get(name_path)

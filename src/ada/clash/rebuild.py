@@ -49,7 +49,7 @@ def load_target_model(target: dict, storage):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / f"source{suffix}"
             storage.fetch_to_path(source_key, path)
-            return _load_with_ada(path, suffix)
+            return _load_with_ada(path, suffix, ifc_members=True)
     if kind == "node":
         from ada.clash.from_asset import part_for_asset_node
 

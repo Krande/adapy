@@ -329,6 +329,42 @@ def ifcopenshell_ifc_to_glb_bytes(src: str) -> bytes:
     return buf.getvalue()
 
 
+def native_read_covers_members(assembly) -> bool:
+    """Whether a native read rebuilt every structural member it met: no beam / column / member /
+    plate / slab product was left as a plain shape. Products of other classes (proxies, walls, ...)
+    are shapes in either reader and do not count."""
+    from ada.api.shapes import ShapeProxy
+    from ada.cadit.ifc.read.native_members import _BEAM_CLASSES, _PLATE_CLASSES
+
+    classes = assembly.__dict__.get("_native_ifc_classes") or {}
+    member_classes = _BEAM_CLASSES | _PLATE_CLASSES
+    for obj in assembly.get_all_physical_objects():
+        if isinstance(obj, ShapeProxy) and (classes.get(obj.guid) or "").upper() in member_classes:
+            return False
+    return True
+
+
+def read_ifc_members_model(ifc_file, prefer: str | None = None):
+    """An Assembly with the members of ``ifc_file``, read natively where that is complete.
+
+    For a caller that works on the structural members (clash detail, contacts, a member rebuild):
+    the native reader returns every straight beam and flat plate as ``Beam`` / ``Plate`` and every
+    other product as a shape. When it left a structural member as a shape (a swept, revolved or
+    tapered beam, a curved plate) and ifcopenshell is installed, the file is read again with the
+    full reader so that member is typed too. ``prefer`` / ``ADAPY_IFC_BACKEND`` pin the reader."""
+    import ada
+
+    backend = select_ifc_backend(prefer, operation=OP_READ, require={CAP_READ_MEMBERS})
+    if backend.name != "native":
+        return ada.from_ifc(ifc_file, reader=backend.name)
+    a = ada.from_ifc(ifc_file, reader="native")
+    explicit = bool(prefer) or os.environ.get(ENV_VAR, "").strip().lower() in ("native", "adacpp")
+    if explicit or native_read_covers_members(a) or not IfcOpenShellBackend().available():
+        return a
+    logger.info(f"native IFC read left structural members as shapes in {ifc_file}; reading it with ifcopenshell")
+    return ada.from_ifc(ifc_file, reader="ifcopenshell")
+
+
 _BACKENDS: dict[str, type] = {"native": NativeIfcBackend, "ifcopenshell": IfcOpenShellBackend}
 _ALIASES = {"adacpp": "native", "ios": "ifcopenshell", "ifcos": "ifcopenshell"}
 
