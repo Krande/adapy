@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 177a2cb98b425889da581c8c2ffaa6081ca77a41d42d0a3bcf18c7e08bf2fea4
-bundle-sha256 d0b4936020cc4747be3acae38dfb30bd0e5c38f0cb4e2ab85e10e0abe070ad03
+inputs-sha256 620af9d40507061847a583aa3a3a60546c5e65b4b46ef3356f35af35a303c7e1
+bundle-sha256 039c24828c168b7b30a4d50636dacf8c40fbde659b5dc1239560e48c80b22828
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -836,10 +836,10 @@ src/frontend/src/services/connectionScopes.ts 62aad2eeeb80610b74e844e1dcbbe8fcb3
 src/frontend/src/services/conversion/index.ts cf1e60ddac4e68aef8849d44e77d898d536488ea
 src/frontend/src/services/conversion/nativeBrepWriterPipeline.ts 72333f1b30b2cfd373329156cfe8d290acfbd4a8
 src/frontend/src/services/conversion/nativeCadGlbPipeline.ts 43e73c1fcff2c854533c8e1d64890c10b1f404e9
-src/frontend/src/services/conversion/pyodidePipeline.ts e048b4c1d162cde8d9ebcaccbd32e518814988b7
+src/frontend/src/services/conversion/pyodidePipeline.ts 3c41bd7b8f428cf9a17252ab6267a5f169c4df3e
 src/frontend/src/services/conversion/serializerMatrix.ts 36b7ace58405963d5ed559c9cc852a107a6055a8
 src/frontend/src/services/conversion/serverPipeline.ts 03a443eaa63970724735801de83b29dab46bce57
-src/frontend/src/services/conversion/wasmSupport.ts 485fd1a678804563b678a3f67e61b8a5f01e0470
+src/frontend/src/services/conversion/wasmSupport.ts 7c76d55217c55859426b512f81c0607ad6075862
 src/frontend/src/services/devConnections/connectionBuilderSession.ts 4684e42c7acb8b5bed2153c3a603cd1eb7319e0a
 src/frontend/src/services/devConnections/previewOnShow.ts 8bf4253950e37cb6fe3471f171a88306ec110bb9
 src/frontend/src/services/devConnections/simulateDetail.ts 118edee7138413629ed9853b60c985e325bb0771
