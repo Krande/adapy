@@ -849,4 +849,5 @@ class ProceduralBuilder:
                     rgba = (f / 255.0 if f.max() > 1.0 else f).tolist()
                 name = (getattr(mesh, "metadata", None) or {}).get("name") or f"cad_mesh_{k}"
                 extra.append((name, verts, np.asarray(mesh.faces, dtype=np.int64), rgba))
-            return export_glb(self.assembly, None, extra_meshes=extra or None)
+            # Unpacked buffers: the compile's GLB is re-read downstream (node ids, take-off, tests).
+            return export_glb(self.assembly, None, extra_meshes=extra or None, meshopt=False)

@@ -313,6 +313,29 @@ _GLB_MAGIC = b"glTF"
 _GLB_JSON_CHUNK = b"JSON"
 
 
+def _match_scene_writer_hierarchy(doc: dict) -> None:
+    """Give the record writer's ``id_hierarchy`` the shape the scene writer's has: the C++ writer
+    puts a synthetic ``root`` above the model's own top part and writes parent ids as numbers;
+    the scene writer's tree starts at the model (parent ``"*"``) and its parent ids are strings.
+    Anything that addresses an element by its path below the model's root row (saved groups,
+    element links, the selection tree) then reads the same tree from either writer."""
+    for scene in doc.get("scenes") or []:
+        h = (scene.get("extras") or {}).get("id_hierarchy")
+        if not isinstance(h, dict):
+            continue
+        for k, v in h.items():
+            if isinstance(v, list) and len(v) >= 2 and v[1] != "*":
+                v[1] = str(v[1])
+        roots = [k for k, v in h.items() if isinstance(v, list) and len(v) >= 2 and v[1] == "*"]
+        if len(roots) != 1 or h[roots[0]][0] != "root":
+            continue
+        children = [k for k, v in h.items() if isinstance(v, list) and len(v) >= 2 and v[1] == str(roots[0])]
+        if len(children) != 1:
+            continue
+        del h[roots[0]]
+        h[children[0]][1] = "*"
+
+
 def _add_design_extension(
     part: Part,
     glb_path: pathlib.Path,
@@ -344,6 +367,7 @@ def _add_design_extension(
     if chunk_type != _GLB_JSON_CHUNK:
         raise ValueError("first GLB chunk is not JSON")
     doc = json.loads(data[20 : 20 + json_len].decode("utf-8"))
+    _match_scene_writer_hierarchy(doc)
     ada_ext = doc.setdefault("extensions", {}).setdefault("ADA_EXT_data", {})
     if not ada_ext.get("design_objects"):
         face_nodes = [n["name"] for n in doc.get("nodes", []) if "mesh" in n and n.get("name")]
