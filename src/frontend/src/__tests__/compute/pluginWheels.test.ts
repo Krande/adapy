@@ -3,6 +3,7 @@
 // points Pyodide at baked packages, where Pyodide loads from, and which plugins
 // the background prewarm picks.
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {beforeEach, describe, it} from "node:test";
 
 const W = await import("@/utils/pyodide/pluginWheels");
@@ -96,6 +97,51 @@ describe("parsePluginWheelsManifest", () => {
         const wrong = W.parsePluginWheelsManifest({plugins: {}, runtime: {trimesh: "numpy-2.0-py3-none-any.whl"}});
         assert.equal(wrong.runtime, undefined);
         assert.deepEqual(W.bakedRuntimeWheels(W.parsePluginWheelsManifest({plugins: {}})), {});
+    });
+
+    it("takes a baked IFC stack: its wasm wheel, the stacks it depends on and its lock packages", () => {
+        const IFC = "ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl";
+        const SHAPELY = "shapely-2.0.7-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
+        const warnings: string[] = [];
+        const m = W.parsePluginWheelsManifest(
+            {
+                plugins: {},
+                runtime: {
+                    isodate: {file: "isodate-0.7.2-py3-none-any.whl", sha256: SHA_A},
+                    lark: {file: "lark-1.2.2-py3-none-any.whl", sha256: SHA_B},
+                    ifcopenshell: {
+                        file: IFC,
+                        sha256: SHA_A,
+                        depends: ["isodate", "Lark", "numpy", "ifcopenshell"],
+                        pyodide: ["shapely", "python_dateutil"],
+                        packages: [{name: "shapely", file: SHAPELY, sha256: SHA_B, source: "pyodide"}],
+                    },
+                },
+            },
+            (msg) => warnings.push(msg),
+        );
+        assert.deepEqual(warnings, []);
+        // Only baked runtime stacks count as depends (numpy is not one; itself is dropped).
+        assert.deepEqual(W.bakedRuntimeWheels(m).ifcopenshell, {
+            file: IFC,
+            sha256: SHA_A,
+            depends: ["isodate", "lark"],
+            pyodide: ["shapely", "python-dateutil"],
+        });
+        // Its lock files are redirected to /wheels/ like a plugin's.
+        assert.deepEqual(W.bakedPyodidePackages(m), [{name: "shapely", file: SHAPELY, sha256: SHA_B, source: "pyodide"}]);
+    });
+
+    it("the worker installs a baked ifcopenshell without asking an index, else as before", () => {
+        const src = readFileSync(new URL("../../utils/pyodide/pyodide_worker.js", import.meta.url), "utf8");
+        const start = src.indexOf("async function installIfcopenshell(");
+        const body = src.slice(start, src.indexOf("\n}\n", start));
+        assert.match(body, /runtimeWheels\.ifcopenshell/);
+        assert.match(body, /loadPackage\(baked\.pyodide\)/);
+        assert.match(body, /installRuntimeWheel\(dep\)/);
+        assert.match(body, /micropipInstallNoDeps\(await stageBakedFile\(baked\.file, baked\.sha256\)\)/);
+        assert.match(body, /micropip\.install\("\$\{IFC_WASM_WHEEL\}"\)/);
+        assert.match(src, /await ensureTrimesh\(\);\s*await installIfcopenshell\(\);/);
     });
 
     it("reads nothing from a missing or malformed document", () => {

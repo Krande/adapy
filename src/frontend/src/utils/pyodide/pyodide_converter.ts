@@ -17,6 +17,7 @@ import {
     PLUGIN_WHEELS_DIR,
     PYODIDE_VERSION,
     resolvePyodideSource,
+    type BootRuntimeWheel,
     type PluginInstallPlan,
 } from "./pluginWheels";
 
@@ -89,7 +90,7 @@ export interface PyodideBootConfig {
     indexURL: string;
     lockFileContents?: unknown;
     /** Baked wheels for the worker's pure-Python stacks (trimesh, pyquaternion), by name. */
-    runtimeWheels?: Record<string, {file: string; sha256?: string}>;
+    runtimeWheels?: Record<string, BootRuntimeWheel>;
 }
 
 // The page's URL, to resolve origin-relative Pyodide and wheel URLs against.

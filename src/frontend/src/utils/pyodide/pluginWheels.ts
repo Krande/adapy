@@ -21,8 +21,12 @@
 //   }
 // plus, once per manifest, an optional staged Pyodide runtime:
 //   "pyodide": {"version": "0.29.4", "index_url": "/wheels/pyodide/"}
-// and optional baked wheels for the worker's own pure-Python stacks:
-//   "runtime": {"trimesh": {"file": "trimesh-....whl", "sha256": "<hex>"}, "pyquaternion": {...}}
+// and optional baked wheels for the worker's own stacks:
+//   "runtime": {"trimesh": {"file": "trimesh-....whl", "sha256": "<hex>"}, "pyquaternion": {...},
+//               "ifcopenshell": {"file": "ifcopenshell-...-pyodide_2025_0_wasm32.whl", "sha256": "<hex>",
+//                                "depends": ["isodate", "lark"],          // baked runtime stacks, first
+//                                "pyodide": ["shapely", "python-dateutil"], // lock packages, by name
+//                                "packages": [{..., "source": "pyodide"}]}} // their baked lock files
 //
 // `source: "pyodide"` files are Pyodide's own packages (same file, same sha256 as
 // its lock file). The worker loads them BY NAME with the lock pointed at the
@@ -77,8 +81,17 @@ export interface StagedPyodide {
 export interface PluginWheelsManifest {
     plugins: Record<string, PluginWheelEntry>;
     pyodide?: StagedPyodide;
-    /** Baked wheels for the worker's own pure-Python stacks (see BAKEABLE_RUNTIME_DEPS). */
-    runtime?: Partial<Record<BakeableRuntimeDep, BakedPackage>>;
+    /** Baked wheels for the worker's own stacks (see BAKEABLE_RUNTIME_DEPS). */
+    runtime?: Partial<Record<BakeableRuntimeDep, RuntimeWheel>>;
+}
+
+/** A baked runtime stack, and what it needs installed first: other baked runtime stacks
+ * (`depends`, e.g. ifcopenshell's isodate and lark) and packages of Pyodide's lock loaded by
+ * name (`pyodide`), whose files may be baked with it (`packages`, redirected by the lock). */
+export interface RuntimeWheel extends BakedPackage {
+    depends?: BakeableRuntimeDep[];
+    pyodide?: string[];
+    packages?: BakedPackage[];
 }
 
 /** Deps the worker installs through its own stacks rather than by name. */
@@ -103,7 +116,7 @@ const RUNTIME_DEPS: Record<string, RuntimeDep> = {
  * to the plugin wheels (manifest `runtime`: {"trimesh": {"file", "sha256"}}).
  * Baked, the worker installs that file (deps=False; numpy, their only
  * dependency, is loaded at boot) instead of asking PyPI at run time. */
-export const BAKEABLE_RUNTIME_DEPS = ["trimesh", "pyquaternion"] as const;
+export const BAKEABLE_RUNTIME_DEPS = ["trimesh", "pyquaternion", "et-xmlfile", "openpyxl", "isodate", "lark", "ifcopenshell"] as const;
 export type BakeableRuntimeDep = (typeof BAKEABLE_RUNTIME_DEPS)[number];
 
 /** Deps that are loaded from Pyodide's own index by name when nothing bakes them
@@ -183,17 +196,32 @@ export function parsePluginWheelsManifest(
     }
     const rt = doc.runtime && typeof doc.runtime === "object" ? (doc.runtime as Record<string, unknown>) : null;
     if (rt) {
-        const runtime: Partial<Record<BakeableRuntimeDep, BakedPackage>> = {};
+        const runtime: Partial<Record<BakeableRuntimeDep, RuntimeWheel>> = {};
+        const asBakeable = (n: unknown) => BAKEABLE_RUNTIME_DEPS.find((d) => d === normalizeName(String(n)));
         for (const [name, item] of Object.entries(rt)) {
-            const dep = BAKEABLE_RUNTIME_DEPS.find((d) => d === normalizeName(name));
+            const dep = asBakeable(name);
             if (!dep) {
                 warn(`plugin-wheels-manifest: runtime "${name}" is not a stack the worker can take baked; ignored`);
                 continue;
             }
             try {
-                const obj = typeof item === "string" ? {file: item} : (item as Record<string, unknown>);
-                const pkg = parseBakedPackage({file: obj?.file, sha256: obj?.sha256, source: "wheel"});
+                const obj: Record<string, unknown> = typeof item === "string" ? {file: item} : ((item as Record<string, unknown>) ?? {});
+                const pkg: RuntimeWheel = parseBakedPackage({file: obj?.file, sha256: obj?.sha256, source: "wheel"});
                 if (pkg.name !== dep) throw new Error(`${pkg.file} is not a ${dep} wheel`);
+                if (Array.isArray(obj.depends)) {
+                    const depends = obj.depends.map(asBakeable).filter((d): d is BakeableRuntimeDep => !!d && d !== dep);
+                    if (depends.length) pkg.depends = depends;
+                }
+                if (Array.isArray(obj.pyodide)) {
+                    const names = obj.pyodide.filter((n): n is string => typeof n === "string" && !!n.trim()).map(normalizeName);
+                    if (names.length) pkg.pyodide = names;
+                }
+                if (Array.isArray(obj.packages)) {
+                    const pkgs = obj.packages
+                        .map((p) => parseBakedPackage(p))
+                        .filter((p) => p.source === "pyodide");
+                    if (pkgs.length) pkg.packages = pkgs;
+                }
                 runtime[dep] = pkg;
             } catch (err) {
                 warn(`plugin-wheels-manifest: runtime "${name}": ${err instanceof Error ? err.message : String(err)}; ignored`);
@@ -204,11 +232,27 @@ export function parsePluginWheelsManifest(
     return out;
 }
 
-/** The baked runtime wheels the worker boots with: {name: {file, sha256?}}. */
-export function bakedRuntimeWheels(manifest: PluginWheelsManifest): Record<string, {file: string; sha256?: string}> {
-    const out: Record<string, {file: string; sha256?: string}> = {};
+/** A runtime wheel as the worker's boot config carries it. */
+export interface BootRuntimeWheel {
+    file: string;
+    sha256?: string;
+    /** Baked runtime stacks to install first. */
+    depends?: string[];
+    /** Pyodide lock packages to load by name first. */
+    pyodide?: string[];
+}
+
+/** The baked runtime wheels the worker boots with: {name: {file, sha256?, depends?, pyodide?}}. */
+export function bakedRuntimeWheels(manifest: PluginWheelsManifest): Record<string, BootRuntimeWheel> {
+    const out: Record<string, BootRuntimeWheel> = {};
     for (const [name, pkg] of Object.entries(manifest.runtime ?? {})) {
-        if (pkg) out[name] = {file: pkg.file, ...(pkg.sha256 ? {sha256: pkg.sha256} : {})};
+        if (!pkg) continue;
+        out[name] = {
+            file: pkg.file,
+            ...(pkg.sha256 ? {sha256: pkg.sha256} : {}),
+            ...(pkg.depends?.length ? {depends: [...pkg.depends]} : {}),
+            ...(pkg.pyodide?.length ? {pyodide: [...pkg.pyodide]} : {}),
+        };
     }
     return out;
 }
@@ -337,11 +381,16 @@ export function pluginsForCapability(manifest: PluginWheelsManifest, capability:
         .map(([id]) => id);
 }
 
-/** Every baked Pyodide package across the manifest, once per name. */
+/** Every baked Pyodide package across the manifest (the plugins' and the runtime stacks'), once
+ * per name. */
 export function bakedPyodidePackages(manifest: PluginWheelsManifest): BakedPackage[] {
     const byName = new Map<string, BakedPackage>();
-    for (const entry of Object.values(manifest.plugins ?? {})) {
-        for (const pkg of entry.packages ?? []) {
+    const lists = [
+        ...Object.values(manifest.plugins ?? {}).map((e) => e.packages ?? []),
+        ...Object.values(manifest.runtime ?? {}).map((r) => r?.packages ?? []),
+    ];
+    for (const list of lists) {
+        for (const pkg of list) {
             if (pkg.source === "pyodide" && !byName.has(pkg.name)) byName.set(pkg.name, pkg);
         }
     }

@@ -118,16 +118,33 @@ async function ensureTrimesh() {
     return trimeshPromise;
 }
 
+// ifcopenshell's wasm wheel. Baked (the boot config's runtime table names it): its
+// requirements first -- Pyodide lock packages by name (the lock points baked ones at
+// /wheels/), then the baked runtime stacks it depends on (isodate, lark) -- and the wheel
+// itself with deps=False, so nothing comes from ifcopenshell's index or PyPI. Otherwise
+// from ifcopenshell's index, with micropip resolving its requirements, as before.
+async function installIfcopenshell() {
+    const baked = runtimeWheels.ifcopenshell;
+    if (baked && baked.file) {
+        if (Array.isArray(baked.pyodide) && baked.pyodide.length) await pyodide.loadPackage(baked.pyodide);
+        for (const dep of Array.isArray(baked.depends) ? baked.depends : []) await installRuntimeWheel(dep);
+        log(`Installing baked ${baked.file}…`);
+        await micropipInstallNoDeps(await stageBakedFile(baked.file, baked.sha256));
+        return;
+    }
+    log("Installing ifcopenshell (WASM wheel)…");
+    await pyodide.runPythonAsync(`
+        import micropip
+        await micropip.install("${IFC_WASM_WHEEL}")
+    `);
+}
+
 // Lazy IFC stack — only loaded when an IFC conversion is requested.
 async function ensureIfcStack() {
     if (!ifcStackPromise) {
         ifcStackPromise = (async () => {
             await ensureTrimesh();
-            log("Installing ifcopenshell (WASM wheel)…");
-            await pyodide.runPythonAsync(`
-                import micropip
-                await micropip.install("${IFC_WASM_WHEEL}")
-            `);
+            await installIfcopenshell();
             log("Verifying ifc imports…");
             await pyodide.runPythonAsync(`
                 import ifcopenshell
