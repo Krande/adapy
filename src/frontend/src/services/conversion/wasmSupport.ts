@@ -24,7 +24,11 @@ const WASM_FEM_DECK_EXTS = ["inp", "fem"] as const;
 // stays server-worker only (`abaqus` capability). These don't produce a
 // single GLB — they go through the FEA bake path, not the GLB conversion
 // path — so they're matched separately.
-const WASM_FEA_EXTS = ["rmed", "med", "sif", "sin", "sqlite"] as const;
+// The FEM input decks (.inp/.fem) are bake sources as well: opening one in
+// the viewer bakes it mesh-only (artefacts/readers.py _make_fem_reader, via
+// ada.from_fem), the same pure-python read the deck conversions above already
+// run here. A node-Pyodide bake of each is byte-identical to the CPython one.
+const WASM_FEA_EXTS = ["rmed", "med", "sif", "sin", "sqlite", "inp", "fem"] as const;
 
 export interface WasmFormat {
     format: PyodideSourceFormat;

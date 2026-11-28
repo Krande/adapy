@@ -54,6 +54,11 @@ describe("conversion and bake plans", () => {
     const bake = feaBakePlan("results/job.odb");
     assert.deepEqual([bake.engines, bake.browserPath], [["worker"], false]);
     assert.deepEqual(feaBakePlan("results/job.rmed").engines, ["pyodide"]);
+    // A FEM input deck opened in the viewer is a mesh-only bake the browser does.
+    for (const deck of ["models/deck.inp", "models/deck.fem"]) {
+      const plan = feaBakePlan(deck);
+      assert.deepEqual([plan.engines, plan.browserPath], [["pyodide"], true], deck);
+    }
   });
 
   it("follows an administrator's order and the user's preference", () => {
