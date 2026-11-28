@@ -269,6 +269,7 @@ export async function convertViaPyodideFeaBake(
                 ext,
                 size: downloadUrl.size,
                 uploadHeaders: target.headers,
+                srcKey: cleanSrc,
                 onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
             });
             readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
@@ -281,8 +282,11 @@ export async function convertViaPyodideFeaBake(
 
             store.setJob(storeKey, {...job, progress: 0.15, stage: "baking FEA result in browser"});
 
+            // The manifest records the source's key as its `src`, as the worker's bake does:
+            // the case and envelope documents built from it in the browser carry it on.
             const zip = await convertViaPyodide("fea", sourceBuf, {
                 ext,
+                srcKey: cleanSrc,
                 onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
             });
 

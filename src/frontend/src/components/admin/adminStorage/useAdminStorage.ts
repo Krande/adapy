@@ -176,6 +176,9 @@ export function useAdminStorage() {
                 conversionOptions,
                 // An explicit conversion, not a source opened for viewing.
                 operation: "convert",
+                // Overrides are worker engine knobs the browser engines ignore: setting one
+                // chooses the worker (judged as such); with none set the policy decides.
+                workerOptIn: conversionOptions !== undefined,
             });
             const base = sourceKey.replace(/\.[^./]+$/, "");
             await viewerApi.downloadBlob(scope, derivedKey, `${base}.${target}`);

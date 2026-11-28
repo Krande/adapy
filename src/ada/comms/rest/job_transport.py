@@ -80,6 +80,7 @@ TransportFeature = Literal[
     "clash_detail",
     "component_build",
     "conversion",
+    "engine_build",
     "export_search",
     "export_selection",
     "geometry_compare",
@@ -104,6 +105,8 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "bbox_inference": "bbox inference disabled (no NATS configured)",
     "component_build": "component build disabled (no NATS configured)",
     "conversion": "conversion disabled (no NATS configured)",
+    # A kind:wheel procedural engine's wheel build (git clone + pip wheel in a worker image).
+    "engine_build": "engine wheel builds disabled (no NATS configured)",
     # An admin audit sweep's conversions: they measure worker pools and write their results to
     # audit rows, so they need both. Worded as the conversion gate the routes always answered.
     "audit_conversion": "conversion disabled (no NATS configured)",

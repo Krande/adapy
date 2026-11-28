@@ -318,7 +318,11 @@ the browser engines, none of their work needs a worker, apart from the list belo
 The FEA bake follows the same rule. A result file (`.rmed`, `.med`, `.sif`, `.sin`, an exported
 `.sqlite`) and a FEM input deck opened in the viewer (`.inp`, `.fem`, baked mesh-only) are baked
 in the browser and the artefact tree is uploaded to `/fea/artefacts`; the manifest request then
-finds it stored and queues nothing.
+finds it stored and queues nothing. A result file's step and field inventory (`/result-meta`) is
+read from that same manifest, so it queues nothing either.
+
+Every job a route starts goes through the job transport (`ctx.jobs.submit`); none is put on the
+queue directly, so the execution policy and worker access see all of them.
 
 Work that stays on a worker by design, and why:
 
@@ -332,7 +336,7 @@ Work that stays on a worker by design, and why:
 | FEA combinations that re-read raw records (`needs_raw` recipes, a bake without client-side results) | Only the server keeps the raw records |
 | Geometry compare, search exports, sweeps and schedules | Administrator and background work across providers or users |
 | Simulations | Each provider runs on its own infrastructure (a cluster, a solver licence) |
-| Engine wheel builds | git and pip in a subprocess; administrator only |
+| Engine wheel builds | git and pip in a subprocess; queued in the background when a wheel engine's manifest is saved |
 | Conversion audits and parity runs | They measure the worker pools themselves |
 | Abaqus `.odb` to `.sqlite` | Needs the Abaqus libraries (the `abaqus` capability); the `.sqlite` it writes bakes in the browser |
 | Code_Aster / gmsh iteration from the CLI | A native solver run in a subprocess |

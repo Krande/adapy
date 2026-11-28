@@ -400,18 +400,23 @@ async def api_procedural_engines_update(
     # A kind:wheel engine needs its wheel (re)built from the repo whenever the
     # manifest changes; enqueue the build worker (it clones + builds + stores
     # the wheel under _engines/ and records wheel_key). force so a manifest
-    # edit at an unchanged spot still rebuilds.
-    if normalized.get("kind") == "wheel" and ctx.queue.enabled:
+    # edit at an unchanged spot still rebuilds. Through the transport like every
+    # other job: the build is server-only (git + pip in a worker image), has no
+    # browser path, and so is never an explicit worker choice to judge.
+    if normalized.get("kind") == "wheel" and ctx.jobs.supports("engine_build"):
+        from ..job_transport import JobRequest
         from ..procedural import engine_wheel_dir
 
-        await ctx.queue.enqueue(
-            f"_synthetic/engine-build/{engine_id}/r{new_rev}",
-            target_format="procedural_engine_build",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={"engine_id": engine_id},
-            derived_key=engine_wheel_dir(engine_id),
-            force_rebuild=True,
+        await ctx.jobs.submit(
+            JobRequest(
+                source_key=f"_synthetic/engine-build/{engine_id}/r{new_rev}",
+                target_format="procedural_engine_build",
+                scope=scope_obj,
+                feature="engine_build",
+                conversion_options={"engine_id": engine_id},
+                derived_key=engine_wheel_dir(engine_id),
+                force_rebuild=True,
+            )
         )
     return JSONResponse({"id": row["id"], "revision": new_rev})
 

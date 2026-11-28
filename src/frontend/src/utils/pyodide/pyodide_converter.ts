@@ -273,7 +273,8 @@ function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) 
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
+    /** ``srcKey``: the source's storage key; an FEA bake records it as its manifest's ``src``. */
+    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string; srcKey?: string},
 ): Promise<Uint8Array> {
     // Proactively recycle a worker whose heap has grown near the ceiling, so
     // this job starts with reclaimed memory instead of risking an OOM abort.
@@ -284,7 +285,7 @@ export async function convertViaPyodide(
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
     worker.postMessage(
-        {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
+        {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", srcKey: opts?.srcKey, bytes},
         [bytes],
     );
     return result;
@@ -370,6 +371,8 @@ export async function convertViaPyodideFeaBakeStream(
         size?: number;
         headers?: Record<string, string>;
         uploadHeaders?: Record<string, string>;
+        /** The source's storage key, recorded as the manifest's ``src``. */
+        srcKey?: string;
     },
 ): Promise<{count: number; files: string[]; manifest: string; bytes: number}> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
@@ -390,6 +393,7 @@ export async function convertViaPyodideFeaBakeStream(
         format: "fea",
         ext: opts?.ext,
         target: "glb",
+        srcKey: opts?.srcKey,
     });
     const bytes = await result;
     return JSON.parse(new TextDecoder().decode(bytes));

@@ -21,7 +21,7 @@ const storage = {
 (globalThis as unknown as { sessionStorage: unknown; localStorage: unknown }).sessionStorage = storage;
 (globalThis as unknown as { sessionStorage: unknown; localStorage: unknown }).localStorage = storage;
 
-const { conversionPlan, feaBakePlan } = await import("@/services/conversion");
+const { conversionPlan, feaBakePlan, workerOptInPlan } = await import("@/services/conversion");
 const { useWorkerAccessStore } = await import("@/services/compute/workerAccess");
 const { useExecutionPolicyStore, useExecutionPreferenceStore } = await import("@/state/executionPolicyStore");
 
@@ -61,6 +61,28 @@ describe("conversion and bake plans", () => {
     }
   });
 
+  it("sends a FEA result pick to the worker as its only path: no browser engine renders one", () => {
+    useWorkerAccessStore.setState({ policy: null, loaded: true });
+    assert.deepEqual(conversionPlan("read", "r/deck.sif", "glb").engines, ["pyodide"]);
+    const pick = conversionPlan("read", "r/deck.sif", "glb", { browserOff: true });
+    assert.deepEqual([pick.engines, pick.browserPath], [["worker"], false]);
+  });
+
+  it("makes worker-side options an explicit worker choice where the browser could convert", () => {
+    useWorkerAccessStore.setState({ policy: GLOBAL, loaded: true });
+    const plan = workerOptInPlan(conversionPlan("convert", "m/model.ifc", "step"), "The serializer");
+    assert.deepEqual([plan.engines, plan.browserPath], [["worker"], true]);
+    // Without worker access it is refused here, saying why, rather than sent to a 403.
+    useWorkerAccessStore.setState({ policy: null, loaded: true });
+    assert.throws(
+      () => workerOptInPlan(conversionPlan("convert", "m/model.ifc", "step"), "The serializer"),
+      /The serializer needs the server worker.*Admin Panel/,
+    );
+    // No browser path: the worker for everyone, unjudged, as before.
+    const odb = workerOptInPlan(conversionPlan("convert", "r/job.odb", "glb"), "The serializer");
+    assert.deepEqual([odb.engines, odb.browserPath], [["worker"], false]);
+  });
+
   it("follows an administrator's order and the user's preference", () => {
     useWorkerAccessStore.setState({ policy: GLOBAL, loaded: true });
     useExecutionPolicyStore.setState({ policy: { read: { "*": ["pyodide", "worker"], ".ifc": ["pyodide"] } } });
@@ -85,6 +107,18 @@ describe("routing call sites", () => {
     // The worker runner sends the explicit-choice header only when a browser engine could have run it.
     assert.match(src, /runOnWorker: ctx\.explicitWorker/);
     assert.match(src, /operation,\r?\n/);
+  });
+
+  it("the result inventory, server serializers and admin overrides go through the resolver", () => {
+    const src = read("services/conversion/index.ts");
+    const start = src.indexOf("export async function resolveResultMeta(");
+    const body = src.slice(start, start + src.slice(start).search(/\r?\n\}\r?\n/));
+    assert.match(body, /runWithFallback\(\s*feaBakePlan\(sourceKey\)/);
+    assert.match(body, /runOnWorker: ctx\.explicitWorker/);
+    assert.match(read("components/storage/FieldPickerModal.tsx"), /resolveResultMeta\(/);
+    // A server serializer is sent as the worker choice it is.
+    assert.match(src, /return serverConvert\(resolved, plan\.browserPath\)/);
+    assert.match(read("components/admin/adminStorage/useAdminStorage.ts"), /workerOptIn: conversionOptions !== undefined/);
   });
 
   it("the FEA viewer bakes through the resolver", () => {

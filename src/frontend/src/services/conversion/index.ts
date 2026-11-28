@@ -6,6 +6,8 @@
 import {useConversionStore} from "@/state/conversionStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
+import type {FeaManifest, ResultMeta} from "@/services/viewerApi";
+import {resultMetaFromManifest} from "@/services/feaManifestPoll";
 import {
     allowedEngines,
     executionAudit,
@@ -34,13 +36,14 @@ type ConversionOperation = "convert" | "read";
 
 /** Which engines can handle (source, target) at all. ``nativeOff``: a forced
  * streaming-STEP request is a worker-side engine knob, so the native module is
- * not offered for it. */
-function conversionSupport(sourceKey: string, targetFormat: TargetFormat, nativeOff = false) {
+ * not offered for it. ``browserOff``: the request asks for something no browser
+ * engine does (a FEA result's picked step and field), so neither is offered. */
+function conversionSupport(sourceKey: string, targetFormat: TargetFormat, nativeOff = false, browserOff = false) {
     return (engine: ExecEngine): boolean =>
         engine === "native"
-            ? !nativeOff && nativeSupportsConversion(sourceKey, targetFormat)
+            ? !browserOff && !nativeOff && nativeSupportsConversion(sourceKey, targetFormat)
             : engine === "pyodide"
-              ? wasmSupportsConversion(sourceKey, targetFormat)
+              ? !browserOff && wasmSupportsConversion(sourceKey, targetFormat)
               : true;
 }
 
@@ -49,9 +52,31 @@ export function conversionPlan(
     op: ConversionOperation,
     sourceKey: string,
     targetFormat: TargetFormat,
-    opts?: {nativeOff?: boolean},
+    opts?: {nativeOff?: boolean; browserOff?: boolean},
 ): ExecutionPlan {
-    return planExecution(op, sourceQualifier(sourceKey), conversionSupport(sourceKey, targetFormat, opts?.nativeOff));
+    return planExecution(
+        op,
+        sourceQualifier(sourceKey),
+        conversionSupport(sourceKey, targetFormat, opts?.nativeOff, opts?.browserOff),
+    );
+}
+
+/**
+ * ``plan`` for a run the user set worker-side options for: a server serializer, or the
+ * engine knobs of the admin storage reconvert. The browser engines would ignore those, so
+ * where a browser path exists the run is a choice of the worker over the browser: the worker
+ * alone, sent as ``X-Ada-Run-On: worker`` and judged by the server. Refused here, saying why,
+ * when the policy does not allow this user the worker. With no browser path the plan is the
+ * worker already (unjudged) and is returned as it is.
+ */
+export function workerOptInPlan(plan: ExecutionPlan, what: string): ExecutionPlan {
+    if (!plan.browserPath) return plan;
+    if (!allowedEngines(plan.op, plan.qualifier).includes("worker")) {
+        throw new Error(
+            `${what} needs the server worker, which the execution policy does not allow you for ${plan.op} (${plan.qualifier}). Ask an administrator to change it in the Admin Panel (Execution).`,
+        );
+    }
+    return {...plan, engines: ["worker"]};
 }
 
 async function runNative(scope: ScopeUrl, sourceKey: string, targetFormat: TargetFormat, ctx: AttemptContext) {
@@ -83,7 +108,12 @@ function requireServerConversion(): void {
  * Throws when every allowed engine failed (a 403 from the server included) or the
  * policy allows none.
  *
- * ``opts.step``/``opts.field`` are forwarded to the server for FEA result picks.
+ * ``opts.step``/``opts.field`` are forwarded to the server for FEA result picks. No
+ * browser engine renders a picked step and field (they render the default one), so a
+ * pick goes to the worker as the only path.
+ *
+ * ``opts.workerOptIn``: the caller set worker-side options (``conversionOptions`` the
+ * browser engines ignore); the run is then an explicit worker choice (workerOptInPlan).
  */
 export async function ensureConverted(
     scope: ScopeUrl,
@@ -98,16 +128,20 @@ export async function ensureConverted(
             boolean | null
         >>;
         operation?: ConversionOperation;
+        workerOptIn?: boolean;
     },
 ): Promise<string> {
     // Route by the policy as it is now: an administrator may have changed it since the page loaded.
     await refreshAccessIfStale();
     const operation = opts?.operation ?? "read";
-    const plan = conversionPlan(operation, sourceKey, targetFormat, {
+    let plan = conversionPlan(operation, sourceKey, targetFormat, {
         nativeOff: Boolean(opts?.conversionOptions?.step_streamer),
+        browserOff: opts?.step != null || opts?.field != null,
     });
-    const {operation: _op, ...serverOpts} = opts ?? {};
+    if (opts?.workerOptIn) plan = workerOptInPlan(plan, "The conversion options you set");
+    const {operation: _op, workerOptIn: _optIn, ...serverOpts} = opts ?? {};
     void _op;
+    void _optIn;
     const {value} = await runWithFallback(
         plan,
         {
@@ -142,8 +176,9 @@ function extOf(name: string): string {
  * policy's order, falling back on a failure); the worker then gets the row's
  * server default serializer. A row the user set is that user's per-conversion
  * choice and runs as picked (a client serializer must be an engine the policy
- * allows them); a server serializer picked there is a serializer choice, not a
- * choice of the worker over the browser, so it is not sent as one.
+ * allows them). A server serializer picked there runs on the worker, and where a
+ * browser engine could have converted the pair that is a choice of the worker over
+ * the browser: sent as one (``X-Ada-Run-On: worker``) and judged, see workerOptInPlan.
  */
 export async function convertWithSelection(
     scope: ScopeUrl,
@@ -183,7 +218,13 @@ export async function convertWithSelection(
 
     if (schema && touched) {
         const resolved = normalizeSelection(schema, selection, ext);
-        if (!resolved.isClient) return serverConvert(resolved, false);
+        if (!resolved.isClient) {
+            const plan = workerOptInPlan(
+                conversionPlan("convert", sourceKey, targetFormat),
+                `The ${resolved.serializer} serializer`,
+            );
+            return serverConvert(resolved, plan.browserPath);
+        }
         if (!selection.tessellator) {
             // A client serializer with no tessellator picked: the browser engines in
             // the policy's order, falling back between them (not to the worker: the
@@ -300,6 +341,42 @@ export async function ensureBakedFeaManifest(
         },
         {label: `fea_bake ${sourceKey}`},
     );
+}
+
+/**
+ * A FEA result file's (steps, fields) inventory, the step/field picker's list.
+ *
+ * Engines in the "fea_bake" order, like the bake it comes from: where the browser bakes the
+ * source, the inventory is read from the bake's manifest (baked here first when it is not
+ * stored yet), so no worker parses the deck; the worker's ``/result-meta`` after it, as the
+ * policy orders (an explicit choice when the browser could have baked it).
+ */
+export async function resolveResultMeta(scope: ScopeUrl, sourceKey: string): Promise<ResultMeta> {
+    await refreshAccessIfStale();
+    const {value} = await runWithFallback(
+        feaBakePlan(sourceKey),
+        {
+            pyodide: async (ctx) => resultMetaFromManifest(await browserBakedManifest(scope, sourceKey, ctx)),
+            worker: (ctx) => viewerApi.resultMeta(scope, sourceKey, {runOnWorker: ctx.explicitWorker}),
+        },
+        {label: `result_meta ${sourceKey}`},
+    );
+    return value;
+}
+
+/** The stored bake manifest of ``sourceKey`` (``_derived/<source>.fea/fea.manifest.json``,
+ * where both bakes write it), baked in the browser first when there is none. */
+async function browserBakedManifest(scope: ScopeUrl, sourceKey: string, ctx: AttemptContext): Promise<FeaManifest> {
+    const key = `_derived/${sourceKey.replace(/^\/+|\/+$/g, "")}.fea/fea.manifest.json`;
+    const read = async () => JSON.parse(new TextDecoder().decode(await viewerApi.getBlob(scope, key))) as FeaManifest;
+    try {
+        return await read();
+    } catch {
+        // Not stored yet: bake it.
+    }
+    const {convertViaPyodideFeaBake} = await import("./pyodidePipeline");
+    await convertViaPyodideFeaBake(scope, sourceKey, {execution: executionAudit(ctx)});
+    return read();
 }
 
 async function bakeOnWorker(scope: ScopeUrl, sourceKey: string, runOnWorker: boolean): Promise<void> {

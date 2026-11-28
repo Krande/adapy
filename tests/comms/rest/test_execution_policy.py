@@ -126,6 +126,9 @@ def test_job_operation_mapping():
     assert ep.job_operation("conversion", source_key="m.step", requested="read") == ("read", ".step")
     assert ep.job_operation("conversion", source_key="noext") == ("convert", "*")
     assert ep.job_operation("bake", source_key="r.rmed") == ("fea_bake", ".rmed")
+    # A result file's inventory comes from its bake: choosing the worker for it is the bake's choice.
+    assert ep.job_operation("result_meta", source_key="r/deck.SIF") == ("fea_bake", ".sif")
+    assert ep.job_operation("engine_build", source_key="_synthetic/engine-build/e/r1") is None
     assert ep.job_operation("procedural_build", conversion_options={"engine": "Echo"}) == (
         "procedural_compile",
         "echo",

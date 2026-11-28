@@ -250,13 +250,17 @@ def _fresh_bake_dir() -> str:
     return out_dir
 
 
-def bake_fea(src: str, ext: str) -> bytes:
+def bake_fea(src: str, ext: str, src_key: str | None = None) -> bytes:
     """FEA result → streaming-viewer artefact tree, returned as a zip.
 
     Registers the pure-Python stdlib ``sqlite3`` stream reader for ``.sqlite``
     databases (already-converted Abaqus results) so they bake in-browser
     without a native Abaqus exporter. Native ``.odb`` conversion remains
     server-worker only (``abaqus`` capability).
+
+    ``src_key``: the source's storage key, recorded as the manifest's ``src`` as the worker's
+    bake records it. Without one the manifest names the staged file's stem, which in the
+    browser is a temporary name (``input``).
     """
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
 
@@ -270,7 +274,7 @@ def bake_fea(src: str, ext: str) -> bytes:
         _register_sqlite(odb=False)
 
     out_dir = _fresh_bake_dir()
-    bake_fea_artefacts_from_source(src, out_dir)
+    bake_fea_artefacts_from_source(src, out_dir, src_key=src_key or "")
     return _zip_bake_dir(out_dir)
 
 
@@ -362,7 +366,7 @@ def _streamed_sin_result(fetcher, step: int | None = None, *, pick_first_step: b
         sin.close()
 
 
-def _streamed_sin_bake(fetcher) -> bytes:
+def _streamed_sin_bake(fetcher, src_key: str | None = None) -> bytes:
     """Bake a SIN → streaming-viewer artefact tree (zip), reading the source
     over a range fetcher and **one step at a time**.
 
@@ -380,11 +384,11 @@ def _streamed_sin_bake(fetcher) -> bytes:
 
     out_dir = _fresh_bake_dir()
     with SinStreamReader(PagedByteSource(fetcher)) as reader:
-        bake_artefacts(reader, out_dir, src="remote")
+        bake_artefacts(reader, out_dir, src=src_key or "remote")
     return _zip_bake_dir(out_dir)
 
 
-def _streamed_sin_bake_to(fetcher, upload) -> str:
+def _streamed_sin_bake_to(fetcher, upload, src_key: str | None = None) -> str:
     """Bake a SIN → artefact tree, shipping **each file as it lands** via
     ``upload(name, bytes)`` and freeing it from MEMFS immediately.
 
@@ -427,14 +431,22 @@ def _streamed_sin_bake_to(fetcher, upload) -> str:
             pass
 
     with SinStreamReader(PagedByteSource(fetcher)) as reader:
-        bake_artefacts(reader, out_dir, src="remote", on_artefact=_ship)
+        bake_artefacts(reader, out_dir, src=src_key or "remote", on_artefact=_ship)
 
     if "fea.manifest.json" not in shipped:
         raise RuntimeError("FEA bake produced no manifest")
     return json.dumps({"count": len(shipped), "files": shipped, "manifest": "fea.manifest.json", "bytes": total_bytes})
 
 
-def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None, upload=None):
+def run_stream(
+    fmt: str,
+    ext: str,
+    target: str,
+    fetcher,
+    step: int | None = None,
+    upload=None,
+    src_key: str | None = None,
+):
     """Streamed counterpart of :func:`run` — convert from a *range fetcher*
     rather than a fully-staged source file.
 
@@ -447,31 +459,33 @@ def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None
 
     For ``fea``: pass an ``upload(name, bytes)`` callback to stream each
     artefact file out as it bakes (returns a JSON summary string); omit it
-    to get the whole tree back as a single zip (``bytes``).
+    to get the whole tree back as a single zip (``bytes``). ``src_key``: the source's
+    storage key, recorded as the manifest's ``src`` (see :func:`bake_fea`).
     """
     fmt = (fmt or "").lower()
     target = (target or "glb").lower()
     if fmt == "fea":
         if upload is not None:
-            return _streamed_sin_bake_to(fetcher, upload)
-        return _streamed_sin_bake(fetcher)
+            return _streamed_sin_bake_to(fetcher, upload, src_key)
+        return _streamed_sin_bake(fetcher, src_key)
     if fmt == "fea_glb":
         return _fea_result_glb_bytes(_streamed_sin_result(fetcher, step=step, pick_first_step=True))
     raise RuntimeError(f"wasm_convert: streaming source not supported for fmt={fmt!r} (only fea / fea_glb)")
 
 
-def run(fmt: str, ext: str, target: str, src: str) -> bytes:
+def run(fmt: str, ext: str, target: str, src: str, src_key: str | None = None) -> bytes:
     """Convert ``src`` (a path on the pyodide FS) and return the output bytes.
 
     ``fmt`` is the wasm source-format class (sat/ifc/step/fem/genie/mesh/fea/
     fea_glb); ``ext`` the source file extension; ``target`` the requested
-    output format.
+    output format. ``src_key``: the source's storage key, which an FEA bake records as its
+    manifest's ``src`` (see :func:`bake_fea`); the other formats ignore it.
     """
     fmt = (fmt or "").lower()
     target = (target or "glb").lower()
 
     if fmt == "fea":
-        return bake_fea(src, ext)
+        return bake_fea(src, ext, src_key)
     if fmt == "fea_glb":
         return fea_result_to_glb(src)
     if fmt == "mesh":

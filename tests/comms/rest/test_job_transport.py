@@ -198,6 +198,24 @@ def test_an_unsupported_feature_raises_the_503_the_route_used_to(feature, detail
     assert exc.value.detail == detail
 
 
+def test_no_route_puts_a_job_on_the_queue_directly():
+    """Every job goes through ``ctx.jobs.submit``: an enqueue that skips the transport skips the
+    execution policy and worker access too (the equipment bbox and the engine wheel build once
+    did). Only the transport itself enqueues."""
+    import pathlib
+    import re
+
+    import ada.comms.rest as rest
+
+    root = pathlib.Path(rest.__file__).parent
+    offenders = [
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if path.name != "job_transport.py" and re.search(r"\bqueue\.enqueue\(", path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []
+
+
 def test_a_supported_feature_does_not_raise():
     assert LocalJobTransport(None).require("plugin_jobs") is None
     for feature in FEATURE_UNAVAILABLE_DETAIL:

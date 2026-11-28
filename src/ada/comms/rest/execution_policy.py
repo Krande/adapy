@@ -286,7 +286,9 @@ def job_operation(
     if feature == "conversion":
         op = "read" if requested == "read" else "convert"
         return op, extension_of(source_key)
-    if feature == "bake":
+    if feature in ("bake", "result_meta"):
+        # A result file's inventory is read from its bake (the browser's, or this parse on a
+        # worker), so choosing the worker for it is the bake's choice.
         return "fea_bake", extension_of(source_key)
     if feature == "procedural_build":
         engine = str(opts.get("engine") or "").strip().lower()
