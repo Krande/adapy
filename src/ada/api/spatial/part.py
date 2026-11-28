@@ -1643,7 +1643,24 @@ class Part(BackendGeom):
         embed_object_metadata: bool = True,
         params: RenderParams = None,
         solid_beams: bool = False,
+        *,
+        glb_tess_engine: str | None = None,
+        strict_tess: bool | None = None,
+        meshopt: bool = False,
+        writer: str | None = None,
     ):
+        """Write this part's GLB through adapy's one GLB export path (:func:`ada.visit.glb_export.export_glb`),
+        the same one the worker's and the browser's conversions use.
+
+        The native NGEOM-record writer draws it wherever it can (merge-by-colour materials, per-solid draw
+        ranges, metres); FEM content, ``merge_meshes=False``, a render override or filter, and line geometry go
+        through the Python scene writer with the stream tessellation engine. ``meshopt=True`` packs the buffers
+        with EXT_meshopt_compression as the viewer-bound conversions do -- the same triangles, but a file most
+        glTF readers outside the viewer (trimesh among them) cannot open, so it is off here by default.
+        ``glb_tess_engine`` / ``strict_tess`` / ``writer`` are passed through (see there).
+        """
+        from ada.visit.glb_export import export_glb
+
         if params is None:
             from ada.visit.render_params import FEARenderParams
 
@@ -1656,19 +1673,18 @@ class Part(BackendGeom):
                 fea_params=FEARenderParams(solid_beams=solid_beams),
             )
 
-        converter = SceneConverter(self, params)
-
-        if isinstance(gltf_file, io.IOBase):
-            # It's a file-like object
-            gltf_file.write(converter.build_glb())
-        else:
-            # It's a path
-            if isinstance(gltf_file, str):
-                gltf_file = pathlib.Path(gltf_file)
-            gltf_file.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(gltf_file, "wb") as f:
-                f.write(converter.build_glb())
+        if isinstance(gltf_file, str):
+            gltf_file = pathlib.Path(gltf_file)
+        export_glb(
+            self,
+            gltf_file,
+            params=params,
+            merge_meshes=params.merge_meshes,
+            glb_tess_engine=glb_tess_engine,
+            strict_tess=strict_tess,
+            meshopt=meshopt,
+            writer=writer,
+        )
 
     def to_trimesh_scene(
         self,

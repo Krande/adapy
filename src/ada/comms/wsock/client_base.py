@@ -72,14 +72,17 @@ class WebSocketClientBase(ABC):
     ) -> bytes:
         import gzip
 
-        with io.BytesIO() as data:
-            scene.export(
-                file_obj=data,
-                file_type="glb",
-                buffer_postprocessor=gltf_buffer_postprocessor,
-                tree_postprocessor=gltf_tree_postprocessor,
-            )
-            glb_data = data.getvalue()
+        if isinstance(scene, (bytes, bytearray)):
+            glb_data = bytes(scene)  # an already written GLB (adapy's record writer)
+        else:
+            with io.BytesIO() as data:
+                scene.export(
+                    file_obj=data,
+                    file_type="glb",
+                    buffer_postprocessor=gltf_buffer_postprocessor,
+                    tree_postprocessor=gltf_tree_postprocessor,
+                )
+                glb_data = data.getvalue()
         size_mb = len(glb_data) / 1_000_000
         compressed = False
 

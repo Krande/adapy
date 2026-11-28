@@ -90,21 +90,69 @@ def _object_color_rgba(obj) -> list[float] | None:
     return [float(r), float(g), float(b), float(a)]
 
 
-def collect_ngeom_records(part: Part) -> tuple[list[tuple], dict]:
+def _world_transforms(obj) -> list[list[float]] | None:
+    """The object's world placement as the records' transform slot (one column-major 4x4), or
+    None for the identity. ``solid_geom()`` is in the object's local system; the Python scene
+    writer moves each mesh to the world by the same matrix (``BatchTessellator.batch_tessellate``),
+    so without it an object in a placed part landed at its local position."""
+    try:
+        m = obj.world_matrix()
+    except Exception:  # noqa: BLE001 - an object without a placement is at the origin
+        return None
+    if m is None:
+        return None
+    import numpy as np
+
+    return [[float(v) for v in np.asarray(m, dtype=float).T.ravel()]]
+
+
+def collect_ngeom_records(
+    part: Part,
+    *,
+    mesh_kinds: bool = False,
+    on_unsupported=None,
+    stats_out: dict | None = None,
+) -> tuple[list[tuple], dict]:
     """Serialize every physical object under ``part`` to one NGEOM record.
 
-    Returns ``(records, stats)`` where records are ``(name, blob, rgba|None, None, [path])``
-    tuples for the adacpp emitters and stats counts the walk. Raises
+    Returns ``(records, stats)`` where records are ``(name, blob, rgba|None, transforms|None,
+    [path])`` tuples for the adacpp emitters and stats counts the walk. Raises
     :class:`NativeExportUnsupported` if any geometric object can't be serialized (listing the
     per-type reasons), so the caller can fall back wholesale to the Python writer.
+
+    ``mesh_kinds``: also emit TRI_MESH for geometry that is already a mesh (the mesh writers
+    draw it, the STEP / IFC writers do not). ``on_unsupported(obj, reason)``: asked for a record
+    of its own for an object with no parametric record (the GLB writer tessellates it through
+    the scene writer's own legs into a TRI_MESH record) -- returns ``(blob, transforms)`` or None,
+    and only a None counts the object as unsupported. ``stats_out`` receives
+    ``{"record_kinds": {kind: n}, "fallbacks": {reason: n}, "objects": [obj per record]}``.
     """
     from ada.api.mass import MassPoint
+    from ada.api.shapes import ShapeProxy
     from ada.cadit.ngeom.serialize import _Encoder, _Unsupported
 
     records: list[tuple] = []
     unsupported: dict[str, int] = {}
     part_ids: dict[int, int] = {}  # id(Part) -> stable per-run int for the path rep-id slot
     n_objects = 0
+    kinds: dict[str, int] = {}
+    fallbacks: dict[str, int] = {}
+    owners: list = []
+
+    def _fallback(obj, reason: str) -> bool:
+        if on_unsupported is None:
+            unsupported[reason] = unsupported.get(reason, 0) + 1
+            return False
+        got = on_unsupported(obj, reason)
+        if got is None:
+            unsupported[reason] = unsupported.get(reason, 0) + 1
+            return False
+        blob, transforms = got
+        fallbacks[reason] = fallbacks.get(reason, 0) + 1
+        kinds["TRI_MESH (scene-writer tessellation)"] = kinds.get("TRI_MESH (scene-writer tessellation)", 0) + 1
+        records.append((str(obj.name), blob, _object_color_rgba(obj), transforms, [_path_for(obj)]))
+        owners.append(obj)
+        return True
 
     def _path_for(obj) -> list[tuple[int, str]]:
         # Root-first (rep_id, name) levels; the last level is the object's own (leaf) product.
@@ -135,26 +183,38 @@ def collect_ngeom_records(part: Part) -> tuple[list[tuple], dict]:
         if isinstance(obj, MassPoint):
             continue  # no geometry — the Python writers skip these too
         n_objects += 1
+        transforms = _world_transforms(obj)
+        if isinstance(obj, ShapeProxy):
+            # A lazily-loaded shape already holds its body as an NGEOM buffer: hand it over as is
+            # (no hydration, no re-encode), unless it is a bare curve -- the GLB has no lines.
+            blob = obj.ngeom_blob() if not obj.is_bare_curve() else None
+            if blob is not None:
+                kinds["stored NGEOM buffer"] = kinds.get("stored NGEOM buffer", 0) + 1
+                records.append((str(obj.name), bytes(blob), _object_color_rgba(obj), transforms, [_path_for(obj)]))
+                owners.append(obj)
+                continue
         try:
             geom = obj.solid_geom()
         except Exception as ex:  # no parametric solid_geom (e.g. raw-OCC import)
-            unsupported[f"{type(obj).__name__}: {type(ex).__name__}: {ex}"] = (
-                unsupported.get(f"{type(obj).__name__}: {type(ex).__name__}: {ex}", 0) + 1
-            )
+            _fallback(obj, f"{type(obj).__name__}: no solid_geom ({type(ex).__name__})")
             continue
-        enc = _Encoder()
+        enc = _Encoder(mesh_kinds=mesh_kinds)
         try:
             idx = enc.root(geom)
         except _Unsupported as ex:
             inner = getattr(geom, "geometry", geom)
-            key = f"{type(inner).__name__}: {ex}"
-            unsupported[key] = unsupported.get(key, 0) + 1
+            _fallback(obj, f"{type(inner).__name__}: {ex}")
             continue
         blob = enc.finish([(idx, str(obj.name))])
-        records.append((str(obj.name), blob, _object_color_rgba(obj), None, [_path_for(obj)]))
+        inner = getattr(geom, "geometry", geom)
+        kinds[type(inner).__name__] = kinds.get(type(inner).__name__, 0) + 1
+        records.append((str(obj.name), blob, _object_color_rgba(obj), transforms, [_path_for(obj)]))
+        owners.append(obj)
 
     if progress is not None:
         progress(total, total)
+    if stats_out is not None:
+        stats_out.update(record_kinds=kinds, fallbacks=fallbacks, objects=owners)
     if unsupported:
         n_bad = sum(unsupported.values())
         raise NativeExportUnsupported(
@@ -253,7 +313,37 @@ _GLB_MAGIC = b"glTF"
 _GLB_JSON_CHUNK = b"JSON"
 
 
-def _add_design_extension(part: Part, glb_path: pathlib.Path) -> None:
+def _match_scene_writer_hierarchy(doc: dict) -> None:
+    """Give the record writer's ``id_hierarchy`` the shape the scene writer's has: the C++ writer
+    puts a synthetic ``root`` above the model's own top part and writes parent ids as numbers;
+    the scene writer's tree starts at the model (parent ``"*"``) and its parent ids are strings.
+    Anything that addresses an element by its path below the model's root row (saved groups,
+    element links, the selection tree) then reads the same tree from either writer."""
+    for scene in doc.get("scenes") or []:
+        h = (scene.get("extras") or {}).get("id_hierarchy")
+        if not isinstance(h, dict):
+            continue
+        for k, v in h.items():
+            if isinstance(v, list) and len(v) >= 2 and v[1] != "*":
+                v[1] = str(v[1])
+        roots = [k for k, v in h.items() if isinstance(v, list) and len(v) >= 2 and v[1] == "*"]
+        if len(roots) != 1 or h[roots[0]][0] != "root":
+            continue
+        children = [k for k, v in h.items() if isinstance(v, list) and len(v) >= 2 and v[1] == str(roots[0])]
+        if len(children) != 1:
+            continue
+        del h[roots[0]]
+        h[children[0]][1] = "*"
+
+
+def _add_design_extension(
+    part: Part,
+    glb_path: pathlib.Path,
+    *,
+    embed_metadata: bool = True,
+    assembly_guid: str | None = None,
+    asset_extras: dict | None = None,
+) -> None:
     """Give a native GLB the design block of its ``ADA_EXT_data`` the Python writer gives its own.
 
     The C++ emitter writes geometry, names and colours and leaves ``design_objects`` empty, which
@@ -277,21 +367,35 @@ def _add_design_extension(part: Part, glb_path: pathlib.Path) -> None:
     if chunk_type != _GLB_JSON_CHUNK:
         raise ValueError("first GLB chunk is not JSON")
     doc = json.loads(data[20 : 20 + json_len].decode("utf-8"))
+    _match_scene_writer_hierarchy(doc)
     ada_ext = doc.setdefault("extensions", {}).setdefault("ADA_EXT_data", {})
-    if ada_ext.get("design_objects"):
-        return
-
-    face_nodes = [n["name"] for n in doc.get("nodes", []) if "mesh" in n and n.get("name")]
-    design = build_design_data_extension(part, face_nodes=face_nodes)
-    if _unit_scale(part) != 1.0 and design.fem_concepts is not None:
-        logger.info("native NGEOM->GLB: FEM concepts left out of a model not in metres")
-        design.fem_concepts = None
-    ada_ext["design_objects"] = [design.model_dump(mode="json", exclude_none=True)]
+    if not ada_ext.get("design_objects"):
+        face_nodes = [n["name"] for n in doc.get("nodes", []) if "mesh" in n and n.get("name")]
+        design = build_design_data_extension(part, face_nodes=face_nodes, embed_metadata=embed_metadata)
+        if _unit_scale(part) != 1.0 and design.fem_concepts is not None:
+            logger.info("native NGEOM->GLB: FEM concepts left out of a model not in metres")
+            design.fem_concepts = None
+        ada_ext["design_objects"] = [design.model_dump(mode="json", exclude_none=True)]
+    if assembly_guid and not ada_ext.get("assembly_guid"):
+        # The lineage anchor derived files (CAD GLB + FEA GLBs) are matched by, as the scene writer
+        # stamps it.
+        ada_ext["assembly_guid"] = assembly_guid
+    if asset_extras:
+        asset = doc.setdefault("asset", {})
+        extras = asset.get("extras") or {}
+        extras.update(asset_extras)
+        asset["extras"] = extras
     used = doc.setdefault("extensionsUsed", [])
     if "ADA_EXT_data" not in used:
         used.append("ADA_EXT_data")
 
-    body = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    def _plain(v):  # numpy scalars / arrays a take-off may carry
+        tolist = getattr(v, "tolist", None)
+        if callable(tolist):
+            return tolist()
+        raise TypeError(f"{type(v).__name__} is not JSON serializable")
+
+    body = json.dumps(doc, separators=(",", ":"), default=_plain).encode("utf-8")
     body += b" " * (-len(body) % 4)  # JSON chunks pad with spaces
     rest = data[20 + json_len :]
     out = bytearray(_GLB_MAGIC)

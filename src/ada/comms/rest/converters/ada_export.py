@@ -16,8 +16,6 @@ from .ada_load import (
     _apply_fem_to_objects,
     _gxml_face_streaming,
     _load_with_ada,
-    _model_has_thick_curved_shells,
-    _native_ngeom_mesh_route,
 )
 from .keys import _FALSE, _GXML_SOURCE_EXTS, _TRUE, _ext
 from .mesh_step import _seed_empty_scene
@@ -25,7 +23,6 @@ from .pipelines import (
     _STEP_GLB_PIPELINE_ADACPP_NATIVE,
     _STEP_GLB_PIPELINE_FALLBACK,
     _cad_config_for_pipeline,
-    _glb_engine_stream_value,
     _native_track_for_engine,
     _resolve_step_glb_pipeline,
     _step_glb_fallback_chain,
@@ -69,92 +66,55 @@ def _export_with_ada(
     """
     if target_format == "glb":
         on_progress("tessellating", 0.55)
-        buf = io.BytesIO()
         import os as _os
+
+        from ada.visit.glb_export import export_glb, last_report
 
         if merge_meshes is None:
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
             merge_meshes = merge_env not in {"0", "false", "no", "off"}
-        # Watertight cap<->wall seam-weld for thick curved shells (hull strakes / gxml curved
-        # plates): route their shared near-full faces through boundary-first CDT so per-solid
-        # welding closes the seam that the UV-grid fast path leaves cracked. Scoped over the whole
-        # GLB leg — both the native record route and the Python ``to_gltf`` fall-through read
-        # ADA_TESS_WT_CDT_FULL_PATCH in adacpp. Only set when such a plate is present (the adacpp
-        # side further gates on real shared-edge pins), so flat-plate models are untouched;
-        # an explicit ambient value is respected. Restored in the finally for the next job.
-        _prev_cdt = _os.environ.get("ADA_TESS_WT_CDT_FULL_PATCH")
-        if _prev_cdt is None and _model_has_thick_curved_shells(model):
-            _os.environ["ADA_TESS_WT_CDT_FULL_PATCH"] = "1"
+        # One GLB path for every caller (ada.visit.glb_export): the native record writer for every
+        # object with an NGEOM record (and the scene writer's own triangles, as TRI_MESH records,
+        # for those without), the Python scene writer with the stream engine for what the record
+        # writer cannot express (FEM meshes, merge_meshes=False, line geometry). The engine comes
+        # from the per-job glb_tess_engine, else ADAPY_GLB_TESS_ENGINE, else libtess2 where adacpp
+        # imports; the thick-curved-shell CDT seam weld and strict coverage are scoped in there.
+        # ``to_gltf`` goes through the same function, so a script's GLB is the worker's GLB.
+        from ada.visit.render_params import RenderParams
+
+        params = RenderParams(stream_from_ifc_store=False, merge_meshes=merge_meshes)
         try:
-            # Fully-native record path (Genie-XML sources): adacpp tessellates and writes the GLB
-            # itself — no Python scene assembly. merge_meshes=False is the one-node-per-object debug
-            # layout, which the merge-by-colour native writer can't express; that stays on Python.
-            if merge_meshes:
-                native_out = _native_ngeom_mesh_route(
-                    model, source_ext, "glb", out_path, on_progress, glb_tess_engine=glb_tess_engine
-                )
-                if native_out is not None:
-                    # Both GLB routes record the take-off: the native one returns here, so a
-                    # take-off taken only after the Python fall-through would exist for some
-                    # sources and not others, which is the kind of difference a user reads as
-                    # "the panel is broken for IFC".
-                    record_takeoff(model)
-                    return native_out
-            # FEM beam (line) elements render as line geometry by default; the solid (swept-
-            # profile) representation is delivered as a separate beam_solids sidecar the viewer
-            # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
-            #
-            # Tessellation-engine selection (glb_tess_engine row option): to_gltf's BatchTessellator
-            # reads ADA_STREAM_TESS_PIPELINE, so set it from the per-job engine for the duration of
-            # the call and restore after. None/occ-builtin → force the OCC default (clear any ambient
-            # override); libtess2/adacpp-* → the matching OCC-free stream pipeline.
-            _stream = _glb_engine_stream_value(glb_tess_engine)
-            _prev_stream = _os.environ.get("ADA_STREAM_TESS_PIPELINE")
-            if _stream:
-                _os.environ["ADA_STREAM_TESS_PIPELINE"] = _stream
-            else:
-                _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
-            # Strict coverage (only meaningful alongside a non-OCC engine): make a stream→OCC
-            # fallback a hard error. Set the flag for the duration of to_gltf, restored below.
-            _prev_strict = _os.environ.get("ADA_STREAM_TESS_STRICT")
-            if strict_tess and _stream:
-                _os.environ["ADA_STREAM_TESS_STRICT"] = "1"
-            else:
-                _os.environ.pop("ADA_STREAM_TESS_STRICT", None)
-            try:
-                model.to_gltf(buf, merge_meshes=merge_meshes)
-            except ValueError as exc:
-                from ada.cadit.wasm_convert import _is_empty_scene
+            data = export_glb(
+                model,
+                None,
+                params=params,
+                merge_meshes=merge_meshes,
+                glb_tess_engine=glb_tess_engine or None,
+                strict_tess=bool(strict_tess),
+            )
+        except ValueError as exc:
+            from ada.cadit.wasm_convert import _is_empty_scene
 
-                if not _is_empty_scene(exc):
-                    raise
-                # The source parsed to zero renderable geometry (e.g. a SAT file holding only a
-                # wire/construction body, or an IFC with metadata only). Emit a valid seeded GLB so
-                # the conversion succeeds with an empty scene instead of erroring — same trick the
-                # step-stream and scene-based glb paths already use via _seed_empty_scene.
-                import trimesh
+            if not _is_empty_scene(exc):
+                raise
+            # The source parsed to zero renderable geometry (e.g. a SAT file holding only a
+            # wire/construction body, or an IFC with metadata only). Emit a valid seeded GLB so
+            # the conversion succeeds with an empty scene instead of erroring — same trick the
+            # step-stream and scene-based glb paths already use via _seed_empty_scene.
+            import trimesh
 
-                scene = trimesh.Scene()
-                _seed_empty_scene(scene)
-                buf = io.BytesIO()
-                scene.export(buf, file_type="glb")
-            finally:
-                if _prev_stream is None:
-                    _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
-                else:
-                    _os.environ["ADA_STREAM_TESS_PIPELINE"] = _prev_stream
-                if _prev_strict is None:
-                    _os.environ.pop("ADA_STREAM_TESS_STRICT", None)
-                else:
-                    _os.environ["ADA_STREAM_TESS_STRICT"] = _prev_strict
-            record_takeoff(model)
-            on_progress("ready", 1.0)
-            return buf.getvalue()
-        finally:
-            if _prev_cdt is None:
-                _os.environ.pop("ADA_TESS_WT_CDT_FULL_PATCH", None)
-            else:
-                _os.environ["ADA_TESS_WT_CDT_FULL_PATCH"] = _prev_cdt
+            scene = trimesh.Scene()
+            _seed_empty_scene(scene)
+            buf = io.BytesIO()
+            scene.export(buf, file_type="glb")
+            data = buf.getvalue()
+        rep = last_report()
+        if rep is not None:
+            on_progress("native-ngeom-glb" if rep.writer == "native" else "scene-glb", 0.95)
+        # Both GLB legs record the take-off, so it exists for every source alike.
+        record_takeoff(model)
+        on_progress("ready", 1.0)
+        return data
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
         # The DEFAULT xml->ifc path is the streaming writer below (model.to_ifc(streaming=True)):

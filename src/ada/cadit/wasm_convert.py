@@ -116,29 +116,25 @@ def _worker_progress(prog: ConversionProgress, lo: float, hi: float):
     return _report
 
 
-def _worker_glb(asm, source_ext: str, prog: ConversionProgress | None = None) -> bytes:
-    """GLB of a loaded Genie/SAT Assembly through the worker's own GLB leg.
+def _assembly_glb(asm, prog: ConversionProgress | None = None) -> bytes:
+    """GLB of a loaded Assembly through adapy's one GLB export path.
 
-    A bare ``asm.to_gltf()`` is not what the worker runs. The worker picks a tessellation
-    engine (libtess2 wherever adacpp is importable) and, for a Genie source, the native
-    NGEOM-record writer; ``to_gltf`` on its own selects neither, so a curved shell went
-    through the backend's face sewing, which kept one face of the six and left the plate
-    to a flat best-fit-plane fallback that stands off the real surface. Calling the same
-    function makes the two GLBs agree by construction.
+    :func:`ada.visit.glb_export.export_glb` is what the worker's converter (``_export_with_ada``)
+    and ``to_gltf`` call too, with the same engine selection (libtess2 wherever adacpp imports)
+    and the native NGEOM-record writer first, so the browser's GLB and the worker's agree by
+    construction. A bare backend tessellation is not that: a thick curved shell went through the
+    backend's face sewing, which kept one face of six and left the plate to a flat fallback.
 
-    Progress: a per-object count either way -- the native route's record walk
-    ("preparing geometry", then "tessellating (native)" for adacpp's one opaque call), or the
-    Python scene's tessellation when the leg takes that instead.
+    Progress: a per-object count either way -- the record writer's walk ("preparing geometry",
+    then "tessellating (native)" for adacpp's one opaque call), or the scene writer's
+    tessellation when the export takes that leg instead.
     """
-    import os
-
     from ada.cadit.ngeom.export import report_record_progress
-    from ada.comms.rest.converters.ada_export import _export_with_ada
-    from ada.core.file_system import new_temp_path
+    from ada.visit.glb_export import export_glb
+    from ada.visit.render_params import RenderParams
     from ada.visit.tessellate import report_tessellation_progress
 
     prog = as_progress(prog)
-    out_path = new_temp_path(suffix=".glb")
     counted = prog.counter("preparing geometry", _READ_END, _RECORDS_END, "objects")
 
     def records(done: int, total: int) -> None:
@@ -150,19 +146,13 @@ def _worker_glb(asm, source_ext: str, prog: ConversionProgress | None = None) ->
 
     try:
         with report_tessellation_progress(_tessellation_reporter(prog)), report_record_progress(records):
-            # The leg's own reports are coarse fixed shares ("tessellating" at 0.55); the
-            # per-object counts above say more, so they move the bar instead.
-            res = _export_with_ada(asm, "glb", out_path, lambda *_a, **_k: None, source_ext=source_ext)
-        prog("writing GLB", _TESS_END)
-        if isinstance(res, (bytes, bytearray)):
-            return bytes(res)
-        with open(res, "rb") as fh:
-            return fh.read()
-    finally:
-        try:
-            os.remove(out_path)
-        except OSError:
-            pass
+            out = export_glb(asm, None, params=RenderParams(stream_from_ifc_store=False))
+    except ValueError as exc:
+        if _is_empty_scene(exc):
+            raise RuntimeError(_NO_GEOMETRY_MSG) from exc
+        raise
+    prog("writing GLB", _TESS_END)
+    return out
 
 
 def _worker_mesh(src: str, fmt: str, target: str, prog: ConversionProgress | None = None) -> bytes:
@@ -194,7 +184,7 @@ def _worker_mesh(src: str, fmt: str, target: str, prog: ConversionProgress | Non
             pass
 
 
-# Source formats whose GLB/OBJ/STL go through the worker's own legs (:func:`_worker_glb`,
+# Source formats whose OBJ/STL go through the worker's own mesh leg (their GLB: :func:`_assembly_glb`,
 # :func:`_worker_mesh`), and the source extension those legs key their routes on.
 _WORKER_GLB_SOURCE_EXT = {"genie": ".xml", "sat": ".sat"}
 
@@ -217,20 +207,8 @@ def _export_assembly(asm, target: str, fmt: str | None = None, prog: ConversionP
     """Write an Assembly to a single-blob target."""
     target = target.lower()
     prog = as_progress(prog)
-    if target == "glb" and fmt in _WORKER_GLB_SOURCE_EXT:
-        out = _worker_glb(asm, _WORKER_GLB_SOURCE_EXT[fmt], prog)
-    elif target == "glb":
-        from ada.visit.tessellate import report_tessellation_progress
-
-        buf = io.BytesIO()
-        try:
-            with report_tessellation_progress(_tessellation_reporter(prog)):
-                asm.to_gltf(buf)
-        except ValueError as exc:
-            if _is_empty_scene(exc):
-                raise RuntimeError(_NO_GEOMETRY_MSG) from exc
-            raise
-        out = buf.getvalue()
+    if target == "glb":
+        out = _assembly_glb(asm, prog)
     elif target in ("obj", "stl"):
         prog(f"writing {target.upper()}", _READ_END)
         try:
@@ -269,8 +247,36 @@ def _export_assembly(asm, target: str, fmt: str | None = None, prog: ConversionP
     return out
 
 
+def _step_to_glb_native(src: str) -> bytes | None:
+    """STEP→GLB through the worker's default STEP leg (``adacpp-native``: adacpp's C++ STEP reader,
+    libtess2 and the record GLB writer), or None where this adacpp lacks it."""
+    import os
+
+    from ada.cadit.step.native_step_to_glb import (
+        native_adacpp_available,
+        native_step_to_glb,
+    )
+    from ada.core.file_system import new_temp_path
+
+    if not native_adacpp_available():
+        return None
+    out_path = new_temp_path(suffix=".glb")
+    try:
+        native_step_to_glb(src, out_path)
+        with open(out_path, "rb") as fh:
+            return fh.read()
+    except Exception as exc:  # noqa: BLE001 - the OCAF path below is the fallback, as on the worker
+        print(f"wasm_convert: native STEP->GLB failed ({exc!r}); using the OCAF path")
+        return None
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+
+
 def _step_to_glb(data: bytes) -> bytes:
-    """STEP→GLB fast path: straight through the backend's OCAF pipeline (no ada loader).
+    """STEP→GLB fallback: straight through the backend's OCAF pipeline (no ada loader).
 
     NOT ``read_step_bytes`` + ``write_glb_bytes``: those drop every colour between them
     (the plain STEPControl_Reader has no XCAF layer, so STYLED_ITEM is never read, and the
@@ -348,11 +354,52 @@ def _to_glb(fmt: str, src: str, prog: ConversionProgress | None = None) -> bytes
             # The fallback starts over; its stages report on from where the bar is.
             return _ifc_to_glb(src, prog)
     if fmt in ("step", "stp"):
-        # One call into adacpp's OCAF pipeline: it reports nothing until it returns.
+        # One call into adacpp (its native STEP->GLB, else its OCAF pipeline): it reports
+        # nothing until it returns.
         prog("converting STEP → GLB (adacpp)", 0.05)
+        native = _step_to_glb_native(src)
+        if native is not None:
+            return native
         with open(src, "rb") as fh:
             return _step_to_glb(fh.read())
+    if fmt == "fem":
+        # The worker's FEM->GLB draws the deck's mesh as read (``_load_with_ada``: no concept
+        # objects; ``_apply_fem_to_objects`` skips mesh targets). Concept objects on top drew the
+        # model twice over and named its elements differently from the worker's GLB.
+        import ada
+
+        prog(f"reading {_label(fmt)}", 0.02)
+        asm = ada.from_fem(src)
+        prog("building scene", _READ_END)
+        return _export_assembly(asm, "glb", fmt, prog)
     return _export_assembly(_read_source(fmt, src, prog), "glb", fmt, prog)
+
+
+def _without_meshopt(glb: bytes) -> bytes:
+    """``glb`` with its EXT_meshopt_compression buffers decoded (the record writer's GLB carries
+    them; trimesh cannot read them)."""
+    import os
+    import struct
+
+    n = struct.unpack_from("<I", glb, 12)[0] if len(glb) >= 20 else 0
+    if b"EXT_meshopt_compression" not in glb[20 : 20 + n]:
+        return glb
+    from ada.core.file_system import new_temp_path
+    from ada.visit.gltf.meshopt import meshopt_decompress_glb
+
+    src, dst = new_temp_path(suffix=".glb"), new_temp_path(suffix=".glb")
+    try:
+        with open(src, "wb") as fh:
+            fh.write(glb)
+        meshopt_decompress_glb(src, dst)
+        with open(dst, "rb") as fh:
+            return fh.read()
+    finally:
+        for p in (src, dst):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def _glb_to_mesh(glb: bytes, target: str, prog: ConversionProgress | None = None) -> bytes:
@@ -367,6 +414,7 @@ def _glb_to_mesh(glb: bytes, target: str, prog: ConversionProgress | None = None
     import trimesh
 
     as_progress(prog)(f"writing {target.upper()}", 0.95)
+    glb = _without_meshopt(glb)
     scene = trimesh.load(io.BytesIO(glb), file_type="glb")
     if not isinstance(scene, trimesh.Scene):
         scene = trimesh.Scene(scene)

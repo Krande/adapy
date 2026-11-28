@@ -227,6 +227,24 @@ _POLY_LOOP = 63
 _FACE_BOUND = 64
 _FACE_SURFACE = 65
 _CONNECTED_FACE_SET = 66
+# 67 CURVE_SET is C++-only. 68: a body that is already triangles -- [n_pos][n_pos x vec3][n_idx]
+# [n_idx x i32], 0-based corners. Only emitted when the encoder is asked for mesh kinds (the mesh
+# writers draw it; the STEP / IFC record writers do not).
+_TRI_MESH = 68
+
+
+def mesh_record_tags() -> frozenset[int]:
+    """The NGEOM root kinds this adacpp's mesh writers draw (empty when it cannot say)."""
+    try:
+        import adacpp.cad as _cad
+
+        return frozenset(int(t) for t in _cad.ngeom_mesh_record_tags())
+    except Exception:  # noqa: BLE001 - an adacpp without the query predates TRI_MESH
+        return frozenset()
+
+
+def tri_mesh_supported() -> bool:
+    return _TRI_MESH in mesh_record_tags()
 
 
 def _xyz(p) -> tuple[float, float, float]:
@@ -241,7 +259,10 @@ def _xyz(p) -> tuple[float, float, float]:
 
 
 class _Encoder:
-    def __init__(self):
+    def __init__(self, mesh_kinds: bool = False):
+        # mesh_kinds: emit TRI_MESH for geometry that is already a mesh (TriangulatedFaceSet /
+        # PolygonalFaceSet). Only the mesh writers draw it, so it is opt-in per caller.
+        self.mesh_kinds = bool(mesh_kinds)
         self._records: list[tuple[int, bytes]] = []
         self._memo: dict[int, int] = {}  # id(obj) -> record index
         self._pinned_inferred: list = []  # keep transient inferred planes alive (id()-memo safety)
@@ -1052,6 +1073,84 @@ class _Encoder:
                     faces.append(idx)
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
+    # --- meshes and the primitives that had no record ------------------------------------
+    def tri_mesh(self, positions, triangles) -> int:
+        """A TRI_MESH record: ``positions`` (n, 3) and 0-based ``triangles`` (m, 3)."""
+        pos = np.ascontiguousarray(np.asarray(positions, dtype="<f8").reshape(-1, 3))
+        tri = np.ascontiguousarray(np.asarray(triangles, dtype="<i4").reshape(-1))
+        if len(pos) == 0 or len(tri) == 0:
+            raise _Unsupported("empty mesh")
+        if int(tri.min()) < 0 or int(tri.max()) >= len(pos):
+            raise _Unsupported("mesh index out of range")
+        return self._add(_TRI_MESH, self.i32(len(pos)) + pos.tobytes() + self.i32(len(tri)) + tri.tobytes())
+
+    def triangulated_face_set(self, tfs) -> int:
+        idx = np.asarray([int(i) for i in tfs.indices], dtype=np.int64).reshape(-1, 3) - 1  # 1-based
+        return self.tri_mesh([_xyz(p) for p in tfs.coordinates], idx)
+
+    def polygonal_face_set(self, pfs) -> int:
+        # A fan per face from its first corner: the triangulation the Python scene writer's direct
+        # mesh path makes of the same faces, so both writers draw the same triangles.
+        tris = []
+        for face in pfs.faces:
+            f = [int(i) - 1 for i in face]
+            tris.extend((f[0], f[k], f[k + 1]) for k in range(1, len(f) - 1))
+        if not tris:
+            raise _Unsupported("polygonal face set without a face")
+        return self.tri_mesh([_xyz(p) for p in pfs.coordinates], tris)
+
+    def _poly_faces(self, polygons) -> int:
+        """A CONNECTED_FACE_SET of planar polygons (each wound about its outward normal)."""
+        from types import SimpleNamespace
+
+        faces = [self._planar_face_from_loop(SimpleNamespace(polygon=p)) for p in polygons]
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
+
+    def rectangular_pyramid(self, pyr) -> int:
+        """Rectangular base (local XY) and its apex centred above at z_length, placed by position."""
+        x, y, z = float(pyr.x_length), float(pyr.y_length), float(pyr.z_length)
+        o, ax_z, ax_x = _frame_vectors(pyr.position)
+        ax_y = tuple(np.cross(ax_z, ax_x))
+
+        def w(px, py, pz):
+            return tuple(o[k] + px * ax_x[k] + py * ax_y[k] + pz * ax_z[k] for k in range(3))
+
+        base = [w(0, 0, 0), w(x, 0, 0), w(x, y, 0), w(0, y, 0)]
+        apex = w(x / 2.0, y / 2.0, z)
+        polys = [list(reversed(base))] + [[base[i], base[(i + 1) % 4], apex] for i in range(4)]
+        return self._poly_faces(polys)
+
+    def torus_solid(self, torus) -> int:
+        """Torus -> its tube's circle (radius minor, centred major out along local X, in the local
+        XZ plane) revolved a full turn about the local Z axis."""
+        import math
+
+        from ada.geom.placement import Axis2Placement3D, Direction, Point
+
+        big, small = float(torus.major_radius), float(torus.minor_radius)
+        circ_pl = self._add(
+            _PLACEMENT3, self.v3((big, 0.0, 0.0)) + self.v3((0.0, -1.0, 0.0)) + self.v3((1.0, 0.0, 0.0))
+        )
+        circle = self._add(_CIRCLE, self.i32(circ_pl) + self.f64(small))
+        start = (big + small, 0.0, 0.0)
+        edge = self._add(_EDGE_CURVE, self.v3(start) + self.v3(start) + self.i32(circle) + self.i32(1))
+        oedge = self._add(
+            _ORIENTED_EDGE,
+            self.i32(edge) + self.i32(1) + self.i32(0) + self.i32(1) + self.f64(0.0) + self.f64(2 * math.pi),
+        )
+        loop = self._add(_EDGE_LOOP, self.i32(1) + self.i32(oedge))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        place = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, -1.0, 0.0)) + self.v3((1.0, 0.0, 0.0)))
+        plane = self._add(_PLANE, self.i32(place))
+        face = self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bound))
+        pos = torus.position
+        axis = [float(c) for c in pos.axis]
+        ref = _perp_of(tuple(axis), (1.0, 0.0, 0.0))
+        position = Axis2Placement3D(
+            location=Point(*[float(c) for c in pos.location]), axis=Direction(*axis), ref_direction=Direction(*ref)
+        )
+        return self._revolve_z(face, position)
+
     def boolean_result(self, br) -> int:
         """BooleanResult -> operator + two operand records (recursively
         serialized). adacpp builds each operand's TopoDS_Shape and applies
@@ -1163,6 +1262,18 @@ class _Encoder:
             # plane in face_surface). Voids (FacetedBrepWithVoids) need a boolean cut not yet in
             # the stream path — the outer surface still renders, cavities simply not carved.
             return self.connected_face_set(geom.outer)
+        if isinstance(geom, _so.AdvancedBrep):
+            # The B-rep solid of an IFC/STEP import: its outer shell's (advanced) faces, as a
+            # bare ClosedShell would serialize.
+            return self.connected_face_set(geom.outer)
+        if isinstance(geom, _so.RectangularPyramid):
+            return self.rectangular_pyramid(geom)
+        if isinstance(geom, _so.Torus):
+            return self.torus_solid(geom)
+        if self.mesh_kinds and isinstance(geom, su.TriangulatedFaceSet):
+            return self.triangulated_face_set(geom)
+        if self.mesh_kinds and isinstance(geom, su.PolygonalFaceSet):
+            return self.polygonal_face_set(geom)
         raise _Unsupported(f"geometry {type(geom).__name__}")
 
     def root(self, geom) -> int:

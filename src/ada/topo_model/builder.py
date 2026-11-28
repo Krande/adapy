@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import pathlib
-import tempfile
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
@@ -831,15 +830,24 @@ class ProceduralBuilder:
         Renders through the NGEOM stream so the analytic swept duct/cable-tray
         runs tessellate upright along their curve; splices any recorded CAD
         meshes into the scene at their footprint transform."""
-        with _stream_tessellation():
-            if self._cad_placements:
-                scene = self.assembly.to_trimesh_scene()
-                for mesh, transform in self._cad_placements:
-                    scene.add_geometry(mesh, transform=transform)
-                exported = scene.export(file_type="glb")
-                return exported if isinstance(exported, bytes) else bytes(exported)
+        import numpy as np
 
-            with tempfile.TemporaryDirectory(prefix="procedural_glb_") as tmp:
-                glb_path = pathlib.Path(tmp) / "model.glb"
-                self.assembly.to_gltf(glb_path)
-                return glb_path.read_bytes()
+        from ada.visit.glb_export import export_glb
+
+        with _stream_tessellation():
+            # adapy's one GLB path, as every other caller (the record writer first); the spliced CAD
+            # meshes ride along as world-space meshes beside the model's objects.
+            extra = []
+            for k, (mesh, transform) in enumerate(self._cad_placements):
+                verts = np.asarray(mesh.vertices, dtype=float)
+                verts = verts @ np.asarray(transform, dtype=float)[:3, :3].T + np.asarray(transform, dtype=float)[:3, 3]
+                rgba = None
+                mat = getattr(getattr(mesh, "visual", None), "material", None)
+                factor = getattr(mat, "baseColorFactor", None)
+                if factor is not None and len(factor) == 4:
+                    f = np.asarray(factor, dtype=float)
+                    rgba = (f / 255.0 if f.max() > 1.0 else f).tolist()
+                name = (getattr(mesh, "metadata", None) or {}).get("name") or f"cad_mesh_{k}"
+                extra.append((name, verts, np.asarray(mesh.faces, dtype=np.int64), rgba))
+            # Unpacked buffers: the compile's GLB is re-read downstream (node ids, take-off, tests).
+            return export_glb(self.assembly, None, extra_meshes=extra or None, meshopt=False)

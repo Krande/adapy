@@ -18,7 +18,6 @@ import ada.geom.curves as cu
 import ada.geom.surfaces as su
 from ada.api.plates.base_pl import PlateCurved
 from ada.comms.rest import converter as C
-from ada.comms.rest.converters import ada_export
 from ada.geom import Geometry
 from ada.geom.curves import KnotType
 from ada.geom.direction import Direction
@@ -80,23 +79,34 @@ def test_flat_plate_not_detected():
 
 @pytest.mark.parametrize("builder, expect_flag", [(_curved_shell_model, "1"), (_flat_plate_model, None)])
 def test_converter_scopes_seam_weld_flag(monkeypatch, tmp_path, builder, expect_flag):
-    """The native GLB route sees ADA_TESS_WT_CDT_FULL_PATCH set iff the model has a thick
-    curved shell, and the ambient env is unchanged after the call (no leak)."""
+    """The GLB export (ada.visit.glb_export, which the converter calls) tessellates with
+    ADA_TESS_WT_CDT_FULL_PATCH set iff the model has a thick curved shell, and the ambient env is
+    unchanged after the call (no leak)."""
+    from ada.visit import glb_export
+
     monkeypatch.delenv("ADA_TESS_WT_CDT_FULL_PATCH", raising=False)
     out = tmp_path / "out.glb"
     seen = {}
 
-    def _fake_native(model, source_ext, target, out_path, on_progress, *, glb_tess_engine=None):
+    def _fake_native(model, out_path, pipeline, **_kw):
         seen["flag"] = os.environ.get("ADA_TESS_WT_CDT_FULL_PATCH")
-        out_path.write_bytes(b"glTF-stub")
-        return out_path  # short-circuits _export_with_ada before to_gltf/adacpp
+        from ada.cadit.ngeom.export import NativeExportUnsupported
 
-    monkeypatch.setattr(ada_export, "_native_ngeom_mesh_route", _fake_native)
+        raise NativeExportUnsupported("stubbed")  # on to the (stubbed) scene writer
+
+    def _fake_scene(*_a, **_k):
+        seen["scene_flag"] = os.environ.get("ADA_TESS_WT_CDT_FULL_PATCH")
+        return b"glTF-stub"
+
+    monkeypatch.setattr(glb_export, "_write_native", _fake_native)
+    monkeypatch.setattr(glb_export, "_write_scene", _fake_scene)
+    monkeypatch.setattr(glb_export, "native_blocker", lambda *_a, **_k: None)
 
     result = C._export_with_ada(
         builder(), "glb", out, lambda *_: None, merge_meshes=True, source_ext=".xml", glb_tess_engine="libtess2"
     )
-    assert result == out
+    assert result == b"glTF-stub"
     assert seen["flag"] == expect_flag
+    assert seen["scene_flag"] == expect_flag  # both legs tessellate under the same flag
     # restored: the scoped set must not leak into the next job
     assert "ADA_TESS_WT_CDT_FULL_PATCH" not in os.environ
