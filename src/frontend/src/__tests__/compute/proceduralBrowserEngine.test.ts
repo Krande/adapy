@@ -6,7 +6,12 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 
-import {bakedEngineWheel, browserEngineRoute, type ListedEngine} from "../../services/compute/proceduralBrowserEngine";
+import {
+    bakedEngineWheel,
+    browserEngineRoute,
+    engineAvailability,
+    type ListedEngine,
+} from "../../services/compute/proceduralBrowserEngine";
 import type {PluginWheelsManifest} from "../../utils/pyodide/pluginWheels";
 
 const manifest: PluginWheelsManifest = {
@@ -19,7 +24,7 @@ const none: PluginWheelsManifest = {plugins: {}};
 
 const engines: ListedEngine[] = [
     {id: "builtin:adapy-default", slug: "adapy-default", origin: "builtin"},
-    {id: "builtin:echo", slug: "echo", origin: "builtin"},
+    {id: "builtin:demo-builtin", slug: "demo-builtin", origin: "builtin"},
     {id: "worker:demo-engine", slug: "demo-engine", origin: "worker"},
     {id: "worker:other-engine", slug: "other-engine", origin: "worker"},
     {id: "db-1", slug: "db-engine", origin: "db"},
@@ -36,7 +41,7 @@ test("the default engine compiles in the browser as before", () => {
 });
 
 test("a built-in engine dispatches by slug", () => {
-    assert.deepEqual(route("echo"), {kind: "builtin", engine: "echo"});
+    assert.deepEqual(route("demo-builtin"), {kind: "builtin", engine: "demo-builtin"});
 });
 
 test("a worker-advertised engine a baked wheel registers runs in the browser", () => {
@@ -63,8 +68,8 @@ test("a local engine a baked wheel registers runs in the browser too", () => {
 });
 
 test("a built-in slug is never taken over by a manifest entry of the same name", () => {
-    const m: PluginWheelsManifest = {plugins: {echo: {wheel: "echo-1.0-py3-none-any.whl", register: "echo.register"}}};
-    assert.deepEqual(route("echo", {manifest: m}), {kind: "builtin", engine: "echo"});
+    const m: PluginWheelsManifest = {plugins: {"demo-builtin": {wheel: "demo_builtin-1.0-py3-none-any.whl", register: "demo_builtin.register"}}};
+    assert.deepEqual(route("demo-builtin", {manifest: m}), {kind: "builtin", engine: "demo-builtin"});
 });
 
 test("the detail LOD runs in the browser only for a baked engine without a detailing engine", () => {
@@ -72,7 +77,7 @@ test("the detail LOD runs in the browser only for a baked engine without a detai
     assert.deepEqual(route("demo-engine", {lod: "detail", detailing: ""}), {kind: "baked", engine: "demo-engine"});
     assert.deepEqual(route("demo-engine", {lod: "detail", detailing: null}), {kind: "baked", engine: "demo-engine"});
     assert.equal(route("demo-engine", {lod: "detail", detailing: "demo-detailing"}).kind, "server-only");
-    for (const slug of [null, "adapy-default", "echo", "other-engine", "db-engine"]) {
+    for (const slug of [null, "adapy-default", "demo-builtin", "other-engine", "db-engine"]) {
         assert.equal(route(slug, {lod: "detail"}).kind, "server-only", `${slug} detail`);
     }
 });
@@ -81,6 +86,21 @@ test("a plugin-job wheel (no register hook) is not an engine", () => {
     const m: PluginWheelsManifest = {plugins: {"other-engine": {wheel: "o-1.0-py3-none-any.whl", entrypoint: "o:run"}}};
     assert.equal(route("other-engine", {manifest: m}).kind, "server-only");
     assert.equal(bakedEngineWheel(manifest, "demo-job"), false);
+});
+
+test("the Engine dropdown labels an engine by where it compiles, not by who registered it", () => {
+    const by = (slug: string, m: PluginWheelsManifest = manifest) =>
+        engineAvailability(engines.find((e) => e.slug === slug) as ListedEngine, m);
+    // A worker-advertised engine a baked wheel registers: the browser too, not "(worker)".
+    assert.equal(by("demo-engine"), "browser or worker");
+    assert.equal(by("demo-engine", none), "worker only");
+    assert.equal(by("other-engine"), "worker only");
+    assert.equal(by("adapy-default"), "built-in");
+    assert.equal(by("demo-builtin"), "built-in");
+    assert.equal(by("db-engine"), "registered");
+    assert.equal(by("local-engine"), "this server");
+    const m: PluginWheelsManifest = {plugins: {"local-engine": {wheel: "l-1.0-py3-none-any.whl", register: "l.register"}}};
+    assert.equal(by("local-engine", m), "browser or this server");
 });
 
 test("bakedEngineWheel matches the manifest key only", () => {

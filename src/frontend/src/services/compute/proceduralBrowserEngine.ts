@@ -81,3 +81,25 @@ export function browserEngineRoute(input: BrowserEngineInput): BrowserEngineRout
   }
   return {kind: "resolve", engineId: listed.id};
 }
+
+/** Where the builder's Engine dropdown says an engine compiles (its simulation
+ * build), for the label beside its name. The engine's `origin` says where it was
+ * REGISTERED -- a worker advertising an engine says nothing about the browser -- so
+ * showing that ("<name> (worker)") read as "runs on the worker only" for
+ * an engine a baked wheel compiles in the browser. Which of the places the execution
+ * policy then picks is the policy's business, not the label's. */
+export function engineAvailability(engine: ListedEngine, manifest: PluginWheelsManifest): string {
+  const route = browserEngineRoute({slug: engine.slug, engines: [engine], manifest, lod: "sim"});
+  switch (route.kind) {
+    case "default":
+    case "builtin":
+      return "built-in";
+    case "baked":
+      return engine.origin === "local" ? "browser or this server" : "browser or worker";
+    case "resolve":
+      // A database engine's wheel may run in the browser: only its resolve says.
+      return engine.origin === "local" ? "this server" : "registered";
+    case "server-only":
+      return "worker only";
+  }
+}
