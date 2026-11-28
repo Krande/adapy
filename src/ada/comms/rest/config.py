@@ -263,6 +263,10 @@ class Settings:
     worker_grants: WorkerGrantsConfig = field(default_factory=WorkerGrantsConfig)
     #: Set when ``storage_kind == "grants"`` (a worker with no storage keys).
     grant_storage: GrantStorageConfig | None = None
+    #: The deployment's default procedural engine, by slug or engine id
+    #: (``ADA_DEFAULT_PROCEDURAL_ENGINE``). Empty: adapy's built-in. The
+    #: ``procedural_default_engine`` app setting overrides it (procedural_default_engine.py).
+    default_procedural_engine: str = ""
 
     @property
     def viewer_control_enabled(self) -> bool:
@@ -479,6 +483,8 @@ def load_settings(*, role: str = "api") -> Settings:
     ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
     local_shutdown_token = os.environ.get("ADA_VIEWER_LOCAL_SHUTDOWN_TOKEN", "").strip()
     viewer_control = parse_viewer_control(os.environ.get("ADA_VIEWER_CONTROL"))
+    # The engine a new procedural model gets when nobody names one (procedural_default_engine.py).
+    default_procedural_engine = os.environ.get("ADA_DEFAULT_PROCEDURAL_ENGINE", "").strip()
     remote_url = os.environ.get("ADA_SIMULATION_REMOTE_URL", "").strip().rstrip("/")
     simulation_remote = (
         SimulationRemote(
@@ -516,6 +522,7 @@ def load_settings(*, role: str = "api") -> Settings:
             simulation_remote=simulation_remote,
             viewer_control=viewer_control,
             worker_grants=worker_grants,
+            default_procedural_engine=default_procedural_engine,
         )
 
     if kind == "local":
@@ -538,6 +545,7 @@ def load_settings(*, role: str = "api") -> Settings:
             simulation_remote=simulation_remote,
             viewer_control=viewer_control,
             worker_grants=worker_grants,
+            default_procedural_engine=default_procedural_engine,
         )
 
     if kind == "grants":
@@ -568,6 +576,7 @@ def load_settings(*, role: str = "api") -> Settings:
             simulation_remote=simulation_remote,
             viewer_control=viewer_control,
             worker_grants=worker_grants,
+            default_procedural_engine=default_procedural_engine,
             grant_storage=grant_storage,
         )
 

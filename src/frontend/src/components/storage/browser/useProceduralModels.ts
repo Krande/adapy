@@ -300,8 +300,11 @@ export function useProceduralModels(p: {
         });
         if (!name || !name.trim()) return;
         try {
-            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
+            // A template belongs to its engine: the model is created for it and its doc names
+            // it, whatever the deployment's default engine is.
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim(), {engine: tpl.engine});
+            const doc = tpl.doc.engine ? tpl.doc : {...tpl.doc, engine: tpl.engine};
+            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, doc, detail.revision);
             const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
             await refreshProceduralModels();
             useCellBuilderStore.getState().open(fresh.id, fresh.name, revision, fresh.doc);

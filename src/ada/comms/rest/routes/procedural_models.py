@@ -168,6 +168,27 @@ async def api_procedural_templates(
     return JSONResponse({"templates": templates})
 
 
+async def new_model_engine(request: Request, scope_obj: Scope, ctx: RestContext, named: object) -> str | None:
+    """The engine a NEW model is recorded with: the one the caller named, else the deployment's
+    default (``ADA_DEFAULT_PROCEDURAL_ENGINE`` / the ``procedural_default_engine`` setting,
+    resolved against what this scope offers, the built-in when that is not offered).
+
+    ``None`` means "the built-in, nobody named it": the model is created exactly as before (the
+    column default, a doc with no ``engine``), so a shell's own Builder default still applies to
+    it. Anything else is stamped onto the row AND the doc, so every client opens it on that
+    engine."""
+    from ..procedural_default_engine import is_builtin_default
+    from .procedural_engines import default_engine_for_scope
+
+    if named is not None and not isinstance(named, str):
+        raise HTTPException(status_code=400, detail="engine must be a string (an engine slug)")
+    named = (named or "").strip()
+    if named:
+        return named
+    slug = (await default_engine_for_scope(request, scope_obj, ctx))["slug"]
+    return None if is_builtin_default(slug) else slug
+
+
 @router.post("/scopes/{scope}/procedural-models", status_code=201)
 async def api_procedural_create(
     request: Request,
@@ -188,7 +209,9 @@ async def api_procedural_create(
         name = normalize_model_name(raw_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    row = await model_store(request, ctx).create(scope_obj, name=name, created_by=user.sub)
+    store = model_store(request, ctx)
+    engine = await new_model_engine(request, scope_obj, ctx, body.get("engine"))
+    row = await store.create(scope_obj, name=name, created_by=user.sub, engine=engine)
     if row is None:
         raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
     return JSONResponse(row, status_code=201)
@@ -444,6 +467,11 @@ async def api_procedural_commit(
         raise HTTPException(status_code=400, detail="doc (object) is required")
     if not isinstance(base_revision, int):
         raise HTTPException(status_code=400, detail="base_revision (int) is required")
+    if not doc.get("engine") and row.get("engine"):
+        # A doc that names no engine keeps the one the model is recorded with, rather than
+        # the doc schema's default re-stamping it: a model is never moved to another engine
+        # by a client that just does not write the key.
+        doc = {**doc, "engine": row["engine"]}
     try:
         normalized = validate_doc(doc)
     except ValueError as e:
@@ -1340,12 +1368,13 @@ async def api_procedural_import_xlsx(
     pool = getattr(request.app.state, "db_pool", None)
     body = await request.json()
     source_key = (body.get("source_key") or "").strip()
-    engine = (body.get("engine") or "").strip() or None
     name = (body.get("name") or "").strip()
     if not source_key or not source_key.startswith(f"{PROCEDURAL_PREFIX}_import/"):
         raise HTTPException(status_code=400, detail="source_key (from /import-xlsx/upload) is required")
     if not name:
         raise HTTPException(status_code=400, detail="name (str) is required")
+    # Named (detected from the workbook, or the user's pick), else the deployment's default.
+    engine = await new_model_engine(request, scope_obj, ctx, body.get("engine"))
     if engine == "adapy-default":
         engine = None
     manifest = await procedural_engine_manifest(ctx.queue, pool, scope_obj, engine)

@@ -130,9 +130,30 @@ export interface ProceduralEngineSummary {
    * entity descriptions under the engine's own, which win per column. Absent from an older server.
    */
   field_help?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** The deployment's default engine (`ProceduralDefaultEngine`): the one a new model gets when
+   *  nobody names one. One engine in a listing carries it; absent from an older server. */
+  is_default?: boolean;
   created_by?: string | null;
   updated_at?: string | null;
 }
+
+/** The engine a new model gets when nobody names one (`default_engine` on the engine list):
+ *  the deployment's `ADA_DEFAULT_PROCEDURAL_ENGINE`, or the admin's `procedural_default_engine`
+ *  setting over it, resolved against the engines the scope offers. `fallback` (with a `note`)
+ *  when what is configured is not offered, and the built-in stands in for it. */
+export interface ProceduralDefaultEngine {
+  id: string;
+  slug: string;
+  name: string;
+  /** What is configured (a slug or an engine id); "" when nothing is. */
+  configured: string;
+  source: "setting" | "env" | "builtin";
+  fallback: boolean;
+  note: string | null;
+}
+
+/** The app setting an admin overrides the deployment's default engine with ("" = the env's). */
+export const PROCEDURAL_DEFAULT_ENGINE_SETTING = "procedural_default_engine";
 
 export interface ProceduralEngineDetail extends ProceduralEngineSummary {
   doc: ProceduralEngineDoc;
@@ -357,6 +378,20 @@ export const proceduralCatalogApi = {
       procedural_engines: ProceduralEngineSummary[];
     }>(r, `listProceduralEngines(${scope})`);
     return body.procedural_engines;
+  },
+
+  /** The scope's effective default engine (see `ProceduralDefaultEngine`); null from a server
+   *  that does not say. */
+  async proceduralDefaultEngine(
+    scope: ScopeUrl,
+  ): Promise<ProceduralDefaultEngine | null> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines`,
+    );
+    const body = await jsonOrThrow<{
+      default_engine?: ProceduralDefaultEngine;
+    }>(r, `proceduralDefaultEngine(${scope})`);
+    return body.default_engine ?? null;
   },
 
   /** Detailing engines for the Compile-settings "Detailing" dropdown (built-in ∪

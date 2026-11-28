@@ -254,6 +254,7 @@ export type {
   ProceduralEngineDoc,
   ProceduralEngineSummary,
   ProceduralEngineDetail,
+  ProceduralDefaultEngine,
   ProceduralEngineResolved,
   DetailingFieldSpec,
   DetailingJointTypeSpec,

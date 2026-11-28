@@ -357,7 +357,14 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
   async createModelWithDoc(scope: string, name: string, doc: unknown): Promise<ProceduralModelDetail> {
     const { viewerApi } = await api();
     // The two ordinary calls a template uses: create the row, commit the document.
-    const created = await viewerApi.createProceduralModel(scope, name);
+    // A doc that names its engine is created for it; one that does not gets the deployment's
+    // default (the server records it on create, and the commit keeps it).
+    const engine = (doc as { engine?: unknown } | null)?.engine;
+    const created = await viewerApi.createProceduralModel(
+      scope,
+      name,
+      typeof engine === "string" && engine ? { engine } : undefined,
+    );
     await viewerApi.commitProceduralModel(scope, created.id, doc as ProceduralDoc, created.revision);
     return await viewerApi.getProceduralModel(scope, created.id);
   }

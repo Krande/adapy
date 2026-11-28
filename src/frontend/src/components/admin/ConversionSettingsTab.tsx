@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import {runtime} from "@/runtime/config";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
+import {ProceduralDefaultEngineSetting} from "./ProceduralDefaultEngineSetting";
 
 // Per-deployment conversion knobs. Each row maps to a key in the
 // app_settings table; a falsy value (or absence) means "use adapy's
@@ -647,6 +648,7 @@ const ConversionSettingsTab: React.FC = () => {
                         }
                     />
                 )}
+                {!loading && <ProceduralDefaultEngineSetting onError={setError} />}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (

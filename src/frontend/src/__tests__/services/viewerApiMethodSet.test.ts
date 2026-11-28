@@ -77,7 +77,7 @@ const EXPECTED_METHODS = [
   "listFilesWithDerived", "listOverlays", "listProceduralEngines", "listProceduralModels",
   "listProceduralTemplates", "listSystemTemplates", "me", "moveKeysToFolder", "myJobs",
   "pluginBase", "pluginJob", "previewProceduralModel", "proceduralBlueprints",
-  "proceduralCellTypes", "proceduralCompileLog", "proceduralDesignRulesets",
+  "proceduralCellTypes", "proceduralCompileLog", "proceduralDefaultEngine", "proceduralDesignRulesets",
   "proceduralEquipmentTypes", "proceduralOpeningTypes", "proceduralSystemTypes",
   "proposeProceduralRelocations", "putBlob", "putDerivedBlob", "recordRenderProfile",
   "recordViewLoad", "renameKey", "renameOrMoveFolder", "renameProceduralModel",

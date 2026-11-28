@@ -155,6 +155,17 @@ sequenceDiagram
   and read it, through its registration (`register_procedural_engine_capabilities(
   supports_excel=, export_entrypoint=, import_entrypoint=)`) or its manifest row; the
   export/import routes read that, not a list of slugs.
+- **Default procedural engine** (`procedural_default_engine.py`): the engine a new model gets
+  when nobody names one. adapy's is the built-in `adapy-default`; a deployment names another
+  by slug or engine id in `ADA_DEFAULT_PROCEDURAL_ENGINE` (the viewer image's
+  `DEFAULT_PROCEDURAL_ENGINE` build arg, the chart's `procedural.defaultEngine`), and an admin
+  can override it in the `procedural_default_engine` app setting (Admin > Conversion
+  settings). It is resolved against the engines the scope offers and served as
+  `default_engine` on `/procedural-engines` (that engine's summary carries `is_default`); one
+  not offered falls back to the built-in with a logged warning and a `note`. Creating a model
+  (`POST /procedural-models`, `/import-xlsx`) records it on the row and in the doc unless the
+  caller names an engine (a template names its own), so the Builder opens on it. A commit
+  whose doc names no engine keeps the model's recorded one: stored models are never moved.
 - **Queue** (`queue.py`, `JobQueue`): a JetStream stream with WORK_QUEUE retention. The
   message body is just the job id. Status and the worker registry live in a KV bucket.
   Jobs go to capability subjects, so a worker only pulls what it can do.

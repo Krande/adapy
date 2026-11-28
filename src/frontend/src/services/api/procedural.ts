@@ -169,16 +169,20 @@ export const proceduralApi = {
     return body.templates;
   },
 
+  /** Create an empty model. `opts.engine` records the engine it is for (a template's); without
+   *  it the server gives the model the deployment's default engine, stamped in the returned
+   *  doc when that is not the built-in. */
   async createProceduralModel(
     scope: ScopeUrl,
     name: string,
+    opts?: { engine?: string },
   ): Promise<ProceduralModelDetail> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(opts?.engine ? { name, engine: opts.engine } : { name }),
       },
     );
     return jsonOrThrow<ProceduralModelDetail>(

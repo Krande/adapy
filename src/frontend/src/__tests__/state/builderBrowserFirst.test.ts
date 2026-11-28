@@ -92,7 +92,10 @@ test("creating a model from a template opens it and starts no build", () => {
   const start = src.indexOf("const createProceduralModelFromTemplate = async");
   assert.ok(start >= 0);
   const b = src.slice(start, src.indexOf("\n    };", start));
-  assert.match(b, /commitProceduralModel\(scopeKey, detail\.id, tpl\.doc, detail\.revision\)/);
+  // Created for the template's own engine (not the deployment's default), its doc naming it.
+  assert.match(b, /createProceduralModel\(scopeKey, name\.trim\(\), \{engine: tpl\.engine\}\)/);
+  assert.match(b, /const doc = tpl\.doc\.engine \? tpl\.doc : \{\.\.\.tpl\.doc, engine: tpl\.engine\}/);
+  assert.match(b, /commitProceduralModel\(scopeKey, detail\.id, doc, detail\.revision\)/);
   assert.match(b, /\.open\(fresh\.id, fresh\.name, revision, fresh\.doc\)/);
   for (const build of ["compileProceduralModel(", "previewProceduralModel(", ".compile(", ".compilePreview(", "compileInBrowser("]) {
     assert.ok(!b.includes(build), `template create must not start a build (${build})`);

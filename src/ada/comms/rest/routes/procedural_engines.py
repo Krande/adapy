@@ -152,6 +152,40 @@ async def api_procedural_engines_list(
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
+    """The engines this scope offers, and ``default_engine``: the one a new model gets when
+    nobody names one (the deployment's, resolved against this list; see
+    :mod:`..procedural_default_engine`). That engine's summary also carries ``is_default``."""
+    engines = await scope_engine_list(request, scope_obj, ctx)
+    default = await effective_default_engine(request, ctx, engines)
+    for e in engines:
+        e["is_default"] = e.get("id") == default["id"]
+    return JSONResponse({"procedural_engines": engines, "default_engine": default})
+
+
+async def effective_default_engine(request: Request, ctx: RestContext, engines: list[dict]) -> dict:
+    """The deployment's default procedural engine among ``engines`` (a scope's
+    :func:`scope_engine_list`): the admin setting, else ``ADA_DEFAULT_PROCEDURAL_ENGINE``, else
+    the built-in -- and the built-in, with a ``note``, when what is configured is not offered."""
+    from ..procedural_default_engine import (
+        configured_default_engine,
+        resolve_default_engine,
+    )
+
+    configured, source = await configured_default_engine(
+        getattr(request.app.state, "db_pool", None), ctx.settings.default_procedural_engine
+    )
+    return resolve_default_engine(configured, source, engines)
+
+
+async def default_engine_for_scope(request: Request, scope_obj: Scope, ctx: RestContext) -> dict:
+    """:func:`effective_default_engine` for a scope, listing its engines first."""
+    return await effective_default_engine(request, ctx, await scope_engine_list(request, scope_obj, ctx))
+
+
+async def scope_engine_list(request: Request, scope_obj: Scope, ctx: RestContext) -> list[dict]:
+    """Every engine a scope offers, as the list route serves them: built-ins, the scope's
+    registered rows, engines a live worker advertises, then (a queue-less server) the ones
+    this process registered."""
     # No database (a local viewer): no registered rows, but the built-ins and the
     # engines this process registered are still the honest answer.
     pool = getattr(request.app.state, "db_pool", None)
@@ -219,7 +253,7 @@ async def api_procedural_engines_list(
         for slug in sorted(local_engine_specs(ctx.queue))
         if slug not in known and (d := _local_engine(ctx.queue, f"{_LOCAL_ENGINE_PREFIX}{slug}")) is not None
     ]
-    return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised, *local]})
+    return [*summaries, *engines, *advertised, *local]
 
 
 @router.post("/scopes/{scope}/procedural-engines", status_code=201)

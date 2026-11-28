@@ -266,10 +266,16 @@ ARG IMAGE_TAG=dev
 # Empty by default: a local `docker build` that was not told anything says
 # nothing, rather than claiming a ref it cannot know.
 ARG ADAPY_REF=""
+# The engine a new procedural model gets when nobody names one (a slug or an engine id), for an
+# image that ships with another engine than adapy's built-in. Empty: the built-in. A deployment's
+# own ADA_DEFAULT_PROCEDURAL_ENGINE overrides it, and an admin's procedural_default_engine
+# setting overrides both (ada/comms/rest/procedural_default_engine.py).
+ARG DEFAULT_PROCEDURAL_ENGINE=""
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     ADA_IMAGE_TAG=${IMAGE_TAG} \
-    ADA_ADAPY_REF=${ADAPY_REF}
+    ADA_ADAPY_REF=${ADAPY_REF} \
+    ADA_DEFAULT_PROCEDURAL_ENGINE=${DEFAULT_PROCEDURAL_ENGINE}
 WORKDIR /app
 
 COPY --from=env-builder /work/.pixi/envs/viewer-api-slim /env

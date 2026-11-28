@@ -268,6 +268,16 @@ storage:
 ui:
   default: ""
 
+## The engine a new procedural model gets when nobody names one, by slug
+## (``my-engine``) or engine id (``worker:my-engine``). Empty leaves the image's
+## own (``ADA_DEFAULT_PROCEDURAL_ENGINE``, adapy's built-in unless the image set
+## one) in place. An engine the deployment does not offer falls back to the
+## built-in, with a warning in the API log and a note under Admin > Conversion
+## settings, where an admin can also override this without a restart. Stored
+## models keep the engine they were created with.
+procedural:
+  defaultEngine: ""
+
 ## OIDC bearer-token authentication. Provider-agnostic: works with any
 ## OIDC issuer that publishes a discovery document (Authentik, Azure
 ## AD direct, Auth0, Keycloak, etc.). When auth.enabled is false the
