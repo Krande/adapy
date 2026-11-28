@@ -273,7 +273,10 @@ def test_done_without_the_main_output_is_an_error(client):
     end = client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"})
     assert end.json()["status"] == "error" and "without storing" in end.json()["error"]
     # Ended: nothing more is taken.
-    assert client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"}).status_code == 409
+    assert (
+        client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"}).status_code
+        == 409
+    )
 
 
 def test_to_worker_publishes_the_same_job(client):
@@ -294,7 +297,10 @@ def test_to_worker_publishes_the_same_job(client):
     job = client.mem_queue.jobs[claim["id"]]
     assert job.run_on == "worker" and job.status == "queued"
     # A worker's job is not a claim any more.
-    assert client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"}).status_code == 404
+    assert (
+        client.post(f"/api/scopes/shared/browser-jobs/{claim['id']}/complete", json={"status": "done"}).status_code
+        == 404
+    )
 
 
 def test_a_claim_of_another_scope_is_not_found(client):
