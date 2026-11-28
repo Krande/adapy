@@ -23,19 +23,28 @@ def native_adacpp_ifc_available() -> bool:
         return False
 
 
-def native_stream_read_ifc_blobs(ifc_path: str | pathlib.Path) -> Iterator[tuple]:
-    """Yield ``(ngeom_blob, gid, color, world_matrices, instance_paths)`` per IFC product WITHOUT
-    hydrating the geometry — the foundation of the lazy ShapeStore native IFC import. The C++
-    ``StepRootMeta`` is shared with the STEP path, so ``decode_step_root_meta`` decodes it; the IFC
-    GlobalId (``meta.guid``) is preferred as the shape id when present."""
+def _native_ifc_products(ifc_path: str | pathlib.Path) -> Iterator[tuple]:
+    """Yield ``(ngeom_blob, name, guid, color, world_matrices, instance_paths)`` per IFC product.
+
+    ``name`` is the product's own ``IfcRoot.Name`` (the deepest instance-path level, as the STEP
+    reader names a solid after its owning product), falling back to the stream's id; ``guid`` is
+    its ``GlobalId`` (empty when the file states none)."""
     import adacpp
 
     from ada.cadit.step.read.native_reader import decode_step_root_meta
 
     for nbytes, meta in adacpp.cad.IfcNgeomStream(str(ifc_path)):
-        gid, color, mats, paths = decode_step_root_meta(meta)
-        gid = meta.guid or gid
-        yield nbytes, gid, color, mats, paths
+        name, color, mats, paths = decode_step_root_meta(meta)
+        yield nbytes, name, (meta.guid or ""), color, mats, paths
+
+
+def native_stream_read_ifc_blobs(ifc_path: str | pathlib.Path) -> Iterator[tuple]:
+    """Yield ``(ngeom_blob, gid, color, world_matrices, instance_paths)`` per IFC product WITHOUT
+    hydrating the geometry — the foundation of the lazy ShapeStore native IFC import. The C++
+    ``StepRootMeta`` is shared with the STEP path, so ``decode_step_root_meta`` decodes it; the IFC
+    GlobalId (``meta.guid``) is preferred as the shape id when present."""
+    for nbytes, name, guid, color, mats, paths in _native_ifc_products(ifc_path):
+        yield nbytes, (guid or name), color, mats, paths
 
 
 def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree: bool = True) -> int:
@@ -72,11 +81,15 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
         return parent
 
     n = 0
-    for i, (blob, gid, color, mats, paths) in enumerate(native_stream_read_ifc_blobs(ifc_path)):
-        name = gid if gid not in (None, "") else f"{assembly.name}_{i}"
+    for i, (blob, pname, guid, color, mats, paths) in enumerate(_native_ifc_products(ifc_path)):
+        # Named after the product, as the ifcopenshell reader names it, so an object keeps its name
+        # through a write/read round-trip; the GlobalId rides as the shape's guid. A product the
+        # file leaves unnamed falls back to its GlobalId, then to a positional name.
+        name = pname or guid or f"{assembly.name}_{i}"
+        ident = {"guid": guid} if guid else {}
         if store is not None:
             idx = store.add_blob(blob, gid=name, color=color, transforms=(mats or None), instance_paths=(paths or None))
-            shp = ShapeProxy(name, store, idx, color=color)
+            shp = ShapeProxy(name, store, idx, color=color, **ident)
         else:
             from ada.api.primitives import Shape
             from ada.cadit.ngeom.deserialize import deserialize_geometries
@@ -91,6 +104,7 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
                     id=name, geometry=dec[0][1], color=color, transforms=(mats or None), instance_paths=(paths or None)
                 ),
                 color=color,
+                **ident,
             )
         parent = _tree_parent(paths) if product_tree else assembly
         parent.add_shape(shp)

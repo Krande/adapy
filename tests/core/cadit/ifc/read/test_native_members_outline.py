@@ -52,3 +52,23 @@ def test_a_beam_with_an_outline_section_reaches_the_part():
     beams = list(part.get_all_physical_objects(by_type=ada.Beam))
     assert [b.name for b in beams] == ["b0"]
     assert beams[0].section.type == BaseTypes.POLY
+
+
+def _framed(xdir, normal, **overrides) -> dict:
+    # Identity placement, so the swept plane's LOCAL vectors are already world.
+    identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    return _record(placement=identity, origin=(0.0, 0.0, 0.0), xdir=xdir, normal=normal, **overrides)
+
+
+def test_a_beam_takes_its_orientation_from_the_swept_profile():
+    # Profile +x along world +z, extruded along the axis (+x): the profile's +y is world -y.
+    (beam,) = members_to_part([_framed(xdir=(0.0, 0.0, 1.0), normal=(1.0, 0.0, 0.0))]).get_all_physical_objects()
+    assert tuple(beam.up) == pytest.approx((0.0, -1.0, 0.0))
+    assert tuple(beam.yvec) == pytest.approx((0.0, 0.0, 1.0))
+
+
+def test_a_profile_not_square_to_the_axis_keeps_the_default_orientation():
+    default = ada.Beam("ref", (0, 0, 0), (2, 0, 0), _section_for(_record()))
+    # Profile +y along the axis: not a section of this beam, so nothing is taken from it.
+    (beam,) = members_to_part([_framed(xdir=(0.0, 0.0, 1.0), normal=(0.0, 1.0, 0.0))]).get_all_physical_objects()
+    assert tuple(beam.up) == pytest.approx(tuple(default.up))
