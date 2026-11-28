@@ -135,6 +135,16 @@ class RendererManager:
         - force_embed_glb: If True, forces embedding of GLB in the viewer.
         - always_use_external_viewer: If True, always uses an external viewer even if in a notebook.
         """
+        from ada.visit.glb_export import export_env
+
+        # Tessellate as adapy's GLB export does (the stream engine, the CDT seam weld), whichever
+        # writer draws it below.
+        with export_env(obj):
+            return self._render(
+                obj, params, force_ws, auto_embed_glb_in_notebook, force_embed_glb, always_use_external_viewer
+            )
+
+    def _render(self, obj, params, force_ws, auto_embed_glb_in_notebook, force_embed_glb, always_use_external_viewer):
         import trimesh
 
         from ada import Assembly
@@ -147,6 +157,19 @@ class RendererManager:
             scene = converter.build_processed_scene()
             return scene.show()
 
+        # A Part/Assembly goes through adapy's one GLB export path (the native record writer, as the
+        # worker's and the browser's conversions do); None where only the scene writer can draw it.
+        from ada.visit.glb_export import native_glb_bytes
+
+        native_glb = native_glb_bytes(obj, params)
+
+        def encoded_glb() -> str:
+            if native_glb is None:
+                return converter.build_encoded_glb()
+            import base64
+
+            return base64.b64encode(native_glb).decode("utf-8")
+
         if (
             self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False
         ) or force_embed_glb:
@@ -154,7 +177,7 @@ class RendererManager:
 
         renderer_obj = RendererReact()
         if self.embed_glb:
-            encoded = converter.build_encoded_glb()
+            encoded = encoded_glb()
             if self.is_in_notebook() and always_use_external_viewer is False:
                 renderer = renderer_obj.get_notebook_renderer_widget(
                     target_id=None, embed_base64_glb=encoded, force_ws=force_ws
@@ -173,7 +196,7 @@ class RendererManager:
         # Set up the renderer and WebSocket server
         self.start_server()
         if params.serve_html:
-            encoded = converter.build_encoded_glb()
+            encoded = encoded_glb()
             return renderer_obj.serve_html(
                 web_port=params.serve_web_port,
                 ws_port=params.serve_ws_port,
@@ -194,7 +217,7 @@ class RendererManager:
             if isinstance(obj, MeshDC):
                 wc.append_scene(obj)
                 return renderer_instance
-            else:
+            elif native_glb is None:
                 scene = converter.build_processed_scene()
 
             if isinstance(obj, trimesh.Scene):
@@ -202,18 +225,23 @@ class RendererManager:
             else:
                 scene_name = obj.name if hasattr(obj, "name") else "Scene"
 
-            # Send the scene to the WebSocket client
+            # Send the scene to the WebSocket client: the record writer's finished GLB as it is, or the
+            # scene writer's trimesh scene with this converter's postprocessors.
             wc.update_scene(
                 scene_name,
-                scene,
+                native_glb if native_glb is not None else scene,
                 purpose=params.purpose,
                 scene_op=params.scene.operation,
-                gltf_buffer_postprocessor=converter.buffer_postprocessor,
-                gltf_tree_postprocessor=converter.tree_postprocessor,
+                gltf_buffer_postprocessor=None if native_glb is not None else converter.buffer_postprocessor,
+                gltf_tree_postprocessor=None if native_glb is not None else converter.tree_postprocessor,
                 target_id=target_id,
             )
 
-            if params.gltf_export_to_file is not None:
+            if params.gltf_export_to_file is not None and native_glb is not None:
+                out = pathlib.Path(params.gltf_export_to_file)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(native_glb)
+            elif params.gltf_export_to_file is not None:
                 if params._gltf_tree_postprocessor is None:
                     gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
                 else:
