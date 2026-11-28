@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 9e32bc501da96076cd3f9e7b809294b1899cdbf2398dbd47f6f78a369384a8be
-bundle-sha256 546c48d91b40ee89e757068294ef91215d3f4f90dfbf48dc48774d4404ea7cc7
+inputs-sha256 88558d1970119f2a45bb5f20246c3a38b1ba2567b51a5c770ce75c00b51e9569
+bundle-sha256 f83957b74eb26b662aa6367c8e97399a79597fe6966ed0b3082e5f752606e9f0
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.48.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -77,7 +77,7 @@ src/frontend/src/components/admin/AuditTab.tsx 464166832734d032f3094f8dc7a129797
 src/frontend/src/components/admin/ClashSpecProvidersSection.tsx a4897303b64da9765d24f65199963d5b266c87fe
 src/frontend/src/components/admin/CollectionChoicesEditor.tsx 727d195399b7289d9c4dc079271cd2b2c368d986
 src/frontend/src/components/admin/ConnectionScopesSection.tsx acfb44cbb673a608c3516c1d723f9eaa96f08f01
-src/frontend/src/components/admin/ConversionSettingsTab.tsx b86f9c56aab4ea20e896aff230c966cc4c8f9bbb
+src/frontend/src/components/admin/ConversionSettingsTab.tsx a9b4dbefd8876a88bffbb12052649a6622e7611c
 src/frontend/src/components/admin/EquipmentAdminPanel.tsx 3793c9eff8fdb8e1bc068eb8814ea446e5b4a0d8
 src/frontend/src/components/admin/EquipmentPreview.tsx 2d80a420104f7e08943a780e7838ace9cf315cc3
 src/frontend/src/components/admin/FileTreeView.tsx 689e90726a7cca1153b6737043e53ad182a65019
@@ -87,6 +87,7 @@ src/frontend/src/components/admin/IssueTargetTab.tsx 1faeb0a62682ffd14756664c9c8
 src/frontend/src/components/admin/PerformanceTab.tsx c1eabffedb806f09303295fc7df7dc2576c0ac04
 src/frontend/src/components/admin/PluginAccessTab.tsx 7d2d150939acef19828ff6d5ccb5ff5416038bdb
 src/frontend/src/components/admin/PluginOptionsForm.tsx 7360c8c4104c2d5594a2aa0f33dceaf31aeaed20
+src/frontend/src/components/admin/ProceduralDefaultEngineSetting.tsx 18da0102b19b1812da40b08b50e438a91d146aa6
 src/frontend/src/components/admin/ProceduralEngineAdminPanel.tsx c36999129583456889d4bbb2fa1f97d2cbc82929
 src/frontend/src/components/admin/ProceduralTab.tsx 4cfcf42d9d4bf0ac9f314367e6da476ba785c2eb
 src/frontend/src/components/admin/ProjectsTab.tsx aabf2905b2052a33e499cf276a3146a62623e444
@@ -406,7 +407,7 @@ src/frontend/src/components/storage/GitHistoryPanel.tsx 5dd173dd9870939b23b2707d
 src/frontend/src/components/storage/StorageBrowser.tsx b1bb022105c5361e766a175648cd2a6f16ce506c
 src/frontend/src/components/storage/browser/AssetTypeSections.tsx c3e4d89a9f60c1674d7b848b97efb2c5875c38ae
 src/frontend/src/components/storage/browser/BrowserDialogs.tsx 4ff4c47c7837f8bf28e2f4178c4d3fd077dc3861
-src/frontend/src/components/storage/browser/BrowserHeader.tsx 996130cd3223c2c886adc4ab3a35dfa8595f5650
+src/frontend/src/components/storage/browser/BrowserHeader.tsx 7696fa437a2862279c760f7f854d0c1e7295f63b
 src/frontend/src/components/storage/browser/FileRow.tsx 499399581e164e5eadaee641abe85b0c6289f36a
 src/frontend/src/components/storage/browser/FileTreeList.tsx 649ee79bfeffa306ac6cfacd60755efb0f173eec
 src/frontend/src/components/storage/browser/FolderRow.tsx 50c6a6c7efb4dc036118ff469c2e52d03b4510ca
@@ -423,7 +424,7 @@ src/frontend/src/components/storage/browser/useDragAndMenus.ts 8aff975282918736a
 src/frontend/src/components/storage/browser/useFileOps.ts e56095bcacf5c3e2a0c4b677e3a8cc13629e55d6
 src/frontend/src/components/storage/browser/useFolderTree.ts d1adbd4298a6b942c839a45da15de764860ba8ed
 src/frontend/src/components/storage/browser/useListKeyboardNav.ts fd7a56cd92784bb81466e12d938bd0dbf73b95ca
-src/frontend/src/components/storage/browser/useProceduralModels.ts 3960299a404a3fdc0f343bbb1f08abef3b63727a
+src/frontend/src/components/storage/browser/useProceduralModels.ts 02b29081d690b5c6e70bb42719b305222443f07c
 src/frontend/src/components/storage/browser/useRowLoads.ts bbf726d9d7a666234f663e0897c47f29f422d6f7
 src/frontend/src/components/storage/browser/useUploads.ts 5210ca3358f5fdd8a77fdf01cad630f218d32204
 src/frontend/src/components/storage/storageMenuItems.tsx a0796d687ca5875904947bc6741cbfac5f849a51
@@ -792,8 +793,8 @@ src/frontend/src/services/api/nodeRelations.ts dd4b4d1505f1192b150410e429b1e9ffd
 src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d83c91ee
 src/frontend/src/services/api/plugins.ts 4c51d95b8533376961bd1825dbabbc24bdacd091
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
-src/frontend/src/services/api/procedural.ts 65f8716b245be48e5f4a172a37dfa7461d44b6d6
-src/frontend/src/services/api/proceduralCatalog.ts 728c7df1b0c66dfb595a960ff7f234e72cd0003a
+src/frontend/src/services/api/procedural.ts e0d39c8928280f8daa5d7310ab099c18fc356955
+src/frontend/src/services/api/proceduralCatalog.ts 27946d8a21b4038fc7df54786176f66b7b58f843
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
 src/frontend/src/services/api/robotBundles.ts dfbfd042a2f673dbebd2978bd2e0d2fab19ae50f
@@ -813,7 +814,7 @@ src/frontend/src/services/assets.ts 5aa618bc75f15a02d86755c542e04920dc6d85bd
 src/frontend/src/services/audit/wasmSweep.ts 0606b25383ef8f32cc03c1bbc1a4ea6b22cfa311
 src/frontend/src/services/auth/oidc.ts f3cbdaaa7aa853d8dda3b9fb28ac962d862f7069
 src/frontend/src/services/capabilities/index.ts 93810f5190aa7b35a9a5d789b286ec0852c5560c
-src/frontend/src/services/capabilities/rest_capabilities.ts d06e1aeaac42c9abe9827eac401a85c3be4c8182
+src/frontend/src/services/capabilities/rest_capabilities.ts bb930422ecabf07f4aff06a78a1f54b562ea606c
 src/frontend/src/services/capabilities/types.ts 6cf8971901a96cef2ca35dba5db521d01b7c00fa
 src/frontend/src/services/capabilities/ws_capabilities.ts 5c3c83ee82b3faafa8390cb768fcb4c0c1847562
 src/frontend/src/services/clash/browserClashCheck.ts b7f83bf44c716eb7f9e671e7d1778bb896ccd99e
@@ -887,7 +888,7 @@ src/frontend/src/services/simulations/schemaForm.ts a6dfb0fbe08e0034e688ed717660
 src/frontend/src/services/sweepTracking.ts a46c50184a2822613bb0e3fa718893de3520adea
 src/frontend/src/services/transport.ts 3073a48c1dc02347859f8a3bccdcb184697e799f
 src/frontend/src/services/treeSets.ts 80efd31f057f07b6b76f00d5fff099da545bc69c
-src/frontend/src/services/viewerApi.ts 93ce092de2576df3629bb8ba52f7b74143b24f0f
+src/frontend/src/services/viewerApi.ts 41a42cedba35b9457fe61f1e42ba9a983805a1f6
 src/frontend/src/services/viewerControl/answer.ts cfa797841f7f57a0ab21a9a764b14cc545c9f1b7
 src/frontend/src/services/viewerControl/commands.ts 4c72ce5e05ad9e408ededea2e8a044f2cf09c62d
 src/frontend/src/services/viewerControl/desktop.ts f4157bbbfbae6f699d5df1b6fd8eb79201a82919
