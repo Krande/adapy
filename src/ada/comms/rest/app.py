@@ -322,6 +322,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def _reset_request_user_middleware(request, call_next):
+        from .browser_jobs import (
+            requests_browser,
+            reset_browser_choice,
+            set_browser_choice,
+        )
         from .execution_policy import (
             requested_operation,
             reset_requested_operation,
@@ -332,8 +337,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reset_explicit_worker_choice,
             set_explicit_worker_choice,
         )
-
-        from .browser_jobs import requests_browser, reset_browser_choice, set_browser_choice
 
         token = auth_module.set_request_user(None)
         choice = set_explicit_worker_choice(requests_worker(request.headers))

@@ -16,7 +16,6 @@ from ..storage import Storage
 from ..worker.audit import _audit_done
 from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
 
-
 # The pure work lives in ``equipment_geometry`` (the browser runs it too); the old names stay.
 _infer_equipment_geometry = infer_equipment_geometry
 _load_cad_mesh = load_cad_mesh
