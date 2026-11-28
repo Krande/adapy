@@ -1,0 +1,2500 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/architecture/robot_asset_bundles/">
+      
+      
+        <link rel="prev" href="../viewer_control/">
+      
+      
+        <link rel="next" href="../frontend/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>Robot-asset bundles (.adabots) - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Robot-asset bundles (.adabots)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../drawings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Drawings
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../viewer_control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer control API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Robot-asset bundles (.adabots)
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Robot-asset bundles (.adabots)
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-robot-asset-in-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A robot asset in the store
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A robot asset in the store">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#versions-and-which-is-the-latest" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Versions, and which is the latest
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The bundle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#export" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Export
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#import" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Import
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Import">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-local-copies" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        No local copies
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-checked-before-anything-is-written" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What is checked before anything is written
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-an-import-does-with-each-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What an import does with each robot
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grants-scopes-and-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Grants, scopes and ownership
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-admin-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The Admin panel
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-yet-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Not (yet) covered
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../threejs_free_viewport/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  A viewer without three.js
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-robot-asset-in-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A robot asset in the store
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A robot asset in the store">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#versions-and-which-is-the-latest" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Versions, and which is the latest
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The bundle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#export" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Export
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#import" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Import
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Import">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-local-copies" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        No local copies
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-checked-before-anything-is-written" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What is checked before anything is written
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-an-import-does-with-each-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What an import does with each robot
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grants-scopes-and-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Grants, scopes and ownership
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-admin-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The Admin panel
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-yet-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Not (yet) covered
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/architecture/robot_asset_bundles.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="robot-asset-bundles-adabots">Robot-asset bundles (<code>.adabots</code>)<a class="headerlink" href="#robot-asset-bundles-adabots" title="Permanent link">&para;</a></h1>
+<p>Ada Studio keeps robot assets (a robot's description and its meshes) as <strong>provider data</strong>: once, in the
+provider store, as the collection <code>robots</code> of the provider <code>robot-assets</code>. A scope reads them only through a
+grant an administrator gave it (Admin, Providers, Access; see <code>docs/design/provider-scope-grants.md</code>). A
+<strong>robot bundle</strong> carries robot assets from one Ada Studio to another, or into a backup: one robot, a selection,
+or the whole catalogue, in one file.</p>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/ada/comms/rest/robot_bundles.py</code></td>
+<td>The format, the store listing, the streaming export, the validation, the import plan and the import.</td>
+</tr>
+<tr>
+<td><code>src/ada/comms/rest/routes/admin_robot_assets.py</code></td>
+<td>The routes, under <code>/api/admin/robot-assets</code>.</td>
+</tr>
+<tr>
+<td><code>src/frontend/src/components/admin/RobotBundlesTab.tsx</code></td>
+<td>Admin, <strong>Robot bundles</strong>: the list, the downloads, the import.</td>
+</tr>
+<tr>
+<td><code>src/frontend/src/services/api/robotBundles.ts</code>, <code>src/frontend/src/assets/robotBundles.ts</code></td>
+<td>The client (<code>robotBundlesApi</code>, on the plugin surface from 1.37.0) and the shapes and rules the tab draws by.</td>
+</tr>
+<tr>
+<td><code>tests/comms/rest/test_robot_bundles.py</code>, <code>src/frontend/src/__tests__/admin/robotBundles.test.tsx</code></td>
+<td>The tests.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="a-robot-asset-in-the-store">A robot asset in the store<a class="headerlink" href="#a-robot-asset-in-the-store" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>assets/robots/&lt;id&gt;/&lt;version&gt;/robot.json          the asset&#39;s own description
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>assets/robots/&lt;id&gt;/&lt;version&gt;/&lt;path&gt;              every file it carries (meshes/coarse/base_link.stl, ...)
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>assets/robots/index.json                         the complete versions, for readers that cannot list the store
+</span></code></pre></div>
+<ul>
+<li><code>&lt;id&gt;</code>: lower-case letters, digits, <code>-</code> and <code>_</code> (never <code>__</code>). <code>&lt;version&gt;</code>: letters, digits, <code>.</code>, <code>_</code>, <code>-</code>.</li>
+<li>A version is complete once its <code>robot.json</code> is there; one without it is not used by anything.</li>
+<li><code>robot.json</code> must say the <code>id</code> and <code>version</code> it is stored under. Wherever it names a file as
+  <code>{"path": ..., "sha256": ...}</code> (its <code>meshes</code> at every level, its <code>sources</code>, anywhere else) that file must be
+  in the version with that sha256, except under the top-level <code>provenance</code>, whose pins say what the asset
+  was made from and are not files of the version. Nothing else about its schema is core's business: the
+  plugin that uses the assets defines it.</li>
+<li><code>sources: [{path, name, format, sha256, bytes, contents?}]</code> lists the version's source files beside its
+  meshes: source CAD files (STEP, <code>format: "step"</code>) and source archives (<code>.zip</code>, e.g.
+  <code>format: "process-simulate"</code>).</li>
+<li>Files may be gzipped at rest; every hash is of the file's own bytes.</li>
+</ul>
+<h3 id="versions-and-which-is-the-latest">Versions, and which is the latest<a class="headerlink" href="#versions-and-which-is-the-latest" title="Permanent link">&para;</a></h3>
+<p>Robot assets are versioned already: each version is a folder of its own and is never overwritten. The <strong>latest</strong>
+version of an id is the greatest by this order (<code>robot_bundles.version_key</code>), which is also what the list shows
+first:</p>
+<ul>
+<li><strong>revision</strong>: a whole number (<code>1</code>, <code>2</code>, <code>10</code>), compared as a number;</li>
+<li><strong>semver</strong>: <code>MAJOR.MINOR.PATCH[-pre]</code> (<code>1.10.0</code> &gt; <code>1.9.0</code>, <code>2.0.0-rc1</code> &lt; <code>2.0.0</code>);</li>
+<li><strong>natural</strong>: anything else, compared by its runs of digits as numbers and of letters as words.</li>
+</ul>
+<p>The scheme of each version is written into the bundle's manifest (<code>version_scheme</code>).</p>
+<h2 id="the-bundle">The bundle<a class="headerlink" href="#the-bundle" title="Permanent link">&para;</a></h2>
+<p><strong>Suffix: <code>.adabots</code>.</strong> A zip by content (<code>unzip</code> opens it; it is served as <code>application/zip</code>), with a suffix of
+its own so it is plain what the file is and that it goes to Admin, Robot bundles. <code>.ada</code> was considered and not
+taken: it is too general a name for a file that only ever holds robot assets.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>manifest.json
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>robots/&lt;id&gt;/&lt;version&gt;/robot.json
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>robots/&lt;id&gt;/&lt;version&gt;/&lt;path&gt;                     one folder per robot asset version, as in the store
+</span></code></pre></div>
+<p><code>manifest.json</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>{
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a> &quot;schema&quot;: &quot;ada.robots/bundle@1&quot;,                 // a reader refuses another major (@2)
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a> &quot;format_version&quot;: 1,
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a> &quot;exported_at&quot;: &quot;2026-11-22T10:00:00Z&quot;,
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a> &quot;adapy_version&quot;: &quot;0.168.0&quot;,
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a> &quot;source&quot;: {&quot;provider&quot;: &quot;robot-assets&quot;, &quot;collection&quot;: &quot;robots&quot;},
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a> &quot;version_order&quot;: &quot;revision | semver | natural; ...&quot;,
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a> &quot;robots&quot;: [
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  {
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>   &quot;ref&quot;: &quot;example-arm@2&quot;, &quot;id&quot;: &quot;example-arm&quot;, &quot;version&quot;: &quot;2&quot;, &quot;version_scheme&quot;: &quot;revision&quot;,
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>   &quot;latest_in_source&quot;: true,                      // the latest version of the id where it was exported
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>   &quot;name&quot;: &quot;Example arm&quot;,                         // robot.json&#39;s label, else the id
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>   &quot;path&quot;: &quot;robots/example-arm/2/&quot;,
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>   &quot;manifest_sha256&quot;: &quot;...&quot;,                      // of robot.json
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>   &quot;content_sha256&quot;: &quot;...&quot;,                       // of the whole version: see below
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>   &quot;files&quot;: [{&quot;path&quot;: &quot;robot.json&quot;, &quot;sha256&quot;: &quot;...&quot;, &quot;bytes&quot;: 1234}, ...],
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>   &quot;metadata&quot;: {&quot;label&quot;: &quot;...&quot;, &quot;manufacturer&quot;: &quot;...&quot;, &quot;roles&quot;: [...], &quot;levels&quot;: [&quot;coarse&quot;], ...}
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>  }
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a> ]
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>}
+</span></code></pre></div>
+<p><code>content_sha256</code> is the sha256 of the lines <code>"&lt;sha256&gt;  &lt;path&gt;\n"</code> (what <code>sha256sum</code> prints) of every file
+of the version, sorted by path: two versions with the same files byte for byte have the same content hash,
+however they are stored.</p>
+<p><strong>Deterministic.</strong> The same assets give the same bytes: the entries are sorted (by id, version, path), carry a
+fixed time (1980-01-01) and mode (0644), are deflated at level 6, and the manifest is canonical JSON (sorted keys,
+one-space indent, UTF-8). The only thing that changes from one export to the next is <code>exported_at</code>; set
+<code>SOURCE_DATE_EPOCH</code> on the server to fix it too. <code>manifest.json</code> is the <strong>last</strong> entry: the export streams each
+file into the zip as it reads it, and the manifest holds every file's sha256, which is known only then. It is at
+the root, and a reader finds it by name.</p>
+<p>Files that are not of an allowed type (below) are left out of an export and listed under the robot's
+<code>skipped_files</code>.</p>
+<h2 id="export">Export<a class="headerlink" href="#export" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/admin/robot-assets/export</code> <code>{"refs": ["example-arm@2", "other-arm"]}</code> or <code>{"all": true}</code>;
+<code>GET /api/admin/robot-assets/export?ref=...&amp;ref=...</code> or <code>?all=1</code>. A ref is <code>&lt;id&gt;@&lt;version&gt;</code>, or <code>&lt;id&gt;</code> for every
+version of it. The answer is streamed: one stored file is read at a time and compressed into the zip as it
+comes, so a large catalogue never has to fit in memory. It is <code>attachment; filename="&lt;id&gt;@&lt;version&gt;.adabots"</code>
+for one robot, <code>robots-&lt;yyyymmdd&gt;-&lt;n&gt;.adabots</code> for more.</p>
+<h2 id="import">Import<a class="headerlink" href="#import" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Preview.</strong> <code>POST /api/admin/robot-assets/import/preview</code> with the bundle as the raw body
+   (<code>application/octet-stream</code>). The bundle is validated in full, then staged in the provider store
+   (<code>_staging/robot-bundles/&lt;upload_id&gt;.adabots</code>, so any API replica can finish it; a staged bundle is
+   removed when imported or dropped, or after a day), and the answer says per robot what an import would do.
+   <strong>Nothing is written to the robot assets.</strong></li>
+<li><strong>Import.</strong> <code>POST /api/admin/robot-assets/import/&lt;upload_id&gt;</code>
+   <code>{"add_older": false, "robots": {"&lt;ref&gt;": {"include": true, "add_older": true}}}</code>. The staged bundle is
+   validated and compared with the store <strong>again</strong> (it may have changed since the preview), and each robot is
+   written on its own. <code>DELETE /api/admin/robot-assets/import/&lt;upload_id&gt;</code> drops it instead.</li>
+</ol>
+<h3 id="no-local-copies">No local copies<a class="headerlink" href="#no-local-copies" title="Permanent link">&para;</a></h3>
+<p>The API keeps no copy of a bundle, or of a file in it, on its own disk, whatever the bundle's size:</p>
+<ul>
+<li><strong>Preview.</strong> The request body streams straight into the staging object as a multipart upload
+  (<code>Storage.put_stream</code>: 5 MiB parts, at most two in flight). A body past <code>ADA_ROBOT_BUNDLE_MAX_BYTES</code> is refused
+  with 413 before a byte is read when its <code>Content-Length</code> says so, and the moment it passes the limit otherwise;
+  the multipart upload is then aborted and nothing is staged. The bundle is validated where it is staged, and a
+  refused one is removed again.</li>
+<li><strong>Validation and import</strong> read the staged object in place (<code>Storage.open_seekable</code>): a filesystem store opens
+  its own file; an object store is read by range requests through a small cache of 4 MiB blocks (three of them),
+  so the zip's central directory and the sequential reads of each file are a request per block.</li>
+<li><strong>Writing a robot.</strong> Each file streams from the zip into its object: one PUT up to 5 MiB, a multipart upload
+  above. zipfile checks each file's CRC as its last bytes are read, so a corrupt file fails its robot before the
+  object exists.</li>
+</ul>
+<p>Memory stays bounded at a few tens of MiB: the block cache (12 MiB), the parts in flight (up to 15 MiB) and a
+chunk or two being read and inflated.</p>
+<h3 id="what-is-checked-before-anything-is-written">What is checked before anything is written<a class="headerlink" href="#what-is-checked-before-anything-is-written" title="Permanent link">&para;</a></h3>
+<p>The whole bundle is refused (400, with every problem found) when:</p>
+<ul>
+<li>it is not a zip, has no <code>manifest.json</code> at the root, or its <code>schema</code> is not <code>ada.robots/bundle@1</code>;</li>
+<li>an entry's path is absolute (<code>/x</code>, <code>C:/x</code>), has a <code>..</code>, <code>.</code> or empty segment, or a backslash;</li>
+<li>an entry is a symbolic link, is encrypted, or is in the zip twice;</li>
+<li>an entry is not one the manifest names, or a file the manifest names is not of an allowed type:
+  <code>.json .stl .dae .glb .gltf .bin .obj .mtl .urdf .xacro .xml .yaml .yml .png .jpg .jpeg .webp .ktx2 .txt .md</code>,
+  source CAD files <code>.stp .step</code>, and a source archive <code>.zip</code> only where the version's <code>robot.json</code> lists it
+  in <code>sources</code> (and not as a mesh). An archive is stored as it is: never extracted or inspected, and it
+  counts against the size limits as any file does;</li>
+<li>it passes a limit (environment variables, defaults in brackets): the upload <code>ADA_ROBOT_BUNDLE_MAX_BYTES</code>
+  (1 GiB; a body past it is cut off with 413), all files unpacked <code>ADA_ROBOT_BUNDLE_MAX_TOTAL_BYTES</code> (4 GiB),
+  one file <code>ADA_ROBOT_BUNDLE_MAX_FILE_BYTES</code> (512 MiB), entries <code>ADA_ROBOT_BUNDLE_MAX_FILES</code> (10 000), robots
+  <code>ADA_ROBOT_BUNDLE_MAX_ROBOTS</code> (1 000); and a file over 1 MiB that unpacks to more than 1 000 times its packed
+  size.</li>
+</ul>
+<p>A robot is <strong>invalid</strong> (shown, never written; the others go on) when one of its files is not the size or the
+sha256 the manifest says (read, never trusted from the zip header), its <code>content_sha256</code> is not its files' hash,
+it has no <code>robot.json</code>, its <code>robot.json</code> says another id or version, or names a file with another sha256.</p>
+<h3 id="what-an-import-does-with-each-robot">What an import does with each robot<a class="headerlink" href="#what-an-import-does-with-each-robot" title="Permanent link">&para;</a></h3>
+<p>A bundle robot is matched to the stored assets by its <strong>asset id</strong> (the folder name, and <code>robot.json</code>'s <code>id</code>).
+The id is chosen by whoever built the asset and travels with it -- no install makes up its own -- so it is the
+same key in every Ada Studio, and no other key (a name, a label) is used to match: two robots with the same label
+are two robots. Where the same <code>robot.json</code> is stored under another ref the preview says so (<code>duplicate_of</code>),
+and imports it as what it says it is.</p>
+<p>Each robot is held against the versions of its id stored <strong>before</strong> the import:</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>When</th>
+<th>The import</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>new</code></td>
+<td>no version of the id is stored</td>
+<td>adds it; it is the latest</td>
+</tr>
+<tr>
+<td><code>unchanged</code></td>
+<td>that version is stored with the same content hash</td>
+<td>nothing</td>
+</tr>
+<tr>
+<td><code>newer</code></td>
+<td>newer than the latest stored version</td>
+<td>adds it as a new version, which becomes the latest; the earlier versions stay</td>
+</tr>
+<tr>
+<td><code>older</code></td>
+<td>older than the latest stored version, and not stored</td>
+<td>nothing ("older, skipped"); with <code>add_older</code> (for the bundle or that robot) it is added as a past version, and the latest stays what it was</td>
+</tr>
+<tr>
+<td><code>conflict</code></td>
+<td>that version is stored with other content</td>
+<td>nothing, ever: a stored version is never overwritten. Give the changed asset a new version.</td>
+</tr>
+<tr>
+<td><code>invalid</code></td>
+<td>its files do not hold up (above)</td>
+<td>nothing</td>
+</tr>
+</tbody>
+</table>
+<p>A robot can also be left out (<code>include: false</code>). Exporting a store and importing the bundle into the same store
+gives <code>unchanged</code> for every robot.</p>
+<p><strong>Atomic per robot.</strong> A version's files are written first and its <code>robot.json</code> last; a version without
+<code>robot.json</code> is not used, so a reader sees all of it or none. If any write fails, what was written of that robot
+is deleted again, the robot is reported <code>failed</code>, and the next robot goes on. An incomplete leftover of the same
+version (from an upload cut short) is replaced. After an import that wrote anything, <code>assets/robots/index.json</code>
+is rewritten from what is stored (one row per complete version: ref, id, version, label, <code>manifest_sha256</code>,
+levels, roles, payload, reach and the file sizes), keeping the index's <code>schema</code>.</p>
+<p>The answer is one row per robot of the bundle: <code>added</code>, <code>added-older</code>, <code>skipped</code>, <code>conflict</code> or <code>failed</code>, with a
+sentence saying why.</p>
+<h3 id="grants-scopes-and-ownership">Grants, scopes and ownership<a class="headerlink" href="#grants-scopes-and-ownership" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Who.</strong> Every route is under <code>/api/admin</code> and so is an administrator's; a member is refused (403). The robot
+  assets are provider data, which only an administrator writes.</li>
+<li><strong>Where an import writes.</strong> The provider store only (<code>providers</code>), under <code>assets/robots/</code>, whatever scope the
+  administrator had open. Never into another scope, never a copy per scope.</li>
+<li><strong>Grants are not in a bundle and an import changes none.</strong> A grant names scopes of one deployment (projects by
+  their id, users by theirs) that mean nothing in another, so carrying them would grant the wrong thing or
+  nothing. The scopes that already hold the <code>robots</code> grant of <code>robot-assets</code> (or the provider-wide grant) read the
+  imported versions at once (within the 30 s the store's "it holds the dataset" answer is cached; an import clears
+  it); a scope without it reads none of them until an administrator ticks <code>robots</code> for it in Providers, Access.
+  The list and the preview say which scopes hold the grant.</li>
+<li><strong>Ownership.</strong> The provider store belongs to no user or project, so an imported asset has no owner to keep:
+  who imported what, and when, is in the audit log (<code>robot-bundle-import</code>, <code>robot-bundle-export</code>).</li>
+</ul>
+<h2 id="the-admin-panel">The Admin panel<a class="headerlink" href="#the-admin-panel" title="Permanent link">&para;</a></h2>
+<p><strong>Admin, Robot bundles</strong> (<code>/admin#robots</code>):</p>
+<ul>
+<li>The stored robots, one card per id (its name, id, latest version) with its versions under it, newest first.
+  A checkbox per version, one per robot (all its versions), and "Select all".</li>
+<li><strong>Download selected (n)</strong> and <strong>Download all</strong>: the bundle is fetched as the administrator and saved.</li>
+<li><strong>Import bundle…</strong>: a drop zone that is also the file picker (a tap opens it on a phone), the upload's
+  progress, then the preview: per robot its status (New / Unchanged / Newer: adds version X / Older: skipped /
+  Conflict / Invalid), what it would do and why, a box to leave a new one out or to add an older one as a past
+  version, "add every older version" for the bundle, the scopes that will read the result, and <strong>Import n
+  robots</strong>. Then the results, robot by robot.</li>
+</ul>
+<p><img alt="Robot bundles at desktop width" src="../../screenshots/robot-bundles/desktop-list.png" /></p>
+<p><img alt="The import preview at desktop width" src="../../screenshots/robot-bundles/desktop-preview.png" /></p>
+<p><img alt="The list, the preview and the results at 390 x 844" src="../../screenshots/robot-bundles/mobile-preview.png" /></p>
+<p>On a phone (390 x 844 and up) it is one column with 16 px gutters, every control at least 44 px tall, buttons in
+two columns, long names wrapping, and nothing that scrolls sideways. The file input has no <code>accept</code> filter: iOS
+greys out a file whose type it does not know, which a <code>.adabots</code> file is; the name is checked once picked, and the
+server checks everything.</p>
+<h2 id="not-yet-covered">Not (yet) covered<a class="headerlink" href="#not-yet-covered" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A bundle is uploaded through the API (up to <code>ADA_ROBOT_BUNDLE_MAX_BYTES</code>, and whatever the ingress in front of
+  it allows), streamed into staging; there is no presigned upload straight from the browser to staging.</li>
+<li>A download is kept by the browser as a Blob before it is saved: the server streams, the browser buffers.</li>
+<li>Removing a version is not part of this.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../viewer_control/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Viewer control API">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Viewer control API
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../frontend/" class="md-footer__link md-footer__link--next" aria-label="Next: Frontend">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Frontend
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>
