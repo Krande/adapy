@@ -198,16 +198,24 @@ class Assembly(Part):
         back as Beam / Plate (section, cuts, material, property sets), as the ifcopenshell reader
         rebuilds them; every other product is a ShapeProxy. Default (``ifcopenshell``) is the full
         typed reader.
-        """
-        if reader == "native":
-            from ada.cadit.ifc.read.native_reader import (
-                native_adacpp_ifc_available,
-                native_read_ifc_into,
-            )
 
-            if not native_adacpp_ifc_available():
-                raise RuntimeError("reader='native' requires adacpp with IfcNgeomStream")
-            native_read_ifc_into(self, ifc_file)
+        ``reader=None`` asks ``ada.cadit.ifc.backend.select_ifc_backend`` for a backend that reads
+        every element kind (ifcopenshell where it is installed, the native reader otherwise or when
+        ``ADAPY_IFC_BACKEND=native``).
+        """
+        from ada.cadit.ifc.backend import (
+            CAP_READ_FILE_OBJECT,
+            CAP_READ_TYPED,
+            OP_READ,
+            select_ifc_backend,
+        )
+
+        require = {CAP_READ_TYPED}
+        if not isinstance(ifc_file, (str, os.PathLike)):
+            require.add(CAP_READ_FILE_OBJECT)
+        backend = select_ifc_backend(reader, operation=OP_READ, require=require)
+        if backend.name == "native":
+            backend.read(self, ifc_file)
             if isinstance(ifc_file, (str, os.PathLike)):
                 # No IfcStore here: it imports ifcopenshell, which the native path must not need.
                 # ``ifc_store`` builds one on first use and hands it this path.
@@ -215,7 +223,7 @@ class Assembly(Part):
                 if self._ifc_store is not None:
                     self._ifc_store.ifc_file_path = self._ifc_source_path
             return
-        self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)
+        backend.read(self, ifc_file, data_only=data_only, elements2part=elements2part)
 
     def read_fem(
         self,
@@ -499,18 +507,23 @@ class Assembly(Part):
         # Native pure-C++ writer (adacpp blobs_to_ifc): emit analytic IFC solids from each shape's
         # NGEOM blob — no ifcopenshell/OCC. Needs an on-disk destination + lazy ShapeProxy shapes
         # (pairs with from_ifc(reader="native")). Raises if no shape carries a blob.
-        if writer == "native":
-            if destination == "object":
-                raise ValueError("to_ifc(writer='native') needs an on-disk destination")
-            from ada.cadit.ifc.write.native_ifc_writer import (
-                native_ifc_writer_available,
-                native_write_ifc,
-            )
+        # ``writer=None`` asks select_ifc_backend for a writer of every element kind (ifcopenshell
+        # where installed; the native writer otherwise, or with ADAPY_IFC_BACKEND=native).
+        from ada.cadit.ifc.backend import (
+            CAP_WRITE_FILE_OBJECT,
+            CAP_WRITE_TYPED,
+            OP_WRITE,
+            select_ifc_backend,
+        )
 
-            if not native_ifc_writer_available():
-                raise RuntimeError("writer='native' requires adacpp with blobs_to_ifc")
-            os.makedirs(destination.parent, exist_ok=True)
-            native_write_ifc(self, destination)
+        require = {CAP_WRITE_TYPED}
+        if destination == "object":
+            require.add(CAP_WRITE_FILE_OBJECT)
+        backend = select_ifc_backend(writer, operation=OP_WRITE, require=require)
+        if backend.name == "native" and writer is None and destination == "object":
+            backend = select_ifc_backend("ifcopenshell", operation=OP_WRITE)
+        if backend.name == "native":
+            backend.write(self, destination)
             if validate:
                 ifcopenshell.validate.validate(str(destination), logger)
             logger.info("IFC file creation complete (native)")

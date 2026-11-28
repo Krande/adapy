@@ -22,7 +22,8 @@ from ada.cadit.ifc.write.native_ifc_writer import native_ifc_writer_available
 
 pytestmark = pytest.mark.skipif(not native_adacpp_ifc_available(), reason="adacpp without IfcNgeomStream")
 
-_BLOCK = textwrap.dedent("""
+_BLOCK = textwrap.dedent(
+    """
     import json, sys
 
     class _NoIfcOpenShell:
@@ -32,7 +33,8 @@ _BLOCK = textwrap.dedent("""
             return None
 
     sys.meta_path.insert(0, _NoIfcOpenShell())
-    """)
+    """
+)
 
 
 def _run(body: str, *args: str) -> dict:
@@ -77,6 +79,19 @@ def test_native_read_without_ifcopenshell(tmp_path):
     assert pathlib.Path(out["source"]) == src
     assert out["store_built"] is False
     assert out["loaded"] == []
+
+
+def test_default_read_falls_back_to_native_without_ifcopenshell(tmp_path):
+    src = _model(tmp_path)
+    out = _run(
+        """
+        import ada
+        a = ada.from_ifc(sys.argv[1])
+        print(json.dumps({"names": sorted(o.name for o in a.get_all_physical_objects())}))
+        """,
+        str(src),
+    )
+    assert out["names"] == ["bm0", "bm1", "pl0"]
 
 
 @pytest.mark.skipif(not native_ifc_writer_available(), reason="adacpp without blobs_to_ifc")

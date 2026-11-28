@@ -20,6 +20,7 @@ Everything is lazily imported so importing this module is cheap and safe.
 from __future__ import annotations
 
 import io
+import pathlib
 
 # Mesh containers trimesh round-trips (glb is a valid source too: glb→obj/stl).
 _MESH_EXTS = {"obj", "stl", "ply", "gltf", "dae", "off", "glb"}
@@ -117,50 +118,41 @@ def _step_to_glb(data: bytes) -> bytes:
     return backend.step_bytes_to_glb_bytes(data)
 
 
-def _ifc_to_glb(src: str) -> bytes:
-    """IFC→GLB fast path: ifcopenshell geometry iterator → trimesh GLB."""
-    import ifcopenshell
-    import ifcopenshell.geom
-    import numpy as np
-    import trimesh
+def _ifc_to_glb(src: str, meshopt: bool = True) -> bytes:
+    """IFC→GLB: the IFC backend's tessellation (native adacpp where available, else ifcopenshell's
+    geometry iterator). A native failure falls back to ifcopenshell when it is installed."""
+    import tempfile
 
-    ifc = ifcopenshell.open(src)
-    settings = ifcopenshell.geom.settings()
-    try:
-        settings.set("use-world-coords", True)
-    except Exception:
-        pass
-    iterator = ifcopenshell.geom.iterator(settings, ifc)
-    scene = trimesh.Scene()
-    n = 0
-    if iterator.initialize():
-        while True:
+    from ada.cadit.ifc.backend import (
+        CAP_TESSELLATE_GLB,
+        OP_TESSELLATE,
+        get_ifc_backend,
+        ifcopenshell_ifc_to_glb_bytes,
+        select_ifc_backend,
+    )
+
+    backend = select_ifc_backend(operation=OP_TESSELLATE, require={CAP_TESSELLATE_GLB})
+    if backend.name == "native":
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "out.glb"
             try:
-                shape = iterator.get()
-                geom = shape.geometry
-                verts = np.asarray(geom.verts, dtype=np.float32).reshape(-1, 3)
-                faces = np.asarray(geom.faces, dtype=np.int32).reshape(-1, 3)
-                if faces.size:
-                    scene.add_geometry(
-                        trimesh.Trimesh(vertices=verts, faces=faces, process=False),
-                        node_name=(getattr(shape, "name", None) or shape.guid or f"m{n}"),
-                    )
-                    n += 1
-            except Exception:
-                pass
-            if not iterator.next():
-                break
-    if n == 0:
-        raise RuntimeError("no meshable geometry produced from this IFC")
-    buf = io.BytesIO()
-    scene.export(buf, file_type="glb")
-    return buf.getvalue()
+                backend.tessellate(src, out, meshopt=meshopt)
+                data = out.read_bytes()
+                if data:
+                    return data
+            except Exception as exc:  # noqa: BLE001 - fall back below when there is something to fall back to
+                if not get_ifc_backend("ifcopenshell").available():
+                    raise
+                from ada.config import logger
+
+                logger.warning(f"native IFC->GLB failed ({exc}); falling back to ifcopenshell")
+    return ifcopenshell_ifc_to_glb_bytes(src)
 
 
-def _to_glb(fmt: str, src: str) -> bytes:
+def _to_glb(fmt: str, src: str, meshopt: bool = True) -> bytes:
     """Produce GLB for a geometry source via its most reliable path."""
     if fmt == "ifc":
-        return _ifc_to_glb(src)
+        return _ifc_to_glb(src, meshopt=meshopt)
     if fmt in ("step", "stp"):
         with open(src, "rb") as fh:
             return _step_to_glb(fh.read())
@@ -476,6 +468,7 @@ def run(fmt: str, ext: str, target: str, src: str) -> bytes:
         return _to_glb(fmt, src)
     if target in ("obj", "stl"):
         # obj/stl via the reliable GLB tessellation path (see _glb_to_mesh).
-        return _glb_to_mesh(_to_glb(fmt, src), target)
+        # trimesh cannot decode EXT_meshopt_compression, so the GLB it re-reads stays uncompressed.
+        return _glb_to_mesh(_to_glb(fmt, src, meshopt=False), target)
     # Structure-preserving writers (ifc / xml / step) keep the B-rep.
     return _export_assembly(_load_assembly(fmt, src), target)
