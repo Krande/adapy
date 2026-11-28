@@ -1,9 +1,9 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 6d4f4f4f9730796234dd5a7d16b8f37f16b43e9c754ce93e175478be3fbd6cd2
-bundle-sha256 faaebdd7690fa06a13895802a4adf8d582af826962c4646d0e899d6884d0ff63
-pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
+inputs-sha256 f09d6dde11e1a3bef8a33db9f005a81808d9410b4cbdd1fe3a106fa1da16869b
+bundle-sha256 4a7d6562d728d95f640cb0a2ed3fd5f35ca3d901506f36397cd380c694af7103
+pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.48.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
 src/frontend/embed-script.cjs 1685f9c36e13c27adc7576ed6c84970dad32cdfb
