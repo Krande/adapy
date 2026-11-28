@@ -1,0 +1,25 @@
+{
+  "spaces": [
+    {"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+    {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}
+  ],
+  "equipments": [
+    {
+      "NAME": "Pump2",
+      "DESCRIPTION": "pump",
+      "SPACE_NAME": "Cell1",
+      "SPACE_LOC": "FLOOR",
+      "X": 2.0,
+      "Y": 2.0,
+      "Z": 0.0,
+      "LX": 1.0,
+      "LY": 1.0,
+      "LZ": 1.0,
+      "COGx": 0,
+      "COGy": 0,
+      "COGz": 0.5,
+      "massDry": 1000,
+      "massCont": 0
+    }
+  ]
+}

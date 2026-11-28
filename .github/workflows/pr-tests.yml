@@ -463,7 +463,7 @@ jobs:
             BASE_SHA: ${{ github.event.pull_request.base.sha }}
           run: |
             CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
-            if printf '%s\n' "$CHANGED" | grep -qE '^(src/ada/|scripts/testing/pyodide-test/|scripts/packaging/build_pyodide_adapy_wheel\.py$|files/fem_files/sesam/|tests/core/cadit/test_genie_curved_shell_glb\.py$|deploy/Dockerfile\.viewer$|pixi\.(toml|lock)$|\.github/workflows/pr-tests\.yml$)'; then
+            if printf '%s\n' "$CHANGED" | grep -qE '^(src/ada/|scripts/testing/pyodide-test/|scripts/packaging/build_pyodide_adapy_wheel\.py$|files/|tests/core/cadit/test_genie_curved_shell_glb\.py$|tests/core/visit/test_glb_export_parity\.py$|deploy/Dockerfile\.viewer$|pixi\.(toml|lock)$|\.github/workflows/pr-tests\.yml$)'; then
               echo "run=true" >> "$GITHUB_OUTPUT"
             else
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -518,6 +518,20 @@ jobs:
           env:
             ADA_WASM_GENIE_GLB: ${{ runner.temp }}/wasm/genie_curved_shell.glb
           run: pixi run -e tests python -m pytest tests/core/cadit/test_genie_curved_shell_glb.py -v -rs
+
+        # Every GLB-parity fixture (a Genie curved shell, a curved STEP plate, a FEM deck, a
+        # procedural document; the IFC ones when an ifcopenshell pyodide wheel is given) through the
+        # browser's entries under Pyodide, then held element by element to what to_gltf writes on
+        # the native ada-cpp -- the one GLB export path, in the browser as everywhere else.
+        - name: Convert the GLB-parity fixtures under Pyodide
+          if: steps.scope.outputs.run == 'true'
+          run: pixi run -e test-pyodide test-pyodide-glb-parity "$RUNNER_TEMP/wasm/parity"
+
+        - name: Compare with to_gltf on the native ada-cpp
+          if: steps.scope.outputs.run == 'true'
+          env:
+            ADA_WASM_PARITY_DIR: ${{ runner.temp }}/wasm/parity
+          run: pixi run -e tests python -m pytest tests/core/visit/test_glb_export_parity.py -v -rs -k pyodide
 
     # Build the conda package the way conda-forge does, from THIS checkout.
     #
