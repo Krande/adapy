@@ -16,6 +16,7 @@ import {
 } from "@/utils/nativeConvert/cadGlbConverter";
 import {nativeCadToGlbSharded} from "@/utils/nativeConvert/cadGlbShardPool";
 import {shardWorkerCount} from "@/utils/nativeConvert/shardSchedule";
+import {browserJobProgress} from "./browserProgress";
 
 // Distinguishes the native embind module from the pyodide path in the audit panel.
 const WASM_IMAGE_TAG = "wasm:native-cadglb";
@@ -134,22 +135,25 @@ export async function convertViaWasmNativeAndUpload(
                 progress: 0.15,
                 stage: `converting ${upper} → GLB in browser (native, ${nworkers} workers)`,
             });
+            const shardProgress = browserJobProgress(storeKey, job);
             try {
                 ({glb, products, ms} = await nativeCadToGlbSharded(
                     kind,
                     {url: presigned.url},
                     nworkers,
                     tessOpts(),
+                    // Throttled and monotonic, through the same mapping as the Pyodide engine.
                     ({done, total}) =>
-                        store.setJob(storeKey, {
-                            ...(useConversionStore.getState().jobs[storeKey] || job),
-                            progress: 0.15 + 0.7 * (done / Math.max(1, total)),
-                            stage: `converting ${upper} → GLB in browser (native, ${nworkers} workers, ${done}/${total})`,
-                        }),
+                        shardProgress.convert(
+                            `converting ${upper} → GLB (native, ${nworkers} workers, ${done}/${total} shards)`,
+                            done / Math.max(1, total),
+                        ),
                 ));
+                shardProgress.dispose();
                 readBytes = presigned.size;
                 sharded = true;
             } catch (err) {
+                shardProgress.dispose();
                 // eslint-disable-next-line no-console
                 console.info("[native-convert] sharded conversion unavailable, using one worker:", err);
             }

@@ -23,12 +23,30 @@ same property as the existing ``blobs_to_ifc`` native writer.
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Callable, Iterator
 
 from ada.config import Config, logger
 
 if TYPE_CHECKING:
     from ada.api.spatial.part import Part
+
+#: ``(done, total)``: told by :func:`collect_ngeom_records` as it serializes each object.
+_RECORD_PROGRESS: ContextVar[Callable[[int, int], None] | None] = ContextVar("ada_ngeom_record_progress", default=None)
+
+
+@contextmanager
+def report_record_progress(callback: Callable[[int, int], None] | None) -> Iterator[None]:
+    """Have :func:`collect_ngeom_records` inside the block call ``callback(done, total)`` as it
+    serializes each object (``(0, total)`` before the first, ``(total, total)`` after the last).
+    The C++ tessellate + emit that follows reports nothing of its own, so this walk is the
+    native route's one per-object count (the browser's progress bar reads it)."""
+    token = _RECORD_PROGRESS.set(callback)
+    try:
+        yield
+    finally:
+        _RECORD_PROGRESS.reset(token)
 
 
 class NativeExportUnsupported(Exception):
@@ -103,7 +121,17 @@ def collect_ngeom_records(part: Part) -> tuple[list[tuple], dict]:
         levels.append((leaf_id, str(obj.name)))
         return levels
 
-    for obj in part.get_all_physical_objects(pipe_to_segments=True):
+    objects = part.get_all_physical_objects(pipe_to_segments=True)
+    progress = _RECORD_PROGRESS.get()
+    if progress is not None:
+        # Listed up front for the total only when someone asks.
+        objects = list(objects)
+        total = len(objects)
+        progress(0, total)
+
+    for done, obj in enumerate(objects):
+        if progress is not None and done:
+            progress(done, total)
         if isinstance(obj, MassPoint):
             continue  # no geometry — the Python writers skip these too
         n_objects += 1
@@ -125,6 +153,8 @@ def collect_ngeom_records(part: Part) -> tuple[list[tuple], dict]:
         blob = enc.finish([(idx, str(obj.name))])
         records.append((str(obj.name), blob, _object_color_rgba(obj), None, [_path_for(obj)]))
 
+    if progress is not None:
+        progress(total, total)
     if unsupported:
         n_bad = sum(unsupported.values())
         raise NativeExportUnsupported(

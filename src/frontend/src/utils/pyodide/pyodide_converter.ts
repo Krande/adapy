@@ -22,6 +22,10 @@ import {
 } from "./pluginWheels";
 
 let workerPromise: Promise<Worker> | null = null;
+// Who hears the boot's log lines (loading Pyodide, numpy, ...): every caller waiting on the
+// worker while it boots, not just the one that spawned it -- a conversion that finds a
+// prewarm's boot under way still shows the boot's stages instead of a frozen bar.
+const bootLogListeners = new Set<(msg: string) => void>();
 let nextReqId = 1;
 // Plugins whose install the live worker was already asked to prewarm.
 let prewarmedPlugins = new Set<string>();
@@ -120,7 +124,16 @@ async function resolveBootConfig(onLog?: (msg: string) => void): Promise<Pyodide
     return config;
 }
 
-function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
+function spawnWorker(): Promise<Worker> {
+    const onLog = (msg: string) => {
+        for (const listener of bootLogListeners) {
+            try {
+                listener(msg);
+            } catch {
+                /* a listener's failure is its own */
+            }
+        }
+    };
     return new Promise((resolve, reject) => {
         // new URL(..., import.meta.url) lets Vite bundle the worker
         // file as an asset and rewrite the URL at build time.
@@ -130,7 +143,7 @@ function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
         const onMessage = (e: MessageEvent<WorkerMessage>) => {
             const data = e.data;
             if (data.type === "log") {
-                onLog?.(data.message);
+                onLog(data.message);
             } else if (data.type === "ready") {
                 worker.removeEventListener("message", onMessage);
                 resolve(worker);
@@ -171,10 +184,15 @@ export function isPyodideWorkerReady(): boolean {
 }
 
 export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promise<Worker> {
+    if (onLog) bootLogListeners.add(onLog);
     if (!workerPromise) {
-        workerPromise = spawnWorker(onLog);
+        workerPromise = spawnWorker();
     }
-    return workerPromise;
+    try {
+        return await workerPromise;
+    } finally {
+        if (onLog) bootLogListeners.delete(onLog);
+    }
 }
 
 /** Boot the worker and pre-load the CAD stack in the background. Call when the
@@ -218,7 +236,12 @@ export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea
 // listeners synchronously (so they're live before the caller posts), and
 // resolves with the result bytes / rejects on handled error, crash, or
 // timeout. Caller posts the request message after calling this.
-function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) => void): Promise<Uint8Array> {
+function awaitWorkerResult(
+    worker: Worker,
+    reqId: number,
+    onLog?: (msg: string) => void,
+    onProgress?: (stage: string, fraction: number) => void,
+): Promise<Uint8Array> {
     return new Promise<Uint8Array>((resolve, reject) => {
         let settled = false;
         const cleanup = () => {
@@ -239,6 +262,10 @@ function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) 
             const data = e.data;
             if (data.type === "log") {
                 onLog?.(data.message);
+                return;
+            }
+            if (data.type === "progress") {
+                if (data.reqId === reqId && !settled) onProgress?.(data.message, data.fraction);
                 return;
             }
             if ((data.type === "result" || data.type === "error") && data.reqId !== reqId) {
@@ -274,8 +301,15 @@ function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) 
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,
-    /** ``srcKey``: the source's storage key; an FEA bake records it as its manifest's ``src``. */
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string; srcKey?: string},
+    /** ``srcKey``: the source's storage key; an FEA bake records it as its manifest's ``src``.
+     * ``onProgress``: adapy's ``(stage, fraction)`` reports as the conversion runs. */
+    opts?: {
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+        ext?: string;
+        target?: string;
+        srcKey?: string;
+    },
 ): Promise<Uint8Array> {
     // Proactively recycle a worker whose heap has grown near the ceiling, so
     // this job starts with reclaimed memory instead of risking an OOM abort.
@@ -284,7 +318,7 @@ export async function convertViaPyodide(
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage(
         {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", srcKey: opts?.srcKey, bytes},
         [bytes],
@@ -335,14 +369,21 @@ export async function compileProceduralViaPyodide(
 export async function convertViaPyodideStream(
     format: PyodideSourceFormat,
     url: string,
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string; size?: number; headers?: Record<string, string>},
+    opts?: {
+        onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
+        ext?: string;
+        target?: string;
+        size?: number;
+        headers?: Record<string, string>;
+    },
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage({
         type: "convert",
         reqId,
@@ -368,6 +409,7 @@ export async function convertViaPyodideFeaBakeStream(
     uploadUrl: string,
     opts?: {
         onLog?: (msg: string) => void;
+        onProgress?: (stage: string, fraction: number) => void;
         ext?: string;
         size?: number;
         headers?: Record<string, string>;
@@ -381,7 +423,7 @@ export async function convertViaPyodideFeaBakeStream(
     }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
-    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog, opts?.onProgress);
     worker.postMessage({
         type: "convert",
         reqId,

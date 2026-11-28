@@ -955,11 +955,38 @@ async function ensureStacks(format, target) {
     if (format === "ifc" || tgt === "ifc") await ensureIfcStack();
 }
 
+// A conversion's progress, as the page gets it: adapy's wasm_convert calls this with
+// (stage, fraction) as it reads, tessellates and writes (already throttled and monotonic on
+// the Python side, see ada.cadit.wasm_progress), and each call is posted as a "progress"
+// message for the request -- the message a core job's progress travels as.
+function conversionProgress(reqId) {
+    return (stage, fraction) =>
+        self.postMessage({
+            type: "progress",
+            reqId,
+            message: String(stage || ""),
+            fraction: typeof fraction === "number" ? fraction : 0,
+        });
+}
+
+// Prepended to each conversion cell: the on_progress keyword for a wasm_convert entry that
+// takes one. An adapy wheel from before progress reporting does not, and still converts
+// (without the progress) instead of failing on an unknown keyword.
+const PROGRESS_KW_PY = `
+def _wc_progress_kw(fn, post):
+    import inspect
+    try:
+        takes = "on_progress" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        takes = False
+    return {"on_progress": lambda s, f: post(str(s), float(f))} if takes else {}
+`;
+
 // Run one conversion: install the stack, hand the bytes to adapy, return the
 // output bytes (Uint8Array) for the caller to post back / upload.
 // srcKey: the source's storage key, which an FEA bake records as its manifest's `src` (the
 // staged file is /tmp/input.<ext>, whose stem would otherwise stand in for it).
-async function runConversion(format, bytes, ext, target, srcKey) {
+async function runConversion(reqId, format, bytes, ext, target, srcKey) {
     await ensureStacks(format, target);
     const e = (ext || "bin").toLowerCase();
     const u8 = new Uint8Array(bytes);
@@ -970,16 +997,17 @@ async function runConversion(format, bytes, ext, target, srcKey) {
     pyodide.globals.set("_wc_target", (target || "glb").toLowerCase());
     pyodide.globals.set("_wc_src", inPath);
     pyodide.globals.set("_wc_src_key", srcKey || null);
+    pyodide.globals.set("_wc_progress", conversionProgress(reqId));
     try {
-        const result = await pyodide.runPythonAsync(`
+        const result = await pyodide.runPythonAsync(`${PROGRESS_KW_PY}
 import ada.cadit.wasm_convert as _wc
-_wc.run(_wc_fmt, _wc_ext, _wc_target, _wc_src, src_key=_wc_src_key)
+_wc.run(_wc_fmt, _wc_ext, _wc_target, _wc_src, src_key=_wc_src_key, **_wc_progress_kw(_wc.run, _wc_progress))
 `);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
         return arr;
     } finally {
-        for (const g of ["_wc_fmt", "_wc_ext", "_wc_target", "_wc_src", "_wc_src_key"]) {
+        for (const g of ["_wc_fmt", "_wc_ext", "_wc_target", "_wc_src", "_wc_src_key", "_wc_progress"]) {
             try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
         }
     }
@@ -1041,7 +1069,7 @@ function headContentLength(url, headers) {
 // Stream a conversion from a range-capable URL. Bridges the sync-XHR range
 // reader into a Python fetcher (size()/fetch()) and calls adapy's
 // wasm_convert.run_stream — no whole-file buffer crosses into wasm.
-async function runConversionStream(format, ext, target, url, size, headers) {
+async function runConversionStream(reqId, format, ext, target, url, size, headers) {
     await ensureStacks(format, target);
     const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
     pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
@@ -1049,8 +1077,9 @@ async function runConversionStream(format, ext, target, url, size, headers) {
     pyodide.globals.set("_wcs_fmt", format);
     pyodide.globals.set("_wcs_ext", (ext || "bin").toLowerCase());
     pyodide.globals.set("_wcs_target", (target || "glb").toLowerCase());
+    pyodide.globals.set("_wcs_progress", conversionProgress(reqId));
     try {
-        const result = await pyodide.runPythonAsync(`
+        const result = await pyodide.runPythonAsync(`${PROGRESS_KW_PY}
 import ada.cadit.wasm_convert as _wc
 
 class _JsRangeFetcher:
@@ -1068,13 +1097,16 @@ class _JsRangeFetcher:
     def close(self):
         pass
 
-_wc.run_stream(_wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs_size))
+_wc.run_stream(
+    _wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs_size),
+    **_wc_progress_kw(_wc.run_stream, _wcs_progress),
+)
 `);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
         return arr;
     } finally {
-        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_fmt", "_wcs_ext", "_wcs_target"]) {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_fmt", "_wcs_ext", "_wcs_target", "_wcs_progress"]) {
             try {
                 pyodide.globals.delete(g);
             } catch (_) {
@@ -1089,7 +1121,7 @@ _wc.run_stream(_wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs
 // the output tree is ever held whole in wasm memory. Returns the JSON summary
 // string from wasm_convert (count + manifest), not a blob: the files are
 // already uploaded.
-async function runFeaBakeStream(ext, url, size, headers, uploadUrlBase, uploadHeaders, srcKey) {
+async function runFeaBakeStream(reqId, ext, url, size, headers, uploadUrlBase, uploadHeaders, srcKey) {
     await ensureStacks("fea", "glb");
     const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
     pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
@@ -1097,8 +1129,9 @@ async function runFeaBakeStream(ext, url, size, headers, uploadUrlBase, uploadHe
     pyodide.globals.set("_wcs_upload", syncArtefactUpload(uploadUrlBase, uploadHeaders));
     pyodide.globals.set("_wcs_ext", (ext || "sin").toLowerCase());
     pyodide.globals.set("_wcs_src_key", srcKey || null);
+    pyodide.globals.set("_wcs_progress", conversionProgress(reqId));
     try {
-        const result = await pyodide.runPythonAsync(`
+        const result = await pyodide.runPythonAsync(`${PROGRESS_KW_PY}
 import ada.cadit.wasm_convert as _wc
 from pyodide.ffi import to_js
 
@@ -1121,12 +1154,15 @@ def _upload(name, data):
     # bake_artefacts and aborts the bake rather than dropping a file silently.
     _wcs_upload(name, to_js(data))
 
-_wc.run_stream("fea", _wcs_ext, "glb", _JsRangeFetcher(_wcs_fetch, _wcs_size), upload=_upload, src_key=_wcs_src_key)
+_wc.run_stream(
+    "fea", _wcs_ext, "glb", _JsRangeFetcher(_wcs_fetch, _wcs_size), upload=_upload, src_key=_wcs_src_key,
+    **_wc_progress_kw(_wc.run_stream, _wcs_progress),
+)
 `);
         // run_stream returns a Python str (json.dumps) → a JS string here.
         return typeof result === "string" ? result : String(result);
     } finally {
-        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_upload", "_wcs_ext", "_wcs_src_key"]) {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_upload", "_wcs_ext", "_wcs_src_key", "_wcs_progress"]) {
             try {
                 pyodide.globals.delete(g);
             } catch (_) {
@@ -1286,13 +1322,13 @@ self.onmessage = async (e) => {
             let bytes;
             if (data.stream && data.uploadUrl) {
                 const summary = await runFeaBakeStream(
-                    data.ext, data.url, data.size, data.headers, data.uploadUrl, data.uploadHeaders, data.srcKey,
+                    reqId, data.ext, data.url, data.size, data.headers, data.uploadUrl, data.uploadHeaders, data.srcKey,
                 );
                 bytes = new TextEncoder().encode(summary);
             } else if (data.stream) {
-                bytes = await runConversionStream(format, data.ext, target, data.url, data.size, data.headers);
+                bytes = await runConversionStream(reqId, format, data.ext, target, data.url, data.size, data.headers);
             } else {
-                bytes = await runConversion(format, data.bytes, data.ext, target, data.srcKey);
+                bytes = await runConversion(reqId, format, data.bytes, data.ext, target, data.srcKey);
             }
             // Report the current wasm linear-memory size so the manager can
             // recycle this worker before it approaches the wasm32 ceiling
