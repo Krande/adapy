@@ -57,10 +57,71 @@ def _is_empty_scene(exc: Exception) -> bool:
     return isinstance(exc, ValueError) and "empty scene" in str(exc).lower()
 
 
-def _export_assembly(asm, target: str) -> bytes:
+def _worker_glb(asm, source_ext: str) -> bytes:
+    """GLB of a loaded Genie/SAT Assembly through the worker's own GLB leg.
+
+    A bare ``asm.to_gltf()`` is not what the worker runs. The worker picks a tessellation
+    engine (libtess2 wherever adacpp is importable) and, for a Genie source, the native
+    NGEOM-record writer; ``to_gltf`` on its own selects neither, so a curved shell went
+    through the backend's face sewing, which kept one face of the six and left the plate
+    to a flat best-fit-plane fallback that stands off the real surface. Calling the same
+    function makes the two GLBs agree by construction.
+    """
+    import os
+
+    from ada.comms.rest.converters.ada_export import _export_with_ada
+    from ada.core.file_system import new_temp_path
+
+    out_path = new_temp_path(suffix=".glb")
+    try:
+        res = _export_with_ada(asm, "glb", out_path, lambda *_a, **_k: None, source_ext=source_ext)
+        if isinstance(res, (bytes, bytearray)):
+            return bytes(res)
+        with open(res, "rb") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+
+
+def _worker_mesh(src: str, fmt: str, target: str) -> bytes:
+    """OBJ/STL of a Genie/SAT source through the worker's own mesh leg.
+
+    Not via :func:`_glb_to_mesh`: the worker's Genie GLB is EXT_meshopt-compressed, which
+    trimesh cannot read back, and the worker writes these targets with its own mesh leg
+    anyway (the native record writer for Genie, ``to_trimesh_scene`` otherwise).
+    """
+    import os
+    import pathlib
+
+    from ada.comms.rest.converters.mesh_step import _via_ada_to_trimesh
+
+    res = _via_ada_to_trimesh(pathlib.Path(src), _WORKER_GLB_SOURCE_EXT[fmt], target, lambda *_a, **_k: None)
+    if isinstance(res, (bytes, bytearray)):
+        return bytes(res)
+    try:
+        with open(res, "rb") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(res)
+        except OSError:
+            pass
+
+
+# Source formats whose GLB/OBJ/STL go through the worker's own legs (:func:`_worker_glb`,
+# :func:`_worker_mesh`), and the source extension those legs key their routes on.
+_WORKER_GLB_SOURCE_EXT = {"genie": ".xml", "sat": ".sat"}
+
+
+def _export_assembly(asm, target: str, fmt: str | None = None) -> bytes:
     """Write an Assembly to a single-blob target."""
     target = target.lower()
-    if target == "glb":
+    if target == "glb" and fmt in _WORKER_GLB_SOURCE_EXT:
+        out = _worker_glb(asm, _WORKER_GLB_SOURCE_EXT[fmt])
+    elif target == "glb":
         buf = io.BytesIO()
         try:
             asm.to_gltf(buf)
@@ -172,7 +233,7 @@ def _to_glb(fmt: str, src: str) -> bytes:
     if fmt in ("step", "stp"):
         with open(src, "rb") as fh:
             return _step_to_glb(fh.read())
-    return _export_assembly(_load_assembly(fmt, src), "glb")
+    return _export_assembly(_load_assembly(fmt, src), "glb", fmt)
 
 
 def _glb_to_mesh(glb: bytes, target: str) -> bytes:
@@ -497,6 +558,8 @@ def run(fmt: str, ext: str, target: str, src: str, src_key: str | None = None) -
     if target == "glb":
         return _to_glb(fmt, src)
     if target in ("obj", "stl"):
+        if fmt in _WORKER_GLB_SOURCE_EXT:
+            return _worker_mesh(src, fmt, target)
         # obj/stl via the reliable GLB tessellation path (see _glb_to_mesh).
         return _glb_to_mesh(_to_glb(fmt, src), target)
     # Structure-preserving writers (ifc / xml / step) keep the B-rep.
