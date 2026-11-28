@@ -354,11 +354,12 @@ def _to_glb(fmt: str, src: str, prog: ConversionProgress | None = None) -> bytes
             # The fallback starts over; its stages report on from where the bar is.
             return _ifc_to_glb(src, prog)
     if fmt in ("step", "stp"):
+        # One call into adacpp (its native STEP->GLB, else its OCAF pipeline): it reports
+        # nothing until it returns.
+        prog("converting STEP → GLB (adacpp)", 0.05)
         native = _step_to_glb_native(src)
         if native is not None:
             return native
-        # One call into adacpp's OCAF pipeline: it reports nothing until it returns.
-        prog("converting STEP → GLB (adacpp)", 0.05)
         with open(src, "rb") as fh:
             return _step_to_glb(fh.read())
     if fmt == "fem":
