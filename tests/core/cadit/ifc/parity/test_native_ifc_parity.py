@@ -123,6 +123,8 @@ def _oracle(path: pathlib.Path) -> dict:
         # The nearest parent: the assembly or spatial element it is aggregated into, else the
         # spatial element containing it. An unnamed parent goes by its GlobalId, as natively.
         parent = ifc_el.get_aggregate(p) or ifc_el.get_container(p)
+        if parent is not None and parent.is_a("IfcProject"):
+            parent = None  # the project is the assembly in either reader, not a parent Part
         psets = ifc_el.get_psets(p, psets_only=True)
         products[guid] = {
             "class": p.is_a(),

@@ -65,13 +65,29 @@ def _shape_records(assembly):
     with_members = native_ifc_member_records() >= 1
     records: list[tuple] = []
     skipped = 0
+    part_ids: dict[int, int] = {}
+
+    def _part_path(obj) -> list | None:
+        """The object's place in the Part tree as an instance path: one ``(id, name)`` level per
+        Part below the assembly, then the object itself. The writer turns the Part levels into
+        nested spatial zones and puts the object in the innermost one."""
+        chain = []
+        p = getattr(obj, "parent", None)
+        while p is not None and p is not assembly and getattr(p, "parent", None) is not None:
+            chain.append(p)
+            p = p.parent
+        if not chain:
+            return None
+        levels = [(part_ids.setdefault(id(q), len(part_ids) + 1), str(q.name)) for q in reversed(chain)]
+        return [levels + [(0, str(obj.name))]]
+
     for shp in assembly.get_all_physical_objects(pipe_to_segments=True):
         if isinstance(shp, MassPoint):
             continue  # no geometry
         name = str(shp.name)
         member = member_record(shp) if with_members and not isinstance(shp, ShapeProxy) else None
         if member is not None:
-            records.append((name, b"", member.get("color"), None, None, member))
+            records.append((name, b"", member.get("color"), None, _part_path(shp), member))
             continue
         if isinstance(shp, ShapeProxy):
             blob = shp.ngeom_blob()
@@ -108,7 +124,7 @@ def _shape_records(assembly):
         # solid_geom() is local to the shape: its world placement rides as the (single) instance transform
         world = shp.world_matrix()
         tfs = [list(np.asarray(world, dtype="float32").flatten(order="F"))] if world is not None else None
-        records.append((name, blob, rgba, tfs, None))
+        records.append((name, blob, rgba, tfs, _part_path(shp)))
     return records, skipped
 
 

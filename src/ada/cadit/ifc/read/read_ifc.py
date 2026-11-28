@@ -45,7 +45,11 @@ class IfcReader:
         f = self.ifc_store.f
         assembly = self.ifc_store.assembly
 
-        for system in f.by_type("IfcDistributionSystem"):
+        try:
+            systems = f.by_type("IfcDistributionSystem")
+        except RuntimeError:  # IFC2X3 has no IfcDistributionSystem: nothing to rebuild
+            systems = []
+        for system in systems:
             members = []
             for rel in system.IsGroupedBy or []:
                 members.extend(rel.RelatedObjects)
