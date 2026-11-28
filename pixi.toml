@@ -259,7 +259,7 @@ tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", 
 # Both CAD kernels side by side (ada-cpp + pythonocc-core, one occt 8.0.1) for cross-kernel
 # parity. Its own solve: pythonocc-core must not leak into the `prod` group every shipped env
 # shares. Run with: pixi run -e tests-xkernel test-xkernel
-tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
+tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "desktop"], no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "adacpp-runtime", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
@@ -374,6 +374,11 @@ meshio = "*"
 [feature.pyocc8.dependencies]
 pythonocc-core = { version = "8.0.1.*", build = "novtk_*" }
 occt = { version = "8.0.1.*", build = "novtk_*" }
+# pythonocc-core has no occt 8.0.2 build, and ada-cpp from 0.48 on is built against 8.0.2, so the
+# cross-kernel leg stays on the last ada-cpp that shares pythonocc's occt. It checks the CAD kernels
+# against each other, which the 0.48 IFC member records do not touch. tests-xkernel takes its ada-cpp
+# from here instead of from adacpp-runtime.
+ada-cpp = ">=0.44.0,<0.45"
 
 [feature.pyocc8.tasks]
 test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
@@ -411,9 +416,11 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # in a few milliseconds instead of half a second through BOPAlgo_MakerVolume.
 # 0.44 for the renderer's native viewport parity (adacpp#86): lit overlay meshes, a render order,
 # sRGB vertex colours and the nearest vertex and edge of a pick.
+# 0.48 for the IFC member records (adacpp#91): the native IFC writer takes a member description
+# and the member scan returns cuts, profile curves and property sets (`ifc_member_records_version`).
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = ">=0.44.0,<0.45"
+ada-cpp = ">=0.48.0,<0.49"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -504,7 +511,11 @@ ada-cpp = ">=0.44.0,<0.45"
 # an older build, so a lower pin would leave the fast path untested here while looking green).
 # 0.44 (adacpp#86): native viewport parity: lit overlay meshes, a render order, sRGB vertex colours and
 # the nearest vertex and edge of a pick.
-ada-cpp = ">=0.44.0,<0.45"
+# 0.48 (adacpp#91): IFC member records. The native IFC writer writes beams and plates as members
+# from a member description, and the member scan returns what the native reader rebuilds them from.
+# REQUIRED for the usual reason: both sides gate on `ifc_member_records_version()` and fall back
+# without it, so a lower pin would leave the member path untested here while looking green.
+ada-cpp = ">=0.48.0,<0.49"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

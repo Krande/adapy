@@ -13,7 +13,7 @@ from ifcopenshell.util.unit import get_prefix_multiplier
 import ada.core.constants as ifco
 from ada.api.transforms import Transform
 from ada.cadit.ifc.write.geom.points import cpt
-from ada.config import Config, logger
+from ada.config import logger
 from ada.core.file_system import get_list_of_files
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
@@ -380,32 +380,13 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
 
 
 def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
-    from ada.base.ifc_types import IFC_ENTITY_KEY
-    from ada.cadit.ifc.write.write_relations import RELATIONS_KEY
+    # Which sets the metadata becomes is shared with the native writer (write/property_sets.py):
+    # a mixed dict -- nested sets next to scalar tags -- gives each nested dict its own set and the
+    # scalars one default set, rather than assuming homogeneity from the first value alone.
+    from ada.cadit.ifc.write.property_sets import element_property_sets
 
-    # Instructions to the writer, not properties of the element.
-    if IFC_ENTITY_KEY in metadata_props or RELATIONS_KEY in metadata_props:
-        metadata_props = {k: v for k, v in metadata_props.items() if k not in (IFC_ENTITY_KEY, RELATIONS_KEY)}
-    if len(metadata_props.keys()) == 0 or Config().ifc_export_props is False:
-        return None
-
-    # Metadata may be homogeneous (every value a nested property-set dict),
-    # flat (all scalar/list values -> one "Properties" set), or MIXED (nested
-    # dicts alongside scalar tags, e.g. a "STRUCTURE_NAME": "Mini" next to
-    # computed sub-dicts). Route each dict value to its own named set and
-    # collect the remaining scalar/list values into a single default set,
-    # rather than assuming homogeneity from the first value alone — a mixed
-    # dict whose first value was a dict crashed on the scalar siblings.
-    nested = {k: v for k, v in metadata_props.items() if isinstance(v, dict)}
-    if not nested:
-        add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
-        return None
-
-    for pro_id, prop_ in nested.items():
+    for pro_id, prop_ in element_property_sets(metadata_props).items():
         add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
-    flat = {k: v for k, v in metadata_props.items() if not isinstance(v, dict)}
-    if flat:
-        add_properties_to_elem("Properties", f, elem, flat, owner_history=owner_history)
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):

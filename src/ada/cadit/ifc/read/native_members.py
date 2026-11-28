@@ -18,11 +18,15 @@ chain -- in one streaming pass. This module turns that into the `Beam` and `Plat
 rest of adapy already knows how to reason about, so every pass downstream (`ada.clash`, the
 take-off, the connection specs) runs unchanged on top of it.
 
-WHAT IT IS NOT. Not a replacement for `from_ifc`: it carries no geometry, no property sets, no
-spatial hierarchy beyond one flat part, and no products that are neither beam nor plate. It does
-carry the MATERIAL each member is associated with, because mass is section x length x density and
-a take-off that had to guess at the density would not be a take-off. It is the cheap answer to one question, and a caller that needs a model should still
-read one.
+WHAT IT IS NOT. Not a replacement for `from_ifc`: it carries no geometry, no spatial hierarchy
+beyond one flat part, and no products that are neither beam nor plate. It does carry the MATERIAL
+each member is associated with, because mass is section x length x density and a take-off that
+had to guess at the density would not be a take-off.
+
+WHAT IT REBUILDS. A member the way the ifcopenshell reader rebuilds it from the same file: the
+section from the profile's parameter bag or its curves (a fillet read as a fillet), the member in
+its local frame under its object placement, its half-space cuts, and its property sets as
+metadata -- so a consumer gets the same Beam or Plate whichever reader read the file.
 """
 
 from __future__ import annotations
@@ -103,24 +107,151 @@ def _to_world_dir(m4: "np.ndarray", d: Iterable[float]) -> "np.ndarray":
     return out / n if n > 0 else out
 
 
-def _section_for(member: dict):
-    """The member's section: its catalogue name where the file names one, else its OUTLINE.
+def _geo_curve(curve: dict | None):
+    """A scanned profile curve as the ``ada.geom`` curve the ifcopenshell reader builds from the same
+    entity (``read.geom.curves``): an ``IfcPolyline`` is a ``PolyLine`` of its points, an
+    ``IfcIndexedPolyCurve`` an ``IndexedPolyCurve`` of one ``Edge`` per consecutive pair of a line
+    index and one ``ArcLine`` per arc index. Built the same way so the section read from it is the
+    same section: the fillet recovery (``_filleted_corner_points``) works on these objects."""
+    from ada.geom import curves as geo_cu
+    from ada.geom.points import Point
 
-    A name that adapy's section parser understands carries dimensions and a family, which is what
-    a connection spec matches on. A name it does not understand (a project-specific label, an
-    empty one) still has a boundary, so the section is built from that rather than guessed at --
-    a section invented from a name would put a member in the wrong family, which is a wrong answer
-    rather than a missing one.
+    if not curve or not curve.get("points"):
+        return None
+    pts = [tuple(float(c) for c in p) for p in curve["points"]]
+    if curve.get("kind") == "polyline":
+        return geo_cu.PolyLine([Point(p) for p in pts])
+    if curve.get("kind") != "indexed":
+        return None
+    segments = []
+    stated = curve.get("segments")
+    if stated is None:
+        # No Segments: the points are one polyline.
+        stated = [("line", tuple(range(1, len(pts) + 1)))]
+    for kind, idx in stated:
+        value = [int(i) - 1 for i in idx]
+        if any(i < 0 or i >= len(pts) for i in value):
+            return None
+        if kind == "arc" and len(value) == 3:
+            segments.append(geo_cu.ArcLine(pts[value[0]], pts[value[1]], pts[value[2]]))
+        else:
+            segments.extend(geo_cu.Edge(pts[a], pts[b]) for a, b in zip(value[:-1], value[1:]))
+    return geo_cu.IndexedPolyCurve(segments)
+
+
+def _scaled_params(params: dict, unit_scale: float) -> dict:
+    """The section parameter bag in metres: its LENGTH keys are stated in the file's unit."""
+    from ada.cadit.ifc.sections_props import SECTION_PARAM_KEYS
+
+    if unit_scale == 1.0:
+        return dict(params)
+    return {
+        k: (float(v) * unit_scale if k in SECTION_PARAM_KEYS and isinstance(v, (int, float)) else v)
+        for k, v in params.items()
+    }
+
+
+def _section_from_curves(member: dict, name, params: dict | None):
+    from ada.cadit.ifc.read.read_beam_section import _curve_to_points2d
+    from ada.sections.from_geometry import section_from_polyline
+
+    outer = _geo_curve(member.get("outer_curve"))
+    if outer is None:
+        return None
+    try:
+        outer_pts = _curve_to_points2d(outer)
+        inners = [_geo_curve(c) for c in member.get("inner_curves") or ()]
+        inner_pts = [_curve_to_points2d(c) for c in inners if c is not None]
+    except NotImplementedError as exc:
+        logger.debug(f"native members: profile curve of {member.get('name')!r} not readable ({exc})")
+        return None
+    return section_from_polyline(outer_pts, inner_pts[0] if inner_pts else None, name=name, params=params)
+
+
+def _section_for(member: dict):
+    """The member's section, in the order the ifcopenshell reader resolves one
+    (``read_beam_section.import_section_from_ifc``), so the two readers agree on the same file:
+
+    1. the adapy parameter bag on the profile (``ADA_SectionParameters``) -- exact for every type;
+       a POLY section's bag holds only the scalars its curves cannot state (a hollow section's
+       wall), and its shape is still read from the curves;
+    2. a parametric IFC profile (I, T, U, circular hollow), from its stated dimensions;
+    3. the profile's curves, arcs kept, recognised as a parametric section or kept as POLY;
+    4. the profile name, through adapy's section-string parser;
+    5. the sampled outline, as a POLY section -- for a profile none of the above can read.
     """
     from ada import Section
     from ada.api.curves import CurvePoly2d
+    from ada.cadit.ifc.sections_props import ADA_SECTION_PSET, section_from_param_dict
     from ada.sections.categories import BaseTypes
 
-    name = (member.get("profile_name") or "").strip()
-    if name:
+    name = member.get("profile_name") or None
+    unit_scale = float(member.get("unit_scale") or 1.0)
+
+    bag = (member.get("profile_properties") or {}).get(ADA_SECTION_PSET)
+    if bag:
+        params = _scaled_params(bag, unit_scale)
+        if params.get("sec_type") == BaseTypes.POLY.value:
+            sec = _section_from_curves(member, name, params)
+            if sec is not None:
+                return sec
+        else:
+            try:
+                return section_from_param_dict(name, params)
+            except Exception as exc:  # noqa: BLE001 - a bag this adapy cannot read: use the geometry
+                logger.debug(f"native members: section bag of {member.get('name')!r} unreadable ({exc})")
+
+    ptype = (member.get("profile_type") or "").upper()
+    pp = member.get("profile_params") or {}
+    if ptype == "IFCISHAPEPROFILEDEF" and pp:
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.IPROFILE,
+            h=pp.get("OverallDepth"),
+            w_top=pp.get("OverallWidth"),
+            w_btn=pp.get("OverallWidth"),
+            t_w=pp.get("WebThickness"),
+            t_ftop=pp.get("FlangeThickness"),
+            t_fbtn=pp.get("FlangeThickness"),
+            r=pp.get("FilletRadius"),
+            sec_str=name,
+        )
+    if ptype == "IFCTSHAPEPROFILEDEF" and pp:
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.TPROFILE,
+            h=pp.get("Depth"),
+            w_top=pp.get("FlangeWidth"),
+            w_btn=pp.get("WebThickness"),
+            t_w=pp.get("WebThickness"),
+            t_ftop=pp.get("FlangeThickness"),
+            t_fbtn=pp.get("FlangeThickness"),
+        )
+    if ptype == "IFCUSHAPEPROFILEDEF" and pp:
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.CHANNEL,
+            h=pp.get("Depth"),
+            w_top=pp.get("FlangeWidth"),
+            w_btn=pp.get("FlangeWidth"),
+            t_w=pp.get("WebThickness"),
+            t_ftop=pp.get("FlangeThickness"),
+            t_fbtn=pp.get("FlangeThickness"),
+        )
+    if ptype == "IFCCIRCLEHOLLOWPROFILEDEF" and pp:
+        return Section(name=name, sec_type="TUB", r=pp.get("Radius"), wt=pp.get("WallThickness"))
+
+    sec = _section_from_curves(member, name, None)
+    if sec is not None:
+        return sec
+
+    if name and name.strip():
+        from ada.sections.string_to_section import interpret_section_str
+
         try:
-            sec = Section.from_str(name)
-            return sec[0] if isinstance(sec, list) else sec
+            sec, _ = interpret_section_str(name.strip())
+            if sec is not None:
+                return sec
         except Exception as exc:  # noqa: BLE001 - an unparsable name is data, not a failure
             logger.debug(f"native members: section name {name!r} not in the catalogue ({exc}); using the outline")
 
@@ -128,30 +259,94 @@ def _section_for(member: dict):
     if len(outline) < 3:
         return None
     return Section(
-        name or f"profile_{member['id']}",
+        (name or "").strip() or f"profile_{member['id']}",
         sec_type=BaseTypes.POLY,
         outer_poly=CurvePoly2d(outline, origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1)),
     )
 
 
-def _beam_from(member: dict):
+def _world_placement(member: dict):
+    """The product's world placement as an ``ada`` ``Placement``, in metres, or None when the file
+    states none. The double-precision matrix where the scan reports one."""
+    import numpy as np
+
+    from ada.api.transforms import Placement
+
+    raw = member.get("placement_d") or member.get("placement")
+    if raw is None or len(raw) != 16:
+        return None
+    m4 = np.asarray(list(raw), dtype=float).reshape(4, 4).T  # column-major -> row-major
+    m4[:3, 3] *= float(member.get("unit_scale") or 1.0)
+    return Placement.from_4x4_matrix(m4)
+
+
+def _half_spaces(member: dict, name: str) -> list:
+    """The scanned half-space cuts as the ``BoolHalfSpace`` primitives the writer made them from
+    (``read_beams.half_space_from_ifc``): plane location and axis, and the agreement flag as
+    ``flip``. In the product's local frame, which is the frame the member is built in."""
+    from ada import BoolHalfSpace
+
+    return [
+        BoolHalfSpace(
+            origin=[float(c) for c in cut["origin"]],
+            normal=[float(c) for c in cut["normal"]],
+            flip=bool(cut["agreement"]),
+            name=f"{name}_cut{i}",
+        )
+        for i, cut in enumerate(member.get("cuts") or ())
+    ]
+
+
+def _member_name(member: dict) -> str:
+    return member.get("name") or member.get("guid") or f"member_{member.get('id')}"
+
+
+def _beam_from(member: dict, mat=None):
+    """A ``Beam`` the way the ifcopenshell reader builds one from a straight extrusion
+    (``read_beams.import_straight_beam``): the node line in the product's LOCAL frame -- the
+    extrusion's position, moved by the section centroid's offset -- the full object placement as
+    the beam's placement, ``up`` the profile's local y. A product with no extrusion to read falls
+    back to its reference line in world coordinates."""
+    import numpy as np
+
     from ada import Beam
 
-    p1, p2 = member.get("p1"), member.get("p2")
-    if p1 is None or p2 is None:
-        return None
+    name = _member_name(member)
     sec = _section_for(member)
     if sec is None:
         return None
-    import numpy as np
+    guid = member.get("guid") or None
 
-    axis = np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float)
-    length = float(np.linalg.norm(axis))
-    if length < 1e-9:
-        return None  # a zero-length member is not one; it would divide by zero downstream
-    return Beam(
-        member["name"] or member["guid"], p1, p2, sec, up=_beam_up(member, axis / length), guid=member["guid"] or None
-    )
+    if member.get("origin") is None or not member.get("depth"):
+        p1, p2 = member.get("p1"), member.get("p2")
+        if p1 is None or p2 is None:
+            return None
+        axis = np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float)
+        length = float(np.linalg.norm(axis))
+        if length < 1e-9:
+            return None  # a zero-length member is not one; it would divide by zero downstream
+        return Beam(name, p1, p2, sec, mat=mat, up=_beam_up(member, axis / length), guid=guid)
+
+    from ada.api.beams.justification import section_centroid_offset_local
+    from ada.core.vector_utils import calc_yvec, unit_vector
+
+    extrude_dir = unit_vector(np.asarray(member["normal"], dtype=float))
+    ref_dir = unit_vector(np.asarray(member["xdir"], dtype=float))
+    local_y = calc_yvec(ref_dir, extrude_dir)
+    p1 = np.asarray(member["origin"], dtype=float)
+    shift = float(section_centroid_offset_local(sec, strict=False)[2])
+    if shift != 0.0:
+        p1 = p1 + shift * np.asarray(local_y, dtype=float)
+    p2 = p1 + extrude_dir * float(member["depth"])
+
+    extra = {}
+    placement = _world_placement(member)
+    if placement is not None:
+        extra["placement"] = placement
+    beam = Beam(name, p1, p2, sec=sec, mat=mat, up=local_y, guid=guid, **extra)
+    for cut in _half_spaces(member, name):
+        beam.add_boolean(cut)
+    return beam
 
 
 def _beam_up(member: dict, xvec: "np.ndarray"):
@@ -175,25 +370,77 @@ def _beam_up(member: dict, xvec: "np.ndarray"):
     return up / n
 
 
-def _plate_from(member: dict):
+def _plate_points(member: dict) -> list:
+    """The plate outline as the ifcopenshell reader takes it (``read_plates.import_ifc_plate``):
+    the profile curve's ``to_points2d`` -- corners, a filleted corner as ``(x, y, r)`` -- else the
+    polyline's points, else the sampled outline."""
+    curve = _geo_curve(member.get("outer_curve"))
+    if curve is not None and hasattr(curve, "to_points2d"):
+        try:
+            return [tuple(p) for p in curve.to_points2d()]
+        except Exception as exc:  # noqa: BLE001 - fall back to the plain points
+            logger.debug(f"native members: plate outline of {member.get('name')!r} not read as corners ({exc})")
+    if curve is not None and hasattr(curve, "points"):
+        pts = [tuple(float(c) for c in p[:2]) for p in curve.points]
+        if len(pts) > 1 and pts[0] == pts[-1]:
+            pts = pts[:-1]
+        return pts
+    return [tuple(pt) for pt in member.get("outline") or ()]
+
+
+def _plate_from(member: dict, mat=None):
+    """A ``Plate`` the way the ifcopenshell reader builds one from an extruded arbitrary profile: its
+    outline, the extrusion depth as thickness, the swept plane in the product's LOCAL frame and the
+    object placement as the plate's placement."""
     from ada import Plate
 
-    outline = [tuple(pt) for pt in member.get("outline") or ()]
+    outline = _plate_points(member)
     if len(outline) < 3 or member.get("origin") is None:
         return None
-    # The scan reports the swept plane in the product's LOCAL frame beside the world placement, so
-    # the two can be taken apart; a plate wants them put together, in world, because that is the
-    # frame its neighbours are in and a clash check compares them against each other.
-    m4 = _world(member["placement"])
-    return Plate(
-        member["name"] or member["guid"],
+    name = _member_name(member)
+    extra = {}
+    placement = _world_placement(member)
+    if placement is not None:
+        extra["placement"] = placement
+    plate = Plate(
+        name,
         outline,
         member["depth"],
-        origin=_to_world_point(m4, member["origin"]),
-        xdir=_to_world_dir(m4, member["xdir"]),
-        normal=_to_world_dir(m4, member["normal"]),
-        guid=member["guid"] or None,
+        origin=member["origin"],
+        xdir=member["xdir"],
+        normal=member["normal"],
+        mat=mat,
+        guid=member.get("guid") or None,
+        **extra,
     )
+    for cut in _half_spaces(member, name):
+        plate.add_boolean(cut)
+    return plate
+
+
+def member_metadata(member: dict) -> dict:
+    """The product's property sets as the ifcopenshell reader puts them on an object's
+    ``metadata`` (``reader_utils.get_ifc_property_sets``): one dict per set, keyed by the set's name
+    up to any ``:``."""
+    out: dict = {}
+    for set_name, props in (member.get("psets") or {}).items():
+        out[str(set_name).split(":")[0].strip()] = dict(props)
+    return out
+
+
+def member_object(member: dict, materials: dict | None = None):
+    """The ``Beam`` or ``Plate`` one scanned member record maps to, with its material and property
+    sets, or None for a record that is neither (or that cannot be read as one)."""
+    materials = materials if materials is not None else {}
+    cls = (member.get("ifc_class") or "").upper()
+    if cls not in _BEAM_CLASSES and cls not in _PLATE_CLASSES:
+        return None
+    mat = _material_for(member, materials)
+    obj = _beam_from(member, mat) if cls in _BEAM_CLASSES else _plate_from(member, mat)
+    if obj is None:
+        return None
+    obj.metadata = member_metadata(member)
+    return obj
 
 
 #: How a stated property name maps onto an ada material model. The same names, and the same
@@ -265,16 +512,23 @@ def members_from_jsonl(jsonl: str | pathlib.Path) -> Iterator[dict]:
 
     with open(jsonl, encoding="utf-8") as fh:
         first = fh.readline()
+        unit_scale = None
         if first:
             header = json.loads(first)
             # A header is how a scan says what it is. A file whose first line is a MEMBER is a
             # different format that happens to parse, so it is refused rather than half-read.
             if "schema" not in header:
                 raise ValueError(f"{jsonl} is not a member scan: no schema header")
+            unit_scale = header.get("unit_scale")
         for line in fh:
             line = line.strip()
             if line:
-                yield json.loads(line)
+                member = json.loads(line)
+                # The file's unit is stated once, in the header; a record carries it like the
+                # binding's records do, so the mapping reads both the same way.
+                if unit_scale is not None:
+                    member.setdefault("unit_scale", unit_scale)
+                yield member
 
 
 def members_to_part(members: Iterable[dict], name: str = "ifc_members"):
@@ -294,23 +548,16 @@ def members_to_part(members: Iterable[dict], name: str = "ifc_members"):
     unstated = 0
     for member in members:
         cls = (member.get("ifc_class") or "").upper()
-        obj = None
-        if cls in _BEAM_CLASSES:
-            obj = _beam_from(member)
-        elif cls in _PLATE_CLASSES:
-            obj = _plate_from(member)
+        obj = member_object(member, materials)
         if obj is None:
             skipped[cls or "?"] = skipped.get(cls or "?", 0) + 1
             continue
-        mat = _material_for(member, materials)
-        if mat is None:
+        if not (member.get("material") or "").strip():
             # Left on the object's own default rather than counted as a failure: a clash check
             # never asks what a member is made of, so a file that states no material still
             # answers every question THIS reader exists for. Only the take-off cares, and it
             # checks `materials_are_complete` before trusting the mass it computes.
             unstated += 1
-        else:
-            obj.material = mat
         part.add_object(obj)
     if skipped:
         # Counted per class rather than logged per product: a plant has thousands of products that

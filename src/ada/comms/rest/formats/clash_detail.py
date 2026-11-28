@@ -197,7 +197,7 @@ class ClashDetailHandler(SourceFormatHandler):
         src_path: pathlib.Path = ctx.src_path
 
         def _load(_cached, _storage):
-            return _load_with_ada(src_path, src_path.suffix.lower())
+            return _load_with_ada(src_path, src_path.suffix.lower(), ifc_members=True)
 
         await _run_clash_detail(
             job=job,

@@ -1,51 +1,42 @@
 from ada import Material
 from ada.materials.metals import CarbonSteel
 
+#: The IfcMaterialProperties set a material's mechanical properties are written to.
+MATERIAL_PROPERTIES_NAME = "MaterialMechanical"
+MATERIAL_CATEGORY = "Steel"
+
+
+def material_property_values(material: Material) -> list[tuple[str, object, str]]:
+    """``(name, value, IFC value type)`` for every property a material is written with, in order.
+
+    The one list both IFC writers state -- this module's ifcopenshell writer and the native one --
+    so a reader finds the same properties whichever wrote the file."""
+    out: list[tuple[str, object, str]] = []
+    if type(material.model) is CarbonSteel:
+        out.append(("Grade", material.model.grade, "IfcText"))
+    if material.model.sig_y is not None:
+        out.append(("YieldStress", float(material.model.sig_y), "IfcPressureMeasure"))
+    out += [
+        ("YoungModulus", float(material.model.E), "IfcModulusOfElasticityMeasure"),
+        ("PoissonRatio", float(material.model.v), "IfcPositiveRatioMeasure"),
+        ("ThermalExpansionCoefficient", float(material.model.alpha), "IfcThermalExpansionCoefficientMeasure"),
+        ("SpecificHeatCapacity", float(material.model.zeta), "IfcSpecificHeatCapacityMeasure"),
+        ("MassDensity", float(material.model.rho), "IfcMassDensityMeasure"),
+    ]
+    return out
+
 
 def write_ifc_mat(f, material: Material):
-    ifc_mat = f.create_entity("IfcMaterial", Name=material.name, Category="Steel")
+    ifc_mat = f.create_entity("IfcMaterial", Name=material.name, Category=MATERIAL_CATEGORY)
 
-    properties = []
-    if type(material.model) is CarbonSteel:
-        strength_grade = f.create_entity("IfcText", material.model.grade)
-        strength_grade_prop = f.create_entity(
-            "IfcPropertySingleValue",
-            Name="Grade",
-            NominalValue=strength_grade,
-        )
-        properties.append(strength_grade_prop)
-
-    if material.model.sig_y is not None:
-        yield_stress = f.create_entity("IfcPressureMeasure", float(material.model.sig_y))
-        properties.append(
-            f.create_entity(
-                "IfcPropertySingleValue",
-                Name="YieldStress",
-                NominalValue=yield_stress,
-            )
-        )
-
-    mass_density = f.create_entity("IfcMassDensityMeasure", float(material.model.rho))
-    young_modulus = f.create_entity("IfcModulusOfElasticityMeasure", float(material.model.E))
-    poisson_ratio = f.create_entity("IfcPositiveRatioMeasure", float(material.model.v))
-    therm_exp_coeff = f.create_entity("IfcThermalExpansionCoefficientMeasure", float(material.model.alpha))
-    specific_heat = f.create_entity("IfcSpecificHeatCapacityMeasure", float(material.model.zeta))
-
-    properties += [
-        f.create_entity("IfcPropertySingleValue", Name="YoungModulus", NominalValue=young_modulus),
-        f.create_entity("IfcPropertySingleValue", Name="PoissonRatio", NominalValue=poisson_ratio),
-        f.create_entity(
-            "IfcPropertySingleValue",
-            Name="ThermalExpansionCoefficient",
-            NominalValue=therm_exp_coeff,
-        ),
-        f.create_entity("IfcPropertySingleValue", Name="SpecificHeatCapacity", NominalValue=specific_heat),
-        f.create_entity("IfcPropertySingleValue", Name="MassDensity", NominalValue=mass_density),
+    properties = [
+        f.create_entity("IfcPropertySingleValue", Name=name, NominalValue=f.create_entity(ifc_type, value))
+        for name, value, ifc_type in material_property_values(material)
     ]
 
     f.create_entity(
         "IfcMaterialProperties",
-        Name="MaterialMechanical",
+        Name=MATERIAL_PROPERTIES_NAME,
         Description="A Material property description",
         Properties=properties,
         Material=ifc_mat,

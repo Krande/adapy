@@ -25,6 +25,7 @@ for the throttling and monotonic rules every report goes through.
 from __future__ import annotations
 
 import io
+import pathlib
 
 from ada.cadit.wasm_progress import ConversionProgress, as_progress
 
@@ -284,16 +285,51 @@ def _step_to_glb(data: bytes) -> bytes:
     return backend.step_bytes_to_glb_bytes(data)
 
 
+def _native_ifc_to_glb(src: str, prog: ConversionProgress, meshopt: bool = True) -> bytes | None:
+    """IFC→GLB through the IFC backend's native tessellation (adacpp ``stream_ifc_to_glb``), or None
+    where there is none or it fails. Its GLB carries the same scene-extras hierarchy
+    (``id_hierarchy`` + draw ranges) the selection tree and picking read, and needs no ifcopenshell."""
+    import tempfile
+
+    from ada.cadit.ifc.backend import (
+        CAP_TESSELLATE_GLB,
+        OP_TESSELLATE,
+        select_ifc_backend,
+    )
+
+    try:
+        backend = select_ifc_backend(operation=OP_TESSELLATE, require={CAP_TESSELLATE_GLB})
+    except ImportError:
+        return None
+    if backend.name != "native":
+        return None
+    # One call into adacpp: it reads, tessellates and writes before it returns.
+    prog("reading IFC and converting to GLB (adacpp)", 0.05)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "out.glb"
+        try:
+            backend.tessellate(src, out, meshopt=meshopt)
+            data = out.read_bytes()
+        except Exception as exc:  # noqa: BLE001 - the adapy and ifcopenshell paths follow
+            print(f"wasm_convert: native IFC->GLB failed ({exc!r}); using the adapy path")
+            return None
+    if data:
+        prog("writing GLB", _TESS_END)
+    return data or None
+
+
 def _ifc_to_glb(src: str, prog: ConversionProgress | None = None) -> bytes:
-    """IFC→GLB fast path: ifcopenshell geometry iterator → trimesh GLB."""
+    """IFC→GLB fallback: ifcopenshell geometry iterator → trimesh GLB."""
     import ifcopenshell
     import ifcopenshell.geom
     import numpy as np
     import trimesh
 
+    from ada.cadit.ifc.store import open_ifc_file
+
     prog = as_progress(prog)
     prog("reading IFC (ifcopenshell)", 0.02)
-    ifc = ifcopenshell.open(src)
+    ifc = open_ifc_file(src)
     settings = ifcopenshell.geom.settings()
     try:
         settings.set("use-world-coords", True)
@@ -333,14 +369,17 @@ def _ifc_to_glb(src: str, prog: ConversionProgress | None = None) -> bytes:
     return buf.getvalue()
 
 
-def _to_glb(fmt: str, src: str, prog: ConversionProgress | None = None) -> bytes:
+def _to_glb(fmt: str, src: str, prog: ConversionProgress | None = None, meshopt: bool = True) -> bytes:
     """Produce GLB for a geometry source via its most reliable path."""
     prog = as_progress(prog)
     if fmt == "ifc":
-        # adapy's own path first: it writes the scene-extras hierarchy
-        # (``id_hierarchy`` + draw ranges) the selection tree and picking read, as
-        # the server's IFC conversion does. The bare ifcopenshell iterator writes
-        # none, so it is only the fallback for what adapy cannot load.
+        # The native tessellation first (no ifcopenshell; the same scene-extras hierarchy), then
+        # adapy's own path: it writes the hierarchy (``id_hierarchy`` + draw ranges) the selection
+        # tree and picking read, as the server's IFC conversion does. The bare ifcopenshell
+        # iterator writes none, so it is only the fallback for what adapy cannot load.
+        native = _native_ifc_to_glb(src, prog, meshopt=meshopt)
+        if native is not None:
+            return native
         try:
             return _export_assembly(_read_source("ifc", src, prog), "glb", "ifc", prog)
         except Exception as exc:  # noqa: BLE001 -- any adapy failure falls back
@@ -704,7 +743,8 @@ def _run(fmt: str, ext: str, target: str, src: str, src_key: str | None, prog: C
         if fmt in _WORKER_GLB_SOURCE_EXT:
             return _worker_mesh(src, fmt, target, prog)
         # obj/stl via the reliable GLB tessellation path (see _glb_to_mesh).
-        return _glb_to_mesh(_to_glb(fmt, src, prog), target, prog)
+        # trimesh cannot decode EXT_meshopt_compression, so the GLB it re-reads stays uncompressed.
+        return _glb_to_mesh(_to_glb(fmt, src, prog, meshopt=False), target, prog)
     # Structure-preserving writers (ifc / xml / step) keep the B-rep.
     return _export_assembly(_read_source(fmt, src, prog), target, prog=prog)
 

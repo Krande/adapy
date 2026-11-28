@@ -44,7 +44,7 @@ def _via_gltf_to_glb(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
 _ASM_CACHE_VERSION = "2"  # 2: ConceptFEM carries equipment
 
 
-def _asm_cache_path(src_path: pathlib.Path, ext: str) -> pathlib.Path | None:
+def _asm_cache_path(src_path: pathlib.Path, ext: str, variant: str = "") -> pathlib.Path | None:
     """Local pickle-cache path for a parsed source, keyed by content hash — or None when the
     cache is disabled (ADA_ASSEMBLY_CACHE unset/falsy). Same content → same key, so every export
     target of one audit source reuses the first parse instead of re-reading the file."""
@@ -57,6 +57,7 @@ def _asm_cache_path(src_path: pathlib.Path, ext: str) -> pathlib.Path | None:
     h = hashlib.sha1()  # noqa: S324 - cache key, not security
     h.update(_ASM_CACHE_VERSION.encode())
     h.update(ext.encode())
+    h.update(variant.encode())
     with open(src_path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
@@ -64,14 +65,19 @@ def _asm_cache_path(src_path: pathlib.Path, ext: str) -> pathlib.Path | None:
     return cache_dir / f"{h.hexdigest()}.pkl"
 
 
-def _load_with_ada(src_path: pathlib.Path, ext: str):
+def _load_with_ada(src_path: pathlib.Path, ext: str, ifc_members: bool = False):
+    """The source as an ada Assembly. ``ifc_members``: the caller works on the structural members
+    only (clash detail, contacts, a member rebuild), so an IFC is read by the native reader where it
+    rebuilds every member, with ifcopenshell as the fallback
+    (``ada.cadit.ifc.backend.read_ifc_members_model``)."""
     import ada
     from ada.config import logger
 
     # Reuse a previously-parsed Assembly (read-once-export-many): the audit converts one source to
     # several targets, and re-reading/re-parsing the same file per target is pure overhead. Each
     # hit returns a fresh deep copy via from_pickle, so per-target mutation never cross-contaminates.
-    cache_path = _asm_cache_path(src_path, ext)
+    members_read = ifc_members and ext == ".ifc"
+    cache_path = _asm_cache_path(src_path, ext, "ifc-members" if members_read else "")
     if cache_path is not None and cache_path.exists():
         try:
             return ada.from_pickle(cache_path)
@@ -79,6 +85,10 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
             logger.debug("assembly cache miss (unreadable %s): %s", cache_path, exc)
 
     def _read():
+        if members_read:
+            from ada.cadit.ifc.backend import read_ifc_members_model
+
+            return read_ifc_members_model(src_path)
         if ext == ".ifc":
             return ada.from_ifc(src_path)
         if ext in {".step", ".stp"}:
